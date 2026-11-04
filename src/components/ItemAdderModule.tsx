@@ -2,10 +2,12 @@ import React, { useMemo, useState } from 'react';
 import {
   AccountData,
   ItemGroup,
+  LanguageCode,
   VaultItemInstance,
   WebShopConfig,
   WebShopItem,
 } from '../types/webshop';
+import { L } from '../translations';
 import {
   CATEGORY_NAMES,
   calculateItemTotalCredits,
@@ -19,17 +21,19 @@ import {
   CheckCircle2,
   Edit3,
   Layers,
+  LogIn,
   PackagePlus,
   Search,
   Sparkles,
 } from 'lucide-react';
 
 interface ItemAdderModuleProps {
-  account: AccountData;
+  account: AccountData | null;
   catalog: WebShopItem[];
   groups: ItemGroup[];
   config: WebShopConfig;
-  lang: string;
+  lang: LanguageCode;
+  onRequireLogin?: () => void;
   onBuySingleItem: (
     item: WebShopItem,
     level: number,
@@ -40,7 +44,7 @@ interface ItemAdderModuleProps {
     ancientStamina: 0 | 5 | 10,
     fenrirVariant: 0 | 1 | 2 | 3,
     totalCredits: number
-  ) => { ok: boolean; message: string };
+  ) => Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
   onBuyGroupSet: (
     group: ItemGroup,
     level: number,
@@ -50,7 +54,7 @@ interface ItemAdderModuleProps {
     exlOptions: boolean[],
     ancientStamina: 0 | 5 | 10,
     totalCredits: number
-  ) => { ok: boolean; message: string };
+  ) => Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
   onAdminEditItem?: (uid: number) => void;
 }
 
@@ -60,16 +64,16 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
   groups,
   config,
   lang,
+  onRequireLogin,
   onBuySingleItem,
   onBuyGroupSet,
   onAdminEditItem,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<number | 'groups'>(0);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedItemUid, setSelectedItemUid] = useState<number | null>(20); // Default Knight Blade
+  const [selectedItemUid, setSelectedItemUid] = useState<number | null>(20);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
 
-  // Item Forge customization state
   const [itemLevel, setItemLevel] = useState<number>(13);
   const [itemOption, setItemOption] = useState<number>(7);
   const [itemLuck, setItemLuck] = useState<boolean>(true);
@@ -89,8 +93,21 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
     ok: boolean;
     message: string;
   } | null>(null);
+  const [isPurchasing, setIsPurchasing] = useState<boolean>(false);
 
-  // Category counts (active vs banned, matching itemadder.php)
+  const getLocalizedCatName = (catId: number) => {
+    const catObj = CATEGORY_NAMES[catId];
+    if (!catObj) return '';
+    return L(lang, {
+      en: catObj.en,
+      th: catObj.th,
+      pt: catObj.pt,
+      ru: catObj.ru,
+      es: catObj.es,
+      bg: catObj.bg,
+    });
+  };
+
   const categoryStats = useMemo(() => {
     const stats: Record<number, { active: number; banned: number }> = {};
     for (let c = 0; c < 16; c++) {
@@ -106,7 +123,6 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
     return stats;
   }, [catalog]);
 
-  // Items in current category or search
   const displayedItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return catalog
@@ -222,7 +238,6 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
     config
   );
 
-  // Build live preview VaultItemInstance for tooltip
   const previewInstance: VaultItemInstance | null = useMemo(() => {
     if (!activeItem) return null;
     return {
@@ -262,13 +277,13 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
 
   const previewTooltip = useMemo(() => {
     if (!previewInstance || !activeItem) return null;
-    return formatItemTooltip(previewInstance, activeItem, config);
-  }, [previewInstance, activeItem, config]);
+    return formatItemTooltip(previewInstance, activeItem, config, lang);
+  }, [previewInstance, activeItem, config, lang]);
 
   const targetSlot = useMemo(() => {
     if (!activeItem) return 1337;
-    return findFreeVaultSlot(account.vaultItems, activeItem.X, activeItem.Y);
-  }, [account.vaultItems, activeItem]);
+    return findFreeVaultSlot(account?.vaultItems || [], activeItem.X, activeItem.Y);
+  }, [account, activeItem]);
 
   const exLabels = activeItem
     ? getExcellentOptionLabels(activeItem.ex_type, lang)
@@ -285,146 +300,87 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
     activeItem?.optionType === 1 ? 1 : activeItem?.optionType === 2 ? 5 : 4;
   const optionSuffix = activeItem?.optionType === 1 ? '%' : '';
 
-  const handlePurchase = (e: React.FormEvent) => {
+  const handlePurchase = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeItem) return;
+    if (!activeItem || isPurchasing) return;
+
+    if (!account) {
+      onRequireLogin?.();
+      return;
+    }
 
     if (selectedExCount > maxExlAllowed) {
       setFeedbackBanner({
         ok: false,
-        message:
-          lang === 'Thai'
-            ? `ไม่สามารถสั่งซื้อไอเทมได้! ระบบจำกัดให้เลือกออปชัน Excellent ได้สูงสุดไม่เกิน ${maxExlAllowed} ออปชันเท่านั้น (คุณเลือกไว้ ${selectedExCount} ออปชัน)`
-            : lang === 'Portuguese_BR'
-            ? `Não é possível comprar o item! O limite máximo é de ${maxExlAllowed} opções Excelentes por item (você selecionou ${selectedExCount} opções).`
-            : lang === 'Russian'
-            ? `Невозможно купить предмет! Максимум опций Excellent: ${maxExlAllowed} (выбрано ${selectedExCount}).`
-            : lang === 'Spanish'
-            ? `¡No se puede comprar el ítem! El límite máximo es de ${maxExlAllowed} opciones Excellent (seleccionaste ${selectedExCount}).`
-            : lang === 'Bulgarian'
-            ? `Не може да закупите предмета! Лимитът за Excellent опции е ${maxExlAllowed} (избрани ${selectedExCount}).`
-            : `Cannot purchase item! The maximum excellent options an item can have is ${maxExlAllowed} (you selected ${selectedExCount}).`,
+        message: L(lang, {
+          en: `Cannot purchase item! Maximum Excellent options allowed is ${maxExlAllowed} (you selected ${selectedExCount}).`,
+          th: `ไม่สามารถสั่งซื้อไอเทมได้! ระบบจำกัดให้เลือกออปชัน Excellent ได้สูงสุดไม่เกิน ${maxExlAllowed} ออปชัน (คุณเลือกไว้ ${selectedExCount} ออปชัน)`,
+          pt: `Não é possível comprar o item! O limite máximo é de ${maxExlAllowed} opções Excelentes (você selecionou ${selectedExCount}).`,
+          ru: `Невозможно купить предмет! Максимум опций Excellent: ${maxExlAllowed} (выбрано ${selectedExCount}).`,
+          es: `¡No se puede comprar el ítem! El límite máximo es de ${maxExlAllowed} opciones Excellent (seleccionaste ${selectedExCount}).`,
+          bg: `Не може да закупите предмета! Лимитът за Excellent опции е ${maxExlAllowed} (избрани ${selectedExCount}).`,
+        }),
       });
       return;
     }
 
-    if (activeGroup) {
-      const res = onBuyGroupSet(
-        activeGroup,
-        effectiveLevel,
-        effectiveOption,
-        effectiveLuck,
-        false,
-        effectiveExl,
-        effectiveAncient,
-        totalCredits
-      );
-      setFeedbackBanner(res);
-    } else {
-      const res = onBuySingleItem(
-        activeItem,
-        effectiveLevel,
-        effectiveOption,
-        effectiveLuck,
-        effectiveSkill,
-        effectiveExl,
-        effectiveAncient,
-        effectiveFenrir,
-        totalCredits
-      );
-      setFeedbackBanner(res);
+    setIsPurchasing(true);
+    try {
+      if (activeGroup) {
+        const res = await onBuyGroupSet(
+          activeGroup,
+          effectiveLevel,
+          effectiveOption,
+          effectiveLuck,
+          false,
+          effectiveExl,
+          effectiveAncient,
+          totalCredits
+        );
+        setFeedbackBanner(res);
+      } else {
+        const res = await onBuySingleItem(
+          activeItem,
+          effectiveLevel,
+          effectiveOption,
+          effectiveLuck,
+          effectiveSkill,
+          effectiveExl,
+          effectiveAncient,
+          effectiveFenrir,
+          totalCredits
+        );
+        setFeedbackBanner(res);
+      }
+    } finally {
+      setIsPurchasing(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Warning Fieldset (Authentic itemadder.php warning) */}
+      {/* Warning Fieldset */}
       <div className="p-4 rounded border border-amber-500/30 bg-amber-500/5 flex items-start gap-3">
         <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
         <div className="text-xs text-zinc-300 leading-relaxed">
           <span className="font-semibold text-amber-300 uppercase tracking-wider block mb-0.5">
-            {lang === 'Thai'
-              ? 'คำเตือนการส่งไอเทมเข้าคลัง (Item Adder)'
-              : lang === 'Portuguese_BR'
-              ? 'Aviso Importante de Entrega no Baú (Item Adder)'
-              : lang === 'Russian'
-              ? 'Важное уведомление о сундуке (Item Adder)'
-              : lang === 'Spanish'
-              ? 'Aviso importante sobre el baúl (Item Adder)'
-              : lang === 'Bulgarian'
-              ? 'Важно известие за сандъка (Item Adder)'
-              : 'Item Adder Vault Notice'}
+            {L(lang, {
+              en: 'Item Adder Vault Notice',
+              th: 'คำเตือนการส่งไอเทมเข้าคลัง (Item Adder)',
+              pt: 'Aviso Importante de Entrega no Baú (Item Adder)',
+              ru: 'Важное уведомление о сундуке (Item Adder)',
+              es: 'Aviso importante sobre el baúl (Item Adder)',
+              bg: 'Важно известие за сандъка (Item Adder)',
+            })}
           </span>
-          {lang === 'Thai' ? (
-            <>
-              ใช้ระบบนี้เพื่อแลกเครดิตเป็นไอเทมเข้าสู่ช่องว่างแรกในคลังเก็บของ (Warehouse 8×15) ของคุณโดยอัตโนมัติ{' '}
-              <strong className="text-white">
-                ห้ามเปิดคลังเก็บของในเกมค้างไว้ขณะสั่งซื้อ
-              </strong>{' '}
-              มิฉะนั้นไอเทมจะไม่ถูกบันทึกเข้าคลัง! (ราคาไอเทมปัจจุบันอยู่ที่{' '}
-              {Math.round(config.credits.multiplier * 100)}%)
-            </>
-          ) : lang === 'Portuguese_BR' ? (
-            <>
-              Use esta função para trocar seus créditos por itens diretamente no primeiro espaço livre do seu Baú (8×15).{' '}
-              <strong className="text-white">
-                NÃO faça compras enquanto seu baú estiver aberto dentro do jogo
-              </strong>{' '}
-              ou você não receberá o item! Preço atual dos itens:{' '}
-              <span className="font-mono-tabular font-semibold text-amber-300">
-                {Math.round(config.credits.multiplier * 100)}%
-              </span>
-              .
-            </>
-          ) : lang === 'Russian' ? (
-            <>
-              Используйте эту функцию для обмена кредитов на предметы в первую свободную ячейку сундука (8×15).{' '}
-              <strong className="text-white">
-                НЕ совершайте покупку, если ваш сундук открыт в игре
-              </strong>
-              , иначе предмет не сохранится! Текущие цены на предметы:{' '}
-              <span className="font-mono-tabular font-semibold text-amber-300">
-                {Math.round(config.credits.multiplier * 100)}%
-              </span>
-              .
-            </>
-          ) : lang === 'Spanish' ? (
-            <>
-              Usa esta función para canjear créditos por ítems en el primer espacio libre de tu Baúl (8×15).{' '}
-              <strong className="text-white">
-                NO compres mientras tengas el baúl abierto en el juego
-              </strong>
-              , de lo contrario no recibirás los ítems. Precio actual:{' '}
-              <span className="font-mono-tabular font-semibold text-amber-300">
-                {Math.round(config.credits.multiplier * 100)}%
-              </span>
-              .
-            </>
-          ) : lang === 'Bulgarian' ? (
-            <>
-              Използвайте тази функция за размяна на кредити за предмети в първото свободно място на сандъка (8×15).{' '}
-              <strong className="text-white">
-                НЕ правете покупки, докато сандъкът ви е отворен в играта
-              </strong>
-              ! Текущи цени:{' '}
-              <span className="font-mono-tabular font-semibold text-amber-300">
-                {Math.round(config.credits.multiplier * 100)}%
-              </span>
-              .
-            </>
-          ) : (
-            <>
-              Use this function to exchange credits for items.{' '}
-              <strong className="text-white">
-                Do NOT do this while your vault is open in-game or you will not receive your items while being charged credits for them.
-              </strong>{' '}
-              Current item prices are at{' '}
-              <span className="font-mono-tabular font-semibold text-amber-300">
-                {Math.round(config.credits.multiplier * 100)}%
-              </span>
-              .
-            </>
-          )}
+          {L(lang, {
+            en: `Exchange credits for items placed directly into the first available slot of your 8×15 Warehouse. Do NOT keep your vault open in-game during purchase! Current pricing rate: ${Math.round(config.credits.multiplier * 100)}%.`,
+            th: `ใช้ระบบนี้เพื่อแลกเครดิตเป็นไอเทมเข้าสู่ช่องว่างแรกในคลังเก็บของ (Warehouse 8×15) ของคุณโดยอัตโนมัติ ห้ามเปิดคลังเก็บของในเกมค้างไว้ขณะสั่งซื้อเด็ดขาด! (อัตราค่าบริการปัจจุบัน: ${Math.round(config.credits.multiplier * 100)}%)`,
+            pt: `Troque seus créditos por itens enviados diretamente ao primeiro espaço livre do seu Baú 8×15. NÃO mantenha o baú aberto no jogo durante a compra! Taxa atual: ${Math.round(config.credits.multiplier * 100)}%.`,
+            ru: `Обменивайте кредиты на предметы с доставкой в первую свободную ячейку сундука 8×15. НЕ держите сундук открытым в игре во время покупки! Текущий тариф: ${Math.round(config.credits.multiplier * 100)}%.`,
+            es: `Canjea créditos por ítems entregados en el primer espacio libre de tu Baúl 8×15. ¡NO mantengas el baúl abierto en el juego al comprar! Tarifa actual: ${Math.round(config.credits.multiplier * 100)}%.`,
+            bg: `Обменете кредити за предмети директно в първото свободно място на сандъка 8×15. НЕ дръжте сандъка си отворен в играта по време на покупка! Текуща тарифа: ${Math.round(config.credits.multiplier * 100)}%.`,
+          })}
         </div>
       </div>
 
@@ -445,23 +401,20 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
         </div>
       )}
 
-      {/* 3-Column Category Matrix (Authentic Open-Webshop 16 categories + Sets) */}
+      {/* 16 Categories + Sets Matrix */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/70 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-zinc-800">
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-amber-400" />
             <h3 className="text-sm font-semibold text-zinc-100">
-              {lang === 'Thai'
-                ? 'หมวดหมู่ไอเทม (16 Categories + Armor Sets)'
-                : lang === 'Portuguese_BR'
-                ? 'Categorias de Itens (16 Categorias + Sets Completos)'
-                : lang === 'Russian'
-                ? 'Категории предметов (16 категорий + Сеты)'
-                : lang === 'Spanish'
-                ? 'Categorías de Ítems (16 Categorías + Sets)'
-                : lang === 'Bulgarian'
-                ? 'Категории Предмети (16 категории + Сетове)'
-                : 'Categories'}
+              {L(lang, {
+                en: 'Categories (16 Categories + Armor Sets)',
+                th: 'หมวดหมู่ไอเทม (16 หมวดหมู่ + เซ็ตเกราะครบชุด)',
+                pt: 'Categorias de Itens (16 Categorias + Sets)',
+                ru: 'Категории предметов (16 категорий + Сеты)',
+                es: 'Categorías de Ítems (16 Categorías + Sets)',
+                bg: 'Категории Предмети (16 категории + Сетове)',
+              })}
             </h3>
             {hoveredCatInfo && (
               <span className="text-xs font-mono-tabular text-amber-400 ml-2">
@@ -470,26 +423,20 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
             )}
           </div>
 
-          {/* Fast item search */}
           <div className="relative w-full sm:w-64">
             <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
-                lang === 'Thai'
-                  ? 'ค้นหาชื่อไอเทม (เช่น Bone Blade, Wings)...'
-                  : lang === 'Portuguese_BR'
-                  ? 'Buscar item (ex: Bone Blade, Wings)...'
-                  : lang === 'Russian'
-                  ? 'Поиск предметов (напр. Bone Blade, Wings)...'
-                  : lang === 'Spanish'
-                  ? 'Buscar ítem (ej. Bone Blade, Wings)...'
-                  : lang === 'Bulgarian'
-                  ? 'Търсене на предмети (напр. Bone Blade)...'
-                  : 'Search all 456+ items...'
-              }
+              placeholder={L(lang, {
+                en: 'Search all items (e.g. Bone Blade)...',
+                th: 'ค้นหาชื่อไอเทม (เช่น Bone Blade, Wings)...',
+                pt: 'Buscar item (ex: Bone Blade, Wings)...',
+                ru: 'Поиск предметов (напр. Bone Blade)...',
+                es: 'Buscar ítem (ej. Bone Blade, Wings)...',
+                bg: 'Търсене на предмети (напр. Bone Blade)...',
+              })}
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded bg-zinc-950 border border-zinc-700 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -500,26 +447,21 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
             const stat = categoryStats[catId];
             const isSelected =
               !searchQuery && selectedCategory === catId && !selectedGroupId;
-            const catObj = CATEGORY_NAMES[catId];
-            const catName =
-              lang === 'Thai'
-                ? catObj?.th
-                : lang === 'Portuguese_BR'
-                ? catObj?.pt
-                : lang === 'Russian'
-                ? catObj?.ru
-                : lang === 'Spanish'
-                ? catObj?.es
-                : lang === 'Bulgarian'
-                ? catObj?.bg
-                : catObj?.en;
+            const catName = getLocalizedCatName(catId);
             return (
               <button
                 key={catId}
                 type="button"
                 onMouseEnter={() =>
                   setHoveredCatInfo(
-                    `Items: ${stat.active} active, ${stat.banned} banned`
+                    L(lang, {
+                      en: `${stat.active} available`,
+                      th: `พร้อมจำหน่าย ${stat.active} ชิ้น`,
+                      pt: `${stat.active} disponíveis`,
+                      ru: `Доступно: ${stat.active}`,
+                      es: `${stat.active} disponibles`,
+                      bg: `Налични: ${stat.active}`,
+                    })
                   )
                 }
                 onMouseLeave={() => setHoveredCatInfo('')}
@@ -550,11 +492,19 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
             );
           })}
 
-          {/* Grouped Items / Sets button */}
           <button
             type="button"
             onMouseEnter={() =>
-              setHoveredCatInfo(`Groups: ${groups.length} full sets`)
+              setHoveredCatInfo(
+                L(lang, {
+                  en: `${groups.length} full armor sets`,
+                  th: `${groups.length} เซ็ตเกราะครบชุด`,
+                  pt: `${groups.length} sets completos`,
+                  ru: `${groups.length} полных сетов`,
+                  es: `${groups.length} sets completos`,
+                  bg: `${groups.length} пълни сета`,
+                })
+              )
             }
             onMouseLeave={() => setHoveredCatInfo('')}
             onClick={() => {
@@ -569,41 +519,57 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
             }`}
           >
             <span className="truncate font-medium">
-              {lang === 'Portuguese_BR'
-                ? '★ Pacotes de Sets / Armaduras Completas'
-                : lang === 'Russian'
-                ? '★ Полные сеты брони (Armor Sets)'
-                : lang === 'Spanish'
-                ? '★ Sets Completos de Armadura'
-                : lang === 'Bulgarian'
-                ? '★ Комплекти Брони (Armor Sets)'
-                : '★ Grouped Items / Full Armor Sets'}
+              {L(lang, {
+                en: '★ Grouped Items / Full Armor Sets',
+                th: '★ ชุดเซ็ตเกราะครบชุด (Full Armor Sets)',
+                pt: '★ Pacotes de Sets / Armaduras Completas',
+                ru: '★ Полные сеты брони (Armor Sets)',
+                es: '★ Sets Completos de Armadura',
+                bg: '★ Комплекти Брони (Armor Sets)',
+              })}
             </span>
             <span className="text-[10px] font-mono-tabular shrink-0">
-              {groups.length} sets
+              {groups.length}
             </span>
           </button>
         </div>
       </div>
 
-      {/* Main Split View: Left = Category Item Table, Right = Item Settings / Forge */}
+      {/* Main Split View */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: Item List Table (5 cols) */}
         <div className="lg:col-span-5 rounded border border-zinc-800 bg-zinc-900/70 overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/50">
             <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">
               {searchQuery
-                ? `Search Results (${displayedItems.length})`
+                ? `${L(lang, {
+                    en: 'Search Results',
+                    th: 'ผลการค้นหา',
+                    pt: 'Resultados da Busca',
+                    ru: 'Результаты поиска',
+                    es: 'Resultados de Búsqueda',
+                    bg: 'Резултати от търсенето',
+                  })} (${displayedItems.length})`
                 : selectedCategory === 'groups'
-                ? `Grouped Armor Sets (${groups.length})`
-                : `${
-                    lang === 'Portuguese_BR'
-                      ? CATEGORY_NAMES[selectedCategory]?.pt
-                      : CATEGORY_NAMES[selectedCategory]?.en
-                  } (${displayedItems.length})`}
+                ? `${L(lang, {
+                    en: 'Full Armor Sets',
+                    th: 'ชุดเซ็ตเกราะครบชุด',
+                    pt: 'Sets de Armadura',
+                    ru: 'Сеты брони',
+                    es: 'Sets de Armadura',
+                    bg: 'Комплекти Брони',
+                  })} (${groups.length})`
+                : `${getLocalizedCatName(selectedCategory)} (${displayedItems.length})`}
             </span>
             <span className="text-[11px] text-zinc-400 font-mono-tabular">
-              {lang === 'Portuguese_BR' ? 'Créditos Base' : 'Base Credits'}
+              {L(lang, {
+                en: 'Base Credits',
+                th: 'ราคาพื้นฐาน',
+                pt: 'Créditos Base',
+                ru: 'Базовая цена',
+                es: 'Créditos Base',
+                bg: 'Базова цена',
+              })}
             </span>
           </div>
 
@@ -684,7 +650,7 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                           {item.name}
                         </div>
                         <div className="text-[10px] text-zinc-500 font-mono-tabular">
-                          Size {item.X}×{item.Y}
+                          {item.X}×{item.Y}
                           {item.str > 0 ? ` · STR ${item.str}` : ''}
                         </div>
                       </div>
@@ -697,7 +663,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
               })
             ) : (
               <div className="p-8 text-center text-xs text-zinc-500">
-                No items found in this category.
+                {L(lang, {
+                  en: 'No items found in this category.',
+                  th: 'ไม่พบไอเทมในหมวดหมู่นี้',
+                  pt: 'Nenhum item encontrado nesta categoria.',
+                  ru: 'В этой категории нет предметов.',
+                  es: 'No se encontraron ítems en esta categoría.',
+                  bg: 'Няма намерени предмети в тази категория.',
+                })}
               </div>
             )}
           </div>
@@ -733,7 +706,7 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                       >
                         {previewTooltip.displayName}
                       </h3>
-                      {account.isAdmin && onAdminEditItem && !activeGroup && (
+                      {account?.isAdmin && onAdminEditItem && !activeGroup && (
                         <button
                           type="button"
                           onClick={() => onAdminEditItem(activeItem.uid)}
@@ -745,11 +718,37 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                       )}
                     </div>
                     <div className="text-xs text-zinc-400 font-mono-tabular mt-0.5">
-                      Item Size: {activeGroup ? 'Full Set (5 pcs)' : `${activeItem.X}×${activeItem.Y}`} · Base Price:{' '}
+                      {L(lang, {
+                        en: 'Size:',
+                        th: 'ขนาด:',
+                        pt: 'Tamanho:',
+                        ru: 'Размер:',
+                        es: 'Tamaño:',
+                        bg: 'Размер:',
+                      })}{' '}
+                      {activeGroup
+                        ? L(lang, {
+                            en: 'Full Set (5 pcs)',
+                            th: 'ครบเซ็ต (5 ชิ้น)',
+                            pt: 'Set Completo (5 pçs)',
+                            ru: 'Полный сет (5 шт.)',
+                            es: 'Set Completo (5 pzas)',
+                            bg: 'Пълен сет (5 ч.)',
+                          })
+                        : `${activeItem.X}×${activeItem.Y}`}{' '}
+                      ·{' '}
+                      {L(lang, {
+                        en: 'Base:',
+                        th: 'ราคาต้น:',
+                        pt: 'Base:',
+                        ru: 'База:',
+                        es: 'Base:',
+                        bg: 'База:',
+                      })}{' '}
                       {Math.round(
                         baseCredits * config.credits.multiplier
                       ).toLocaleString()}{' '}
-                      credits
+                      cr
                     </div>
                   </div>
                 </div>
@@ -757,7 +756,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                 {/* Live Total Credits Box */}
                 <div className="px-4 py-2.5 rounded bg-zinc-950 border border-amber-500/40 text-right shrink-0">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                    Total Cost
+                    {L(lang, {
+                      en: 'Total Cost',
+                      th: 'ราคารวมสุทธิ',
+                      pt: 'Custo Total',
+                      ru: 'Итоговая цена',
+                      es: 'Costo Total',
+                      bg: 'Обща Цена',
+                    })}
                   </div>
                   <div className="text-lg font-bold font-mono-tabular text-amber-400">
                     {totalCredits.toLocaleString()}{' '}
@@ -773,12 +779,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                 activeItem.cansellitem === 1 &&
                 config.credits.sellback_Q > 0 && (
                   <div className="px-3 py-2 rounded bg-zinc-950/70 border border-zinc-800 text-center text-xs text-zinc-300">
-                    This item can be sold back for{' '}
-                    <strong className="font-mono-tabular text-amber-300">
-                      {Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()}
-                    </strong>{' '}
-                    credits ({Math.round(config.credits.sellback_Q * 100)}% of its
-                    purchase price)
+                    {L(lang, {
+                      en: `This item can be sold back for ${Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()} credits (${Math.round(config.credits.sellback_Q * 100)}% refund).`,
+                      th: `ไอเทมชิ้นนี้สามารถขายคืนในคลังเพื่อรับเครดิตคืนได้ ${Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()} เครดิต (${Math.round(config.credits.sellback_Q * 100)}% ของราคาซื้อ)`,
+                      pt: `Este item pode ser vendido de volta por ${Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()} créditos (${Math.round(config.credits.sellback_Q * 100)}% de reembolso).`,
+                      ru: `Этот предмет можно продать обратно за ${Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()} кредитов (возврат ${Math.round(config.credits.sellback_Q * 100)}%).`,
+                      es: `Este ítem se puede vender de vuelta por ${Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()} créditos (${Math.round(config.credits.sellback_Q * 100)}% de reembolso).`,
+                      bg: `Този предмет може да бъде продаден обратно за ${Math.round(totalCredits * config.credits.sellback_Q).toLocaleString()} кредита (${Math.round(config.credits.sellback_Q * 100)}%).`,
+                    })}
                   </div>
                 )}
 
@@ -792,7 +800,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                         htmlFor="item_level"
                         className="text-xs font-medium text-zinc-200"
                       >
-                        Item Level
+                        {L(lang, {
+                          en: 'Item Level',
+                          th: 'ระดับตีบวก (Item Level)',
+                          pt: 'Nível do Item',
+                          ru: 'Уровень предмета',
+                          es: 'Nivel del Ítem',
+                          bg: 'Ниво на Предмета',
+                        })}
                       </label>
                       <div className="flex items-center gap-2.5">
                         <select
@@ -825,7 +840,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                         htmlFor="item_option"
                         className="text-xs font-medium text-zinc-200"
                       >
-                        Item Option
+                        {L(lang, {
+                          en: 'Additional Option (Jewel of Life)',
+                          th: 'ออปชันเสริม (Jewel of Life)',
+                          pt: 'Opção Adicional (Life)',
+                          ru: 'Доп. опция (Jewel of Life)',
+                          es: 'Opción Adicional (Life)',
+                          bg: 'Доп. Опция (Jewel of Life)',
+                        })}
                       </label>
                       <div className="flex items-center gap-2.5">
                         <select
@@ -864,7 +886,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                           onChange={(e) => setItemLuck(e.target.checked)}
                           className="rounded border-zinc-600 accent-amber-500"
                         />
-                        Luck (+25% Jewel of Soul / +5% Crit)
+                        {L(lang, {
+                          en: 'Luck (+25% Soul / +5% Crit)',
+                          th: 'โชค Luck (+25% ตีบวก / +5% คริติคอล)',
+                          pt: 'Sorte / Luck (+25% Soul / +5% Crit)',
+                          ru: 'Удача / Luck (+25% Soul / +5% Крит)',
+                          es: 'Suerte / Luck (+25% Soul / +5% Crít)',
+                          bg: 'Късмет / Luck (+25% Soul / +5% Крит)',
+                        })}
                       </span>
                       <span className="text-xs font-mono-tabular text-amber-400">
                         +{effectiveLuck ? config.credits.itemluck : 0} cr
@@ -882,7 +911,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                           onChange={(e) => setItemSkill(e.target.checked)}
                           className="rounded border-zinc-600 accent-amber-500"
                         />
-                        Weapon Special Skill
+                        {L(lang, {
+                          en: 'Weapon Special Skill',
+                          th: 'สกิลอาวุธพิเศษ (Weapon Skill)',
+                          pt: 'Habilidade Especial (Skill)',
+                          ru: 'Особый навык оружия (Skill)',
+                          es: 'Habilidad Especial (Skill)',
+                          bg: 'Специално Умение (Skill)',
+                        })}
                       </span>
                       <span className="text-xs font-mono-tabular text-amber-400">
                         +{effectiveSkill ? config.credits.itemskill : 0} cr
@@ -890,7 +926,7 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                     </label>
                   )}
 
-                  {/* Excellent Options (ex_type 0, 1, 2, 4) — Max 3 Options */}
+                  {/* Excellent Options */}
                   {!isFenrir && exLabels.length > 0 && (
                     <div
                       className={`p-3 rounded border space-y-2 ${
@@ -901,17 +937,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                     >
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-[#2FF387]">
-                          {lang === 'Thai'
-                            ? `ออปชัน Excellent (สูงสุด ${maxExlAllowed} ออปชัน)`
-                            : lang === 'Portuguese_BR'
-                            ? `Opções Excelentes (Máx. ${maxExlAllowed} opções)`
-                            : lang === 'Russian'
-                            ? `Опции Excellent (макс. ${maxExlAllowed} опции)`
-                            : lang === 'Spanish'
-                            ? `Opciones Excellent (Máx. ${maxExlAllowed} opciones)`
-                            : lang === 'Bulgarian'
-                            ? `Опции Excellent (макс. ${maxExlAllowed} опции)`
-                            : `Excellent Options (Max ${maxExlAllowed})`}
+                          {L(lang, {
+                            en: `Excellent Options (Max ${maxExlAllowed})`,
+                            th: `ออปชัน Excellent (สูงสุด ${maxExlAllowed} ออปชัน)`,
+                            pt: `Opções Excelentes (Máx. ${maxExlAllowed})`,
+                            ru: `Опции Excellent (макс. ${maxExlAllowed})`,
+                            es: `Opciones Excellent (Máx. ${maxExlAllowed})`,
+                            bg: `Опции Excellent (макс. ${maxExlAllowed})`,
+                          })}
                         </span>
                         <span
                           className={`font-mono-tabular font-semibold ${
@@ -920,7 +953,7 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                               : 'text-amber-400'
                           }`}
                         >
-                          {selectedExCount}/{maxExlAllowed} opt · +
+                          {selectedExCount}/{maxExlAllowed} · +
                           {selectedExCount * config.credits.itemexl} cr
                         </span>
                       </div>
@@ -944,41 +977,33 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                         <div className="pt-1.5 border-t border-rose-500/30 text-[11px] text-rose-300 font-medium flex items-center gap-1.5">
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                           <span>
-                            {lang === 'Thai'
-                              ? `คุณเลือกเกินกำหนด (${selectedExCount}/${maxExlAllowed} ออปชัน) กรุณานำออกอย่างน้อย ${
-                                  selectedExCount - maxExlAllowed
-                                } ออปชันจึงจะสามารถสั่งซื้อได้`
-                              : lang === 'Portuguese_BR'
-                              ? `Limite excedido (${selectedExCount}/${maxExlAllowed} opções). Desmarque pelo menos ${
-                                  selectedExCount - maxExlAllowed
-                                } opção(ões) para comprar.`
-                              : lang === 'Russian'
-                              ? `Превышен лимит (${selectedExCount}/${maxExlAllowed} опций). Снимите как минимум ${
-                                  selectedExCount - maxExlAllowed
-                                } опцию для покупки.`
-                              : lang === 'Spanish'
-                              ? `Límite superado (${selectedExCount}/${maxExlAllowed} opciones). Desmarca al menos ${
-                                  selectedExCount - maxExlAllowed
-                                } opción(es) para comprar.`
-                              : lang === 'Bulgarian'
-                              ? `Превишен лимит (${selectedExCount}/${maxExlAllowed} опции). Премахнете поне ${
-                                  selectedExCount - maxExlAllowed
-                                } опция(и) за покупка.`
-                              : `Exceeded limit (${selectedExCount}/${maxExlAllowed} options). Uncheck ${
-                                  selectedExCount - maxExlAllowed
-                                } option(s) to buy.`}
+                            {L(lang, {
+                              en: `Limit exceeded (${selectedExCount}/${maxExlAllowed}). Uncheck ${selectedExCount - maxExlAllowed} option(s) to continue.`,
+                              th: `คุณเลือกเกินกำหนด (${selectedExCount}/${maxExlAllowed}) กรุณานำออก ${selectedExCount - maxExlAllowed} ออปชัน`,
+                              pt: `Limite excedido (${selectedExCount}/${maxExlAllowed}). Desmarque ${selectedExCount - maxExlAllowed} opção(ões).`,
+                              ru: `Превышен лимит (${selectedExCount}/${maxExlAllowed}). Снимите ${selectedExCount - maxExlAllowed} опц.`,
+                              es: `Límite superado (${selectedExCount}/${maxExlAllowed}). Desmarca ${selectedExCount - maxExlAllowed} opción(es).`,
+                              bg: `Превишен лимит (${selectedExCount}/${maxExlAllowed}). Премахнете ${selectedExCount - maxExlAllowed} опц.`,
+                            })}
                           </span>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Ancient Stamina Options (ex_type === 3) */}
+                  {/* Ancient Stamina Options */}
                   {activeItem.ex_type === 3 && (
                     <div className="p-3 rounded bg-zinc-950/60 border border-zinc-800 space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-blue-400">
-                          Ancient Stamina Option
+                          {L(lang, {
+                            en: 'Ancient Stamina Option',
+                            th: 'ออปชันไอเทมโบราณ (Ancient Stamina)',
+                            pt: 'Opção Ancient Stamina',
+                            ru: 'Опция Ancient Stamina',
+                            es: 'Opción Ancient Stamina',
+                            bg: 'Опция Ancient Stamina',
+                          })}
                         </span>
                       </div>
                       <div className="space-y-1.5 text-xs text-zinc-300">
@@ -996,7 +1021,14 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                                 className="accent-blue-500"
                               />
                               {stam === 0
-                                ? 'None'
+                                ? L(lang, {
+                                    en: 'None',
+                                    th: 'ไม่เลือก',
+                                    pt: 'Nenhum',
+                                    ru: 'Нет',
+                                    es: 'Ninguno',
+                                    bg: 'Няма',
+                                  })
                                 : `+${stam} Ancient Stamina`}
                             </span>
                             <span className="font-mono-tabular text-amber-400">
@@ -1018,24 +1050,63 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                   {isFenrir && (
                     <div className="p-3 rounded bg-zinc-950/60 border border-zinc-800 space-y-2">
                       <div className="text-xs font-semibold text-amber-400">
-                        Horn of Fenrir Evolution
+                        {L(lang, {
+                          en: 'Horn of Fenrir Evolution',
+                          th: 'เลือกร่างสัตว์ขี่ Horn of Fenrir',
+                          pt: 'Evolução Horn of Fenrir',
+                          ru: 'Эволюция Horn of Fenrir',
+                          es: 'Evolución Horn of Fenrir',
+                          bg: 'Еволюция на Horn of Fenrir',
+                        })}
                       </div>
                       <div className="space-y-1.5 text-xs text-zinc-300">
                         {[
-                          { val: 0, label: 'Red Fenrir (Standard)', cost: 0 },
+                          {
+                            val: 0,
+                            label: L(lang, {
+                              en: 'Red Fenrir (Standard)',
+                              th: 'Red Fenrir (ร่างปกติ)',
+                              pt: 'Red Fenrir (Padrão)',
+                              ru: 'Red Fenrir (Стандарт)',
+                              es: 'Red Fenrir (Estándar)',
+                              bg: 'Red Fenrir (Стандартен)',
+                            }),
+                            cost: 0,
+                          },
                           {
                             val: 1,
-                            label: 'Black Fenrir (+Destroy / +10% Dmg)',
+                            label: L(lang, {
+                              en: 'Black Fenrir (+Destroy / +10% Dmg)',
+                              th: 'Black Fenrir (+Destroy / โจมตี +10%)',
+                              pt: 'Black Fenrir (+Destroy / +10% Dano)',
+                              ru: 'Black Fenrir (+Destroy / +10% Урон)',
+                              es: 'Black Fenrir (+Destroy / +10% Daño)',
+                              bg: 'Black Fenrir (+Destroy / +10% Щети)',
+                            }),
                             cost: config.credits.fenrir_destroy,
                           },
                           {
                             val: 2,
-                            label: 'Blue Fenrir (+Protect / +10% Absorb)',
+                            label: L(lang, {
+                              en: 'Blue Fenrir (+Protect / +10% Absorb)',
+                              th: 'Blue Fenrir (+Protect / ดูดซับดาเมจ 10%)',
+                              pt: 'Blue Fenrir (+Protect / +10% Absorção)',
+                              ru: 'Blue Fenrir (+Protect / +10% Поглощ.)',
+                              es: 'Blue Fenrir (+Protect / +10% Absorción)',
+                              bg: 'Blue Fenrir (+Protect / +10% Поглъщане)',
+                            }),
                             cost: config.credits.fenrir_protect,
                           },
                           {
                             val: 3,
-                            label: 'Golden Fenrir (Rare v0.9)',
+                            label: L(lang, {
+                              en: 'Golden Fenrir (Rare)',
+                              th: 'Golden Fenrir (ร่างทองพิเศษ)',
+                              pt: 'Golden Fenrir (Raro)',
+                              ru: 'Golden Fenrir (Редкий)',
+                              es: 'Golden Fenrir (Raro)',
+                              bg: 'Golden Fenrir (Рядък)',
+                            }),
                             cost: config.credits.golden_fenrir,
                           },
                         ].map((opt) => (
@@ -1070,77 +1141,116 @@ export const ItemAdderModule: React.FC<ItemAdderModuleProps> = ({
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      {lang === 'Portuguese_BR'
-                        ? 'Prévia do Item no Jogo'
-                        : lang === 'Russian'
-                        ? 'Предпросмотр предмета в игре'
-                        : lang === 'Spanish'
-                        ? 'Vista previa del ítem en el juego'
-                        : lang === 'Bulgarian'
-                        ? 'Преглед на предмета в играта'
-                        : 'In-Game Item Preview'}
+                      {L(lang, {
+                        en: 'In-Game Item Preview',
+                        th: 'ตัวอย่างออปชันไอเทมในเกม',
+                        pt: 'Prévia do Item no Jogo',
+                        ru: 'Предпросмотр предмета в игре',
+                        es: 'Vista previa del ítem en el juego',
+                        bg: 'Преглед на предмета в играта',
+                      })}
                     </div>
-                    <ItemTooltipCard tooltip={previewTooltip} />
+                    <ItemTooltipCard tooltip={previewTooltip} lang={lang} />
                   </div>
 
                   <div className="space-y-2.5 pt-2">
                     <div className="px-3 py-2 rounded bg-zinc-950/80 border border-zinc-800 text-[11px] flex items-center justify-between text-zinc-400 font-mono-tabular">
                       <span>
-                        {lang === 'Portuguese_BR'
-                          ? 'Localizador de Baú:'
-                          : lang === 'Russian'
-                          ? 'Слот в сундуке:'
-                          : lang === 'Spanish'
-                          ? 'Localizador de baúl:'
-                          : lang === 'Bulgarian'
-                          ? 'Място в сандъка:'
-                          : 'Smart Vault Locator:'}
+                        {L(lang, {
+                          en: 'Smart Vault Locator:',
+                          th: 'ตำแหน่งช่องคลังที่จะเข้า:',
+                          pt: 'Localizador de Baú:',
+                          ru: 'Слот в сундуке:',
+                          es: 'Localizador de baúl:',
+                          bg: 'Място в сандъка:',
+                        })}
                       </span>
-                      {targetSlot === 1337 ? (
+                      {!account ? (
+                        <span className="text-amber-300 font-semibold">
+                          {L(lang, {
+                            en: 'Sign in to check vault',
+                            th: 'เข้าสู่ระบบเพื่อตรวจสอบช่องคลัง',
+                            pt: 'Entre para verificar o baú',
+                            ru: 'Войдите для проверки сундука',
+                            es: 'Inicia sesión para revisar el baúl',
+                            bg: 'Влезте за проверка на сандъка',
+                          })}
+                        </span>
+                      ) : targetSlot === 1337 ? (
                         <span className="text-rose-400 font-semibold">
-                          Vault Full (No {activeItem.X}×{activeItem.Y} slot)
+                          {L(lang, {
+                            en: `Vault Full (No ${activeItem.X}×${activeItem.Y} slot)`,
+                            th: `คลังเต็ม (ไม่มีช่องว่างขนาด ${activeItem.X}×${activeItem.Y})`,
+                            pt: `Baú Cheio (Sem espaço ${activeItem.X}×${activeItem.Y})`,
+                            ru: `Сундук полон (нет места ${activeItem.X}×${activeItem.Y})`,
+                            es: `Baúl Lleno (Sin espacio ${activeItem.X}×${activeItem.Y})`,
+                            bg: `Сандъкът е пълен (няма ${activeItem.X}×${activeItem.Y})`,
+                          })}
                         </span>
                       ) : (
                         <span className="text-emerald-400 font-semibold">
-                          Slot #{targetSlot} (Col {(targetSlot % 8) + 1}, Row{' '}
+                          #{targetSlot} (C{(targetSlot % 8) + 1}, R
                           {Math.floor(targetSlot / 8) + 1})
                         </span>
                       )}
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={targetSlot === 1337}
-                      className="w-full py-3 px-4 rounded font-semibold text-xs bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
-                    >
-                      <PackagePlus className="w-4 h-4" />
-                      {lang === 'Thai'
-                        ? `เพิ่มไอเทมเข้าสู่ช่องว่างแรกในคลัง (${totalCredits.toLocaleString()} เครดิต)`
-                        : lang === 'Portuguese_BR'
-                        ? `Adicionar item ao primeiro espaço livre no Baú (${totalCredits.toLocaleString()} créditos)`
-                        : lang === 'Russian'
-                        ? `Добавить предмет в сундук (${totalCredits.toLocaleString()} кредитов)`
-                        : lang === 'Spanish'
-                        ? `Agregar ítem al primer espacio libre del baúl (${totalCredits.toLocaleString()} créditos)`
-                        : lang === 'Bulgarian'
-                        ? `Добави предмета в сандъка (${totalCredits.toLocaleString()} кредита)`
-                        : `Add this item to the first open slot in your vault (${totalCredits.toLocaleString()} cr)`}
-                    </button>
+                    {!account ? (
+                      <button
+                        type="button"
+                        onClick={onRequireLogin}
+                        className="w-full py-3 px-4 rounded font-semibold text-xs bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
+                      >
+                        <LogIn className="w-4 h-4" />
+                        {L(lang, {
+                          en: `Sign In to Purchase (${totalCredits.toLocaleString()} Credits)`,
+                          th: `เข้าสู่ระบบเพื่อสั่งซื้อไอเทม (${totalCredits.toLocaleString()} เครดิต)`,
+                          pt: `Entrar para Comprar (${totalCredits.toLocaleString()} Créditos)`,
+                          ru: `Войти для покупки (${totalCredits.toLocaleString()} кредитов)`,
+                          es: `Inicia Sesión para Comprar (${totalCredits.toLocaleString()} Créditos)`,
+                          bg: `Влезте за Покупка (${totalCredits.toLocaleString()} Кредита)`,
+                        })}
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        disabled={targetSlot === 1337 || isPurchasing}
+                        className="w-full py-3 px-4 rounded font-semibold text-xs bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
+                      >
+                        <PackagePlus className="w-4 h-4" />
+                        {isPurchasing
+                          ? L(lang, {
+                              en: 'Delivering to Vault...',
+                              th: 'กำลังส่งไอเทมเข้าคลัง...',
+                              pt: 'Enviando para o Baú...',
+                              ru: 'Отправка в сундук...',
+                              es: 'Enviando al Baúl...',
+                              bg: 'Изпращане в сандъка...',
+                            })
+                          : L(lang, {
+                              en: `Add to Vault (${totalCredits.toLocaleString()} Credits)`,
+                              th: `สั่งซื้อเข้าช่องว่างแรกในคลัง (${totalCredits.toLocaleString()} เครดิต)`,
+                              pt: `Adicionar ao Baú (${totalCredits.toLocaleString()} Créditos)`,
+                              ru: `Добавить в сундук (${totalCredits.toLocaleString()} кредитов)`,
+                              es: `Agregar al Baúl (${totalCredits.toLocaleString()} Créditos)`,
+                              bg: `Добави в Сандъка (${totalCredits.toLocaleString()} Кредита)`,
+                            })}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
             </form>
           ) : (
             <div className="p-8 rounded border border-zinc-800 bg-zinc-900/50 text-center text-xs text-zinc-400">
-              {lang === 'Portuguese_BR'
-                ? 'Selecione um item ou set na lista à esquerda para configurar nível, opção, luck, skill e atributos excelentes (máx. 3 opções).'
-                : lang === 'Russian'
-                ? 'Выберите предмет или сет из списка слева для настройки уровня, опций, удачи, навыка и опций Excellent (макс. 3 опции).'
-                : lang === 'Spanish'
-                ? 'Selecciona un ítem o set en la lista izquierda para configurar nivel, opciones, luck, skill y atributos Excellent (máx. 3 opciones).'
-                : lang === 'Bulgarian'
-                ? 'Изберете предмет или сет от списъка вляво, за да настроите ниво, опция, късмет, умение и Excellent опции (макс. 3 опции).'
-                : 'Select an item or set from the list on the left to configure its level, options, luck, skill, and excellent attributes.'}
+              {L(lang, {
+                en: 'Select an item or set from the list on the left to configure its level, options, luck, skill, and excellent attributes.',
+                th: 'เลือกไอเทมหรือเซ็ตเกราะจากรายการด้านซ้าย เพื่อกำหนดระดับตีบวก ออปชัน โชค สกิล และออปชัน Excellent (สูงสุด 3 ออปชัน)',
+                pt: 'Selecione um item ou set na lista à esquerda para configurar nível, opção, luck, skill e atributos excelentes.',
+                ru: 'Выберите предмет или сет из списка слева для настройки уровня, опций, удачи, навыка и опций Excellent.',
+                es: 'Selecciona un ítem o set en la lista izquierda para configurar nivel, opciones, luck, skill y atributos Excellent.',
+                bg: 'Изберете предмет или сет от списъка вляво, за да настроите ниво, опция, късмет, умение и Excellent опции.',
+              })}
             </div>
           )}
         </div>

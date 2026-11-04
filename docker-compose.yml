@@ -1,0 +1,98 @@
+services:
+  webshop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openmu-webshop:arm64-latest
+    container_name: openmu-webshop
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      OPENMU_DATABASE_URL: postgresql://${POSTGRES_USER:-openmu}:${POSTGRES_PASSWORD:-change_me_in_prod}@postgres:5432/${POSTGRES_DB:-openmu}
+      DB_POOL_MAX: "24"
+      DB_SSL: "false"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change_me_redis}@redis:6379/0
+      REDIS_CATALOG_TTL_SECONDS: "300"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-netsplit}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change_me_admin}
+      OPENMU_API_URL: ${OPENMU_API_URL:-}
+      OPENMU_API_KEY: ${OPENMU_API_KEY:-change_me_api_key}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change_me_webhook_hmac}
+      TRUEMONEY_WEBHOOK_SECRET: ${TRUEMONEY_WEBHOOK_SECRET:-change_me_tmn_hmac}
+      CF_TURNSTILE_SECRET_KEY: ${CF_TURNSTILE_SECRET_KEY:-}
+      AUDIT_LOG_PATH: /app/logs/audit.ndjson
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - openmu_internal
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 768M
+
+  redis:
+    image: redis:7-alpine
+    container_name: openmu-webshop-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-change_me_redis}
+      --maxmemory 256mb
+      --maxmemory-policy volatile-lru
+      --appendonly yes
+      --save 60 1000
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change_me_redis}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - openmu_internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 320M
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: openmu-webshop-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openmu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_prod}
+      POSTGRES_DB: ${POSTGRES_DB:-openmu}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/01-init-webshop.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openmu} -d ${POSTGRES_DB:-openmu}"]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+    networks:
+      - openmu_internal
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  openmu_internal:
+    driver: bridge

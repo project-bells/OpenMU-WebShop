@@ -1,16 +1,20 @@
 import React from 'react';
+import { LanguageCode } from '../types/webshop';
+import { L } from '../translations';
 import { FormattedItemTooltip } from '../utils/muItemLogic';
 
 interface ItemTooltipProps {
   tooltip: FormattedItemTooltip;
   showRefundHint?: boolean;
   className?: string;
+  lang?: LanguageCode;
 }
 
 export const ItemTooltipCard: React.FC<ItemTooltipProps> = ({
   tooltip,
   showRefundHint = false,
   className = '',
+  lang = 'English',
 }) => {
   return (
     <div
@@ -24,7 +28,16 @@ export const ItemTooltipCard: React.FC<ItemTooltipProps> = ({
       </div>
 
       <div className="text-zinc-200 font-mono-tabular text-[11px] mb-1.5">
-        {tooltip.durabilityText} · Size {tooltip.sizeText}
+        {tooltip.durabilityText} ·{' '}
+        {L(lang, {
+          en: 'Size',
+          th: 'ขนาด',
+          pt: 'Tam.',
+          ru: 'Размер',
+          es: 'Tam.',
+          bg: 'Размер',
+        })}{' '}
+        {tooltip.sizeText}
       </div>
 
       {tooltip.requirements.length > 0 && (
@@ -71,7 +84,14 @@ export const ItemTooltipCard: React.FC<ItemTooltipProps> = ({
 
       {showRefundHint && tooltip.refundCredits > 0 && (
         <div className="mt-1 text-[11px] text-amber-300 font-medium">
-          Double-click or click Sell Back for {tooltip.refundCredits.toLocaleString()} credits
+          {L(lang, {
+            en: `Double-click or click Sell Back for ${tooltip.refundCredits.toLocaleString()} credits`,
+            th: `ดับเบิลคลิกหรือกดปุ่มขายคืนเพื่อรับ ${tooltip.refundCredits.toLocaleString()} เครดิต`,
+            pt: `Clique duas vezes ou em Vender para receber ${tooltip.refundCredits.toLocaleString()} créditos`,
+            ru: `Дважды нажмите или нажмите Продать за ${tooltip.refundCredits.toLocaleString()} кредитов`,
+            es: `Haz doble clic o pulsa Vender por ${tooltip.refundCredits.toLocaleString()} créditos`,
+            bg: `Кликнете два пъти или Продай за ${tooltip.refundCredits.toLocaleString()} кредити`,
+          })}
         </div>
       )}
     </div>

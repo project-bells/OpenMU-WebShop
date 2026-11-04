@@ -1,4 +1,5 @@
-import { MuClassCode, VaultItemInstance, WebShopConfig, WebShopItem } from '../types/webshop';
+import { LanguageCode, MuClassCode, VaultItemInstance, WebShopConfig, WebShopItem } from '../types/webshop';
+import { L } from '../translations';
 
 export const CATEGORY_NAMES: Record<
   number,
@@ -133,6 +134,15 @@ export const CATEGORY_NAMES: Record<
     bg: 'Свитъци и Кълба',
   },
 };
+
+export function getCategoryName(
+  categoryId: number,
+  lang: LanguageCode = 'English'
+): string {
+  const entry = CATEGORY_NAMES[categoryId];
+  if (!entry) return `Category #${categoryId}`;
+  return L(lang, entry);
+}
 
 export const INITIAL_STARTING_POINTS = 300;
 export const BUY_CHAR_400_CREDITS = 500;
@@ -360,6 +370,63 @@ export const CLASS_3_CLASSES: readonly MuClassDefinition[] = MU_CLASSES.filter(
   (c) => c.s3
 );
 
+export function getClassDisplayName(classDef: MuClassDefinition, lang: LanguageCode = 'English'): string {
+  if (lang === 'Thai') return classDef.nameTh;
+  return classDef.name;
+}
+
+export function getClassTierLabel(classDef: MuClassDefinition, lang: LanguageCode = 'English'): string {
+  const pts = classDef.pointsPerLevel;
+  if (classDef.s3 && pts === 7) {
+    return L(lang, {
+      en: `Class 3 Special (${pts} pts/level)`,
+      th: `คลาส 3 พิเศษ (${pts} พอยต์/เลเวล)`,
+      pt: `Classe 3 Especial (${pts} pts/nível)`,
+      ru: `3-й класс Особый (${pts} статов/ур.)`,
+      es: `Clase 3 Especial (${pts} pts/nivel)`,
+      bg: `Клас 3 Специален (${pts} т./ниво)`,
+    });
+  }
+  if (classDef.s3) {
+    return L(lang, {
+      en: `Class 3 (Base ${pts} pts/level)`,
+      th: `คลาส 3 (ฐาน ${pts} พอยต์/เลเวล)`,
+      pt: `Classe 3 (Base ${pts} pts/nível)`,
+      ru: `3-й класс (База ${pts} статов/ур.)`,
+      es: `Clase 3 (Base ${pts} pts/nivel)`,
+      bg: `Клас 3 (База ${pts} т./ниво)`,
+    });
+  }
+  if (pts === 7) {
+    return L(lang, {
+      en: `Special Class (${pts} pts/level)`,
+      th: `อาชีพพิเศษ (${pts} พอยต์/เลเวล)`,
+      pt: `Classe Especial (${pts} pts/nível)`,
+      ru: `Особый класс (${pts} статов/ур.)`,
+      es: `Clase Especial (${pts} pts/nivel)`,
+      bg: `Специален клас (${pts} т./ниво)`,
+    });
+  }
+  if (['sm', 'bk', 'me'].includes(classDef.code)) {
+    return L(lang, {
+      en: `Class 2 (Base ${pts} pts/level)`,
+      th: `คลาส 2 (ฐาน ${pts} พอยต์/เลเวล)`,
+      pt: `Classe 2 (Base ${pts} pts/nível)`,
+      ru: `2-й класс (База ${pts} статов/ур.)`,
+      es: `Clase 2 (Base ${pts} pts/nivel)`,
+      bg: `Клас 2 (База ${pts} т./ниво)`,
+    });
+  }
+  return L(lang, {
+    en: `Class 1 (${pts} pts/level)`,
+    th: `คลาส 1 (${pts} พอยต์/เลเวล)`,
+    pt: `Classe 1 (${pts} pts/nível)`,
+    ru: `1-й класс (${pts} статов/ур.)`,
+    es: `Clase 1 (${pts} pts/nivel)`,
+    bg: `Клас 1 (${pts} т./ниво)`,
+  });
+}
+
 export interface ClassStatPointCalculation {
   classDef: MuClassDefinition;
   level: number;
@@ -417,6 +484,7 @@ export function calculateClassStatPoints(
 }
 
 export function getExcellentOptionLabels(exType: number, lang?: string): string[] {
+  const isTh = lang === 'Thai';
   const isPt = lang === 'Portuguese_BR';
   const isRu = lang === 'Russian';
   const isEs = lang === 'Spanish';
@@ -424,6 +492,16 @@ export function getExcellentOptionLabels(exType: number, lang?: string): string[
 
   switch (exType) {
     case 0: // Weapons & Pendants
+      if (isTh) {
+        return [
+          'ฟื้นฟู Mana เมื่อกำจัดมอนสเตอร์ +Mana/8',
+          'ฟื้นฟู HP เมื่อกำจัดมอนสเตอร์ +HP/8',
+          'เพิ่มความเร็วโจมตี (ร่ายเวทย์) +7',
+          'เพิ่มพลังโจมตี (เวทย์) +2%',
+          'เพิ่มพลังโจมตี +Level/20',
+          'อัตราคริติคอล Excellent Damage +10%',
+        ];
+      }
       if (isPt) {
         return [
           'Recuperação de Mana por monstro morto +Mana/8',
@@ -474,6 +552,16 @@ export function getExcellentOptionLabels(exType: number, lang?: string): string[
       ];
 
     case 1: // Armors, Shields, Rings
+      if (isTh) {
+        return [
+          'เพิ่มดรอปเงิน Zen หลังกำจัดมอนสเตอร์ +40%',
+          'อัตราป้องกันสำเร็จ (Defense Rate) +10%',
+          'สะท้อนความเสียหาย (Reflect) +5%',
+          'ลดความเสียหายที่ได้รับ (Damage Decrease) +4%',
+          'เพิ่ม Mana สูงสุด +4%',
+          'เพิ่ม HP สูงสุด +4%',
+        ];
+      }
       if (isPt) {
         return [
           'Aumento de Zen após caçar monstros +40%',
@@ -524,6 +612,15 @@ export function getExcellentOptionLabels(exType: number, lang?: string): string[
       ];
 
     case 2: // Wings Season II
+      if (isTh) {
+        return [
+          'เพิ่ม HP สูงสุด +50~115',
+          'เพิ่ม MP สูงสุด +50~115',
+          'โอกาสโจมตีทะลุเกราะศัตรู (Ignore Defense) +3%',
+          'เพิ่ม Stamina (AG) สูงสุด +50',
+          'เพิ่มความเร็วโจมตี +5',
+        ];
+      }
       if (isPt) {
         return [
           'Aumento de HP +50~115',
@@ -569,6 +666,15 @@ export function getExcellentOptionLabels(exType: number, lang?: string): string[
       ];
 
     case 4: // Wings Season III (v0.9)
+      if (isTh) {
+        return [
+          '+115 HP สูงสุด',
+          '+115 MP สูงสุด',
+          'โอกาสโจมตีทะลุเกราะศัตรู 3%',
+          '+50 Stamina (AG) สูงสุด',
+          'ความเร็วโจมตี/เวทย์ +7',
+        ];
+      }
       if (isPt) {
         return [
           '+115 HP Máximo',
@@ -637,11 +743,12 @@ export interface FormattedItemTooltip {
 export function formatItemTooltip(
   instance: VaultItemInstance,
   catalogItem: WebShopItem | undefined,
-  config: WebShopConfig
+  config: WebShopConfig,
+  lang: LanguageCode = 'English'
 ): FormattedItemTooltip {
   const exType = catalogItem?.ex_type ?? 0;
   const optionType = catalogItem?.optionType ?? 0;
-  const exLabels = getExcellentOptionLabels(exType);
+  const exLabels = getExcellentOptionLabels(exType, lang);
   const activeExl = instance.exlOptions
     .map((on, idx) => (on && exLabels[idx] ? exLabels[idx] : null))
     .filter((v): v is string => Boolean(v));
@@ -650,27 +757,88 @@ export function formatItemTooltip(
   const isWing = exType === 2 || exType === 4;
   const isFenrir = instance.itemType === 12 && instance.itemId === 37;
 
-  let optionPrefix = 'Additional Damage';
+  let optionPrefix = L(lang, {
+    en: 'Additional Damage',
+    th: 'พลังโจมตีเพิ่มเติม',
+    pt: 'Dano Adicional',
+    ru: 'Доп. урон',
+    es: 'Daño Adicional',
+    bg: 'Допълнителни щети',
+  });
   let optionValueStr = '';
   if (instance.option > 0) {
     if (optionType === 1) {
-      optionPrefix = 'Automatic HP Recovery rate';
+      optionPrefix = L(lang, {
+        en: 'Automatic HP Recovery rate',
+        th: 'ฟื้นฟู HP อัตโนมัติ',
+        pt: 'Recuperação automática de HP',
+        ru: 'Авто-восстановление HP',
+        es: 'Recuperación automática de HP',
+        bg: 'Автоматично възстановяване на HP',
+      });
       optionValueStr = `${instance.option}%`;
     } else if (optionType === 2) {
-      optionPrefix = 'Additional Defense rate';
+      optionPrefix = L(lang, {
+        en: 'Additional Defense rate',
+        th: 'อัตราป้องกันเพิ่มเติม',
+        pt: 'Taxa de Defesa Adicional',
+        ru: 'Доп. рейтинг защиты',
+        es: 'Tasa de Defensa Adicional',
+        bg: 'Допълнителен шанс за защита',
+      });
       optionValueStr = `+${instance.option * 5}`;
     } else {
-      optionPrefix = exType === 1 ? 'Additional Defense' : 'Additional Damage';
+      optionPrefix =
+        exType === 1
+          ? L(lang, {
+              en: 'Additional Defense',
+              th: 'พลังป้องกันเพิ่มเติม',
+              pt: 'Defesa Adicional',
+              ru: 'Доп. защита',
+              es: 'Defensa Adicional',
+              bg: 'Допълнителна защита',
+            })
+          : L(lang, {
+              en: 'Additional Damage',
+              th: 'พลังโจมตีเพิ่มเติม',
+              pt: 'Dano Adicional',
+              ru: 'Доп. урон',
+              es: 'Daño Adicional',
+              bg: 'Допълнителни щети',
+            });
       optionValueStr = `+${instance.option * 4}`;
     }
   }
 
   let optionLine = instance.option > 0 ? `${optionPrefix} ${optionValueStr}` : null;
-  let skillLine = instance.skill ? 'This weapon has a special skill' : null;
+  let skillLine = instance.skill
+    ? L(lang, {
+        en: 'This weapon has a special skill',
+        th: 'อาวุธนี้มีสกิลพิเศษ (Skill)',
+        pt: 'Esta arma possui uma habilidade especial',
+        ru: 'Оружие обладает особым навыком (Skill)',
+        es: 'Esta arma tiene una habilidad especial',
+        bg: 'Това оръжие има специално умение',
+      })
+    : null;
   const luckLines = instance.luck
     ? [
-        'Luck (success rate of jewel of soul +25%)',
-        'Luck (critical damage rate +5%)',
+        L(lang, {
+          en: 'Luck (success rate of Jewel of Soul +25%)',
+          th: 'โชค Luck (โอกาสตีบวก Jewel of Soul +25%)',
+          pt: 'Sorte (taxa de sucesso da Jewel of Soul +25%)',
+          ru: 'Удача (шанс успеха Jewel of Soul +25%)',
+          es: 'Suerte (éxito de Jewel of Soul +25%)',
+          bg: 'Късмет (шанс за успех с Jewel of Soul +25%)',
+        }),
+        L(lang, {
+          en: 'Luck (critical damage rate +5%)',
+          th: 'โชค Luck (อัตราคริติคอล +5%)',
+          pt: 'Sorte (taxa de dano crítico +5%)',
+          ru: 'Удача (шанс крит. урона +5%)',
+          es: 'Suerte (probabilidad de daño crítico +5%)',
+          bg: 'Късмет (шанс за критични щети +5%)',
+        }),
       ]
     : [];
 
@@ -683,18 +851,46 @@ export function formatItemTooltip(
 
   let baseName = instance.name;
   if (isFenrir) {
-    skillLine = 'Plasma storm skill (Mana:50)';
+    skillLine = L(lang, {
+      en: 'Plasma Storm skill (Mana: 50)',
+      th: 'สกิลพายุพลาสม่า Plasma Storm (Mana: 50)',
+      pt: 'Habilidade Plasma Storm (Mana: 50)',
+      ru: 'Навык Plasma Storm (Mana: 50)',
+      es: 'Habilidad Plasma Storm (Mana: 50)',
+      bg: 'Умение Plasma Storm (Mana: 50)',
+    });
     color = '#8CB0EA';
     if (instance.fenrirVariant === 1) {
       baseName = `${instance.name} +Destroy`;
-      optionLine = 'Increase final damage 10% · Increase speed';
+      optionLine = L(lang, {
+        en: 'Increase final damage 10% · Increase speed',
+        th: 'เพิ่มความเสียหายสุดท้าย 10% · เพิ่มความเร็วเคลื่อนที่',
+        pt: 'Aumenta dano final em 10% · Aumenta velocidade',
+        ru: 'Увеличивает итоговый урон на 10% · Скорость',
+        es: 'Aumenta daño final 10% · Aumenta velocidad',
+        bg: 'Увеличава крайните щети с 10% · Скорост',
+      });
     } else if (instance.fenrirVariant === 2) {
       baseName = `${instance.name} +Protect`;
-      optionLine = 'Absorb final damage 10% · Increase speed';
+      optionLine = L(lang, {
+        en: 'Absorb final damage 10% · Increase speed',
+        th: 'ดูดซับความเสียหายสุดท้าย 10% · เพิ่มความเร็วเคลื่อนที่',
+        pt: 'Absorve dano final em 10% · Aumenta velocidade',
+        ru: 'Поглощает 10% итогового урона · Скорость',
+        es: 'Absorbe daño final 10% · Aumenta velocidad',
+        bg: 'Поглъща 10% от крайните щети · Скорост',
+      });
     } else if (instance.fenrirVariant === 3) {
       baseName = 'Golden Fenrir';
       color = '#F4CB3F';
-      optionLine = 'Increase speed';
+      optionLine = L(lang, {
+        en: 'Increase speed',
+        th: 'เพิ่มความเร็วเคลื่อนที่',
+        pt: 'Aumenta velocidade',
+        ru: 'Увеличивает скорость передвижения',
+        es: 'Aumenta velocidad',
+        bg: 'Увеличава скоростта',
+      });
     }
   } else if (!isWing && hasExl) {
     baseName = `Excellent ${instance.name}`;
@@ -711,23 +907,68 @@ export function formatItemTooltip(
     if (catalogItem.str > 0) {
       const strReq =
         catalogItem.str + instance.level * 7 + instance.option * 20 + incrAll;
-      reqs.push(`${strReq} Strength required`);
+      reqs.push(
+        L(lang, {
+          en: `${strReq} Strength required`,
+          th: `ต้องการ Strength: ${strReq}`,
+          pt: `Requer ${strReq} de Força (STR)`,
+          ru: `Требуется Сила (STR): ${strReq}`,
+          es: `Requiere ${strReq} de Fuerza (STR)`,
+          bg: `Изисква Сила (STR): ${strReq}`,
+        })
+      );
     }
     if (catalogItem.agi > 0) {
       const agiReq = catalogItem.agi + instance.level * 4 + incrAll;
-      reqs.push(`${agiReq} Agility required`);
+      reqs.push(
+        L(lang, {
+          en: `${agiReq} Agility required`,
+          th: `ต้องการ Agility: ${agiReq}`,
+          pt: `Requer ${agiReq} de Agilidade (AGI)`,
+          ru: `Требуется Ловкость (AGI): ${agiReq}`,
+          es: `Requiere ${agiReq} de Agilidad (AGI)`,
+          bg: `Изисква Ловкост (AGI): ${agiReq}`,
+        })
+      );
     }
     if (catalogItem.nrg > 0) {
-      reqs.push(`${catalogItem.nrg + incrAll} Energy required`);
+      const nrgReq = catalogItem.nrg + incrAll;
+      reqs.push(
+        L(lang, {
+          en: `${nrgReq} Energy required`,
+          th: `ต้องการ Energy: ${nrgReq}`,
+          pt: `Requer ${nrgReq} de Energia (ENE)`,
+          ru: `Требуется Энергия (ENE): ${nrgReq}`,
+          es: `Requiere ${nrgReq} de Energía (ENE)`,
+          bg: `Изисква Енергия (ENE): ${nrgReq}`,
+        })
+      );
     }
     if (catalogItem.cmd > 0) {
-      reqs.push(`${catalogItem.cmd + incrAll} Command required`);
+      const cmdReq = catalogItem.cmd + incrAll;
+      reqs.push(
+        L(lang, {
+          en: `${cmdReq} Command required`,
+          th: `ต้องการ Command: ${cmdReq}`,
+          pt: `Requer ${cmdReq} de Comando (CMD)`,
+          ru: `Требуется Командование (CMD): ${cmdReq}`,
+          es: `Requiere ${cmdReq} de Comando (CMD)`,
+          bg: `Изисква Командване (CMD): ${cmdReq}`,
+        })
+      );
     }
   }
 
   const ancientLine =
     instance.ancientStamina > 0
-      ? `Ancient: +${instance.ancientStamina} stamina`
+      ? L(lang, {
+          en: `Ancient: +${instance.ancientStamina} Stamina`,
+          th: `ไอเทมเซ็ตโบราณ Ancient: +${instance.ancientStamina} Stamina`,
+          pt: `Ancient: +${instance.ancientStamina} Stamina`,
+          ru: `Древний предмет (Ancient): +${instance.ancientStamina} Stamina`,
+          es: `Ancient: +${instance.ancientStamina} Estamina`,
+          bg: `Древен предмет (Ancient): +${instance.ancientStamina} Stamina`,
+        })
       : null;
 
   const thumb =
@@ -742,7 +983,14 @@ export function formatItemTooltip(
   return {
     displayName: `${baseName}${levelSuffix}`,
     color,
-    durabilityText: `[${instance.durability || 255}/255] Durability`,
+    durabilityText: L(lang, {
+      en: `[${instance.durability || 255}/255] Durability`,
+      th: `ความทนทาน [${instance.durability || 255}/255]`,
+      pt: `Durabilidade [${instance.durability || 255}/255]`,
+      ru: `Прочность [${instance.durability || 255}/255]`,
+      es: `Durabilidad [${instance.durability || 255}/255]`,
+      bg: `Издръжливост [${instance.durability || 255}/255]`,
+    }),
     requirements: reqs,
     optionLine,
     luckLines,

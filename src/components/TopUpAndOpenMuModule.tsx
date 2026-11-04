@@ -1,17 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { AccountData } from '../types/webshop';
+import { AccountData, LanguageCode } from '../types/webshop';
+import { L } from '../translations';
 import {
   AlertTriangle,
   CheckCircle2,
-  Code2,
   Coins,
-  Copy,
   CreditCard,
   ExternalLink,
   History,
-  KeyRound,
   QrCode,
-  RefreshCw,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -52,25 +49,25 @@ interface TrueMoneyTier {
 interface TopUpAndOpenMuModuleProps {
   account: AccountData;
   wCoinCBalance: number;
-  lang?: string;
+  lang?: LanguageCode;
   onCreditsGranted: (
     creditsAdded: number,
     wCoinCAdded: number,
     logDetail: string
   ) => void;
-  initialTab?: 'truemoney' | 'paypal' | 'history' | 'guide';
+  initialTab?: 'truemoney' | 'paypal' | 'history';
 }
 
 const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
   {
     code: 'PKG_STARTER',
-    name: 'Lorencia Starter Pack',
-    nameTh: 'แพ็กเกจผู้เริ่มต้น Lorencia',
+    name: 'Egis Starter Pack',
+    nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
     priceUsd: 4.99,
     priceThb: 179,
     credits: 1200,
     wCoinC: 250,
-    bonusTag: '+5% Bonus',
+    bonusTag: '+5%',
   },
   {
     code: 'PKG_KNIGHT',
@@ -80,7 +77,7 @@ const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
     priceThb: 349,
     credits: 2600,
     wCoinC: 550,
-    bonusTag: '+15% Bonus',
+    bonusTag: '+15%',
   },
   {
     code: 'PKG_ICARUS',
@@ -90,7 +87,7 @@ const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
     priceThb: 879,
     credits: 7000,
     wCoinC: 1500,
-    bonusTag: 'Most Popular · +25% Bonus',
+    bonusTag: '+25%',
   },
   {
     code: 'PKG_KUNDUN',
@@ -100,17 +97,17 @@ const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
     priceThb: 1750,
     credits: 15500,
     wCoinC: 3500,
-    bonusTag: 'Best Value · +40% Bonus',
+    bonusTag: '+40%',
   },
 ];
 
 const DEFAULT_TRUEMONEY_TIERS: TrueMoneyTier[] = [
-  { amountThb: 50, credits: 500, wCoinC: 100, bonusText: 'อัตราปกติ' },
-  { amountThb: 90, credits: 950, wCoinC: 200, bonusText: '+5% โบนัสเครดิต' },
-  { amountThb: 150, credits: 1650, wCoinC: 350, bonusText: '+10% โบนัสเครดิต' },
-  { amountThb: 300, credits: 3450, wCoinC: 750, bonusText: '+15% โบนัสเครดิต' },
-  { amountThb: 500, credits: 6000, wCoinC: 1350, bonusText: '+20% โบนัสเครดิต' },
-  { amountThb: 1000, credits: 13000, wCoinC: 3000, bonusText: '+30% โบนัสสูงสุด' },
+  { amountThb: 50, credits: 500, wCoinC: 100, bonusText: 'Standard' },
+  { amountThb: 90, credits: 950, wCoinC: 200, bonusText: '+5%' },
+  { amountThb: 150, credits: 1650, wCoinC: 350, bonusText: '+10%' },
+  { amountThb: 300, credits: 3450, wCoinC: 750, bonusText: '+15%' },
+  { amountThb: 500, credits: 6000, wCoinC: 1350, bonusText: '+20%' },
+  { amountThb: 1000, credits: 13000, wCoinC: 3000, bonusText: '+30%' },
 ];
 
 export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
@@ -120,26 +117,18 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   onCreditsGranted,
   initialTab = 'truemoney',
 }) => {
-  const isPt = lang === 'Portuguese_BR';
-  const isRu = lang === 'Russian';
-  const isEs = lang === 'Spanish';
-  const isBg = lang === 'Bulgarian';
-  const [activeTab, setActiveTab] = useState<
-    'truemoney' | 'paypal' | 'history' | 'guide'
-  >(initialTab);
+  const [activeTab, setActiveTab] = useState<'truemoney' | 'paypal' | 'history'>(
+    initialTab
+  );
 
-  // TrueMoney state
   const [tmMethod, setTmMethod] = useState<'angpao' | 'cashcard' | 'promptpay'>(
     'angpao'
   );
   const [selectedThb, setSelectedThb] = useState<number>(300);
-  const [voucherInput, setVoucherInput] = useState<string>(
-    'https://gift.truemoney.com/campaign/?v=0192837465abcdef99'
-  );
-  const [merchantPhone, setMerchantPhone] = useState<string>('089-123-4567');
+  const [voucherInput, setVoucherInput] = useState<string>('');
+  const [merchantPhone, setMerchantPhone] = useState<string>('');
   const [isSubmittingTm, setIsSubmittingTm] = useState(false);
 
-  // PayPal state
   const [packages, setPackages] = useState<PayPalPackage[]>(
     DEFAULT_PAYPAL_PACKAGES
   );
@@ -150,22 +139,15 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
     orderToken: string;
     pkg: PayPalPackage;
   } | null>(null);
-  const [payerEmail, setPayerEmail] = useState<string>(
-    `${account.username}@paypal-buyer.com`
-  );
+  const [payerEmail, setPayerEmail] = useState<string>('');
   const [isCapturingPayPal, setIsCapturingPayPal] = useState(false);
 
-  // Grants & Status banner
   const [grants, setGrants] = useState<OpenMuCoinGrantRecord[]>([]);
-  const [bridgeMode, setBridgeMode] = useState<string>(
-    'OpenMU-Origins Embedded Bridge (data."Account" & CashShopController)'
-  );
   const [banner, setBanner] = useState<{
     ok: boolean;
     message: string;
     reference?: string;
   } | null>(null);
-  const [copiedNotice, setCopiedNotice] = useState<string>('');
 
   const fetchStatusAndGrants = async () => {
     try {
@@ -174,39 +156,45 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         const data = await res.json();
         if (data.packages) setPackages(data.packages);
         if (data.trueMoneyTiers) setTmTiers(data.trueMoneyTiers);
-        if (data.recentGrants) setGrants(data.recentGrants);
-        if (data.merchantPhone) setMerchantPhone(data.merchantPhone);
-        if (data.connectedMode) setBridgeMode(data.connectedMode);
+        if (Array.isArray(data.recentGrants)) {
+          setGrants(
+            data.recentGrants.filter(
+              (g: OpenMuCoinGrantRecord) =>
+                account.isAdmin ||
+                g.accountLoginName.toLowerCase() === account.username.toLowerCase()
+            )
+          );
+        }
+        if (typeof data.merchantPhone === 'string') {
+          setMerchantPhone(data.merchantPhone);
+        }
       }
     } catch {
-      // fallback to defaults
+      // keep existing state
     }
   };
 
   useEffect(() => {
     fetchStatusAndGrants();
-  }, []);
-
-  const generateSampleAngpao = () => {
-    const randHex = Array.from({ length: 18 }, () =>
-      Math.floor(Math.random() * 16).toString(16)
-    ).join('');
-    setTmMethod('angpao');
-    setVoucherInput(`https://gift.truemoney.com/campaign/?v=${randHex}`);
-    setBanner(null);
-  };
-
-  const generateSampleCashCard = () => {
-    const randDigits = Array.from({ length: 14 }, () =>
-      Math.floor(Math.random() * 10)
-    ).join('');
-    setTmMethod('cashcard');
-    setVoucherInput(randDigits);
-    setBanner(null);
-  };
+  }, [account.username]);
 
   const handleTrueMoneySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (tmMethod !== 'promptpay' && !voucherInput.trim()) {
+      setBanner({
+        ok: false,
+        message: L(lang, {
+          en: 'Please enter a valid TrueMoney voucher link or 14-digit PIN.',
+          th: 'กรุณากรอกลิงก์ซองของขวัญ TrueMoney หรือรหัสบัตรเงินสด 14 หลัก',
+          pt: 'Insira um link de voucher TrueMoney válido ou PIN de 14 dígitos.',
+          ru: 'Введите ссылку на ваучер TrueMoney или 14-значный PIN-код.',
+          es: 'Ingresa un enlace de cupón TrueMoney válido o PIN de 14 dígitos.',
+          bg: 'Въведете валиден линк за ваучер TrueMoney или 14-цифрен PIN.',
+        }),
+      });
+      return;
+    }
+
     setIsSubmittingTm(true);
     setBanner(null);
 
@@ -217,7 +205,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         body: JSON.stringify({
           loginName: account.username,
           method: tmMethod,
-          voucherUrlOrPin: voucherInput,
+          voucherUrlOrPin: voucherInput.trim(),
           selectedTierThb: selectedThb,
         }),
       });
@@ -225,7 +213,16 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
       if (!res.ok || !data.ok) {
         setBanner({
           ok: false,
-          message: data.message || 'เกิดข้อผิดพลาดในการตรวจสอบรายการ TrueMoney',
+          message:
+            data.message ||
+            L(lang, {
+              en: 'TrueMoney verification failed. Please check your voucher or PIN.',
+              th: 'ไม่สามารถตรวจสอบรายการ TrueMoney ได้ กรุณาตรวจสอบข้อมูลอีกครั้ง',
+              pt: 'Falha na verificação TrueMoney. Verifique o código informado.',
+              ru: 'Ошибка проверки TrueMoney. Проверьте введённый код.',
+              es: 'Error al verificar TrueMoney. Revisa los datos ingresados.',
+              bg: 'Грешка при проверка на TrueMoney. Проверете въведения код.',
+            }),
         });
       } else {
         setBanner({
@@ -233,6 +230,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           message: data.message,
           reference: data.grant?.reference,
         });
+        setVoucherInput('');
         onCreditsGranted(
           data.creditsAdded,
           data.wCoinCAdded,
@@ -241,20 +239,17 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         await fetchStatusAndGrants();
       }
     } catch {
-      // Fallback local execution if server is restarting
-      const tier =
-        tmTiers.find((t) => t.amountThb === selectedThb) || tmTiers[1];
-      const ref = `truemoney:${Date.now().toString(16)}`;
       setBanner({
-        ok: true,
-        message: `เติมเงิน TrueMoney ${tier.amountThb} บาท สำเร็จ! ได้รับ +${tier.credits.toLocaleString()} Credits และ +${tier.wCoinC.toLocaleString()} WCoinC`,
-        reference: ref,
+        ok: false,
+        message: L(lang, {
+          en: 'Payment gateway could not be reached. Please try again.',
+          th: 'ไม่สามารถติดต่อระบบชำระเงินได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+          pt: 'Não foi possível conectar ao gateway de pagamento. Tente novamente.',
+          ru: 'Не удалось связаться с платёжным шлюзом. Попробуйте позже.',
+          es: 'No se pudo conectar con la pasarela de pago. Inténtalo de nuevo.',
+          bg: 'Няма връзка с платежната система. Опитайте отново.',
+        }),
       });
-      onCreditsGranted(
-        tier.credits,
-        tier.wCoinC,
-        `TrueMoney Top-Up (${tier.amountThb} THB) -> +${tier.credits} Credits [Ref: ${ref}]`
-      );
     } finally {
       setIsSubmittingTm(false);
     }
@@ -272,16 +267,37 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      if (res.ok && data.ok) {
         setActivePayPalOrder({
           orderToken: data.orderToken,
           pkg,
         });
+      } else {
+        setBanner({
+          ok: false,
+          message:
+            data.message ||
+            L(lang, {
+              en: 'Unable to initialize PayPal order.',
+              th: 'ไม่สามารถสร้างรายการสั่งซื้อ PayPal ได้',
+              pt: 'Não foi possível iniciar o pedido PayPal.',
+              ru: 'Не удалось создать заказ PayPal.',
+              es: 'No se pudo crear la orden de PayPal.',
+              bg: 'Неуспешно създаване на PayPal поръчка.',
+            }),
+        });
       }
     } catch {
-      setActivePayPalOrder({
-        orderToken: `PAYPAL_${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
-        pkg,
+      setBanner({
+        ok: false,
+        message: L(lang, {
+          en: 'Unable to reach PayPal checkout service.',
+          th: 'ไม่สามารถเชื่อมต่อบริการชำระเงิน PayPal ได้',
+          pt: 'Não foi possível conectar ao serviço PayPal.',
+          ru: 'Сервис оплаты PayPal недоступен.',
+          es: 'No se pudo conectar con el servicio de PayPal.',
+          bg: 'Няма връзка с услугата на PayPal.',
+        }),
       });
     }
   };
@@ -298,7 +314,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           loginName: account.username,
           packageCode: activePayPalOrder.pkg.code,
           orderToken: activePayPalOrder.orderToken,
-          payerEmail,
+          payerEmail: payerEmail.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -314,36 +330,38 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           `PayPal Purchase ${activePayPalOrder.pkg.code} ($${activePayPalOrder.pkg.priceUsd}) -> +${data.creditsAdded} Credits & +${data.wCoinCAdded} WCoinC [Ref: ${data.grant?.reference}]`
         );
         setActivePayPalOrder(null);
+        setPayerEmail('');
         await fetchStatusAndGrants();
       } else {
         setBanner({
           ok: false,
-          message: data.message || 'PayPal Capture Failed',
+          message:
+            data.message ||
+            L(lang, {
+              en: 'PayPal payment capture failed.',
+              th: 'การยืนยันยอดชำระ PayPal ล้มเหลว',
+              pt: 'Falha ao capturar pagamento PayPal.',
+              ru: 'Ошибка подтверждения платежа PayPal.',
+              es: 'Error al confirmar el pago de PayPal.',
+              bg: 'Грешка при потвърждаване на PayPal плащане.',
+            }),
         });
       }
     } catch {
-      const { pkg, orderToken } = activePayPalOrder;
-      const ref = `paypal:${orderToken}`;
       setBanner({
-        ok: true,
-        message: `ชำระเงินผ่าน PayPal ($${pkg.priceUsd}) สำเร็จ! ได้รับ +${pkg.credits.toLocaleString()} Credits และ +${pkg.wCoinC.toLocaleString()} WCoinC`,
-        reference: ref,
+        ok: false,
+        message: L(lang, {
+          en: 'Unable to reach payment gateway. Please try again.',
+          th: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ชำระเงินได้ กรุณาลองใหม่อีกครั้ง',
+          pt: 'Não foi possível conectar ao servidor de pagamento.',
+          ru: 'Не удалось связаться с сервером оплаты.',
+          es: 'No se pudo conectar con el servidor de pagos.',
+          bg: 'Няма връзка със сървъра за плащания.',
+        }),
       });
-      onCreditsGranted(
-        pkg.credits,
-        pkg.wCoinC,
-        `PayPal Purchase ${pkg.code} -> +${pkg.credits} Credits [Ref: ${ref}]`
-      );
-      setActivePayPalOrder(null);
     } finally {
       setIsCapturingPayPal(false);
     }
-  };
-
-  const copyText = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedNotice(label);
-    setTimeout(() => setCopiedNotice(''), 2500);
   };
 
   const activeTier =
@@ -357,39 +375,25 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           <div className="flex items-center gap-2">
             <Coins className="w-5 h-5 text-amber-400" />
             <h2 className="text-base font-bold text-white">
-              {isPt
-                ? 'Central de Doações & Integração OpenMU-Origins (TrueMoney & PayPal)'
-                : isRu
-                ? 'Пожертвования (Donate) и интеграция с OpenMU-Origins (TrueMoney и PayPal)'
-                : isEs
-                ? 'Centro de Donaciones & Integración OpenMU-Origins (TrueMoney y PayPal)'
-                : isBg
-                ? 'Център за Дарения и OpenMU-Origins Интеграция'
-                : 'ศูนย์บริจาค (Donate) & เชื่อมต่อ OpenMU-Origins (TrueMoney Wallet & PayPal)'}
+              {L(lang, {
+                en: 'Donate & Top Up Center (TrueMoney Wallet & PayPal)',
+                th: 'ศูนย์บริจาคและเติมเครดิต (TrueMoney Wallet & PayPal)',
+                pt: 'Central de Doações & Recarga (TrueMoney & PayPal)',
+                ru: 'Центр пополнения и пожертвований (TrueMoney & PayPal)',
+                es: 'Centro de Donaciones y Recargas (TrueMoney y PayPal)',
+                bg: 'Център за Дарения и Зареждане (TrueMoney & PayPal)',
+              })}
             </h2>
           </div>
           <p className="text-xs text-zinc-400">
-            {isPt ? (
-              <>
-                Toda doação adiciona <strong className="text-amber-300">WebShop Credits</strong> para comprar itens no site e envia <strong className="text-emerald-300">WCoinC</strong> diretamente para a tabela <code className="text-zinc-200">data.&quot;CashShopCoinGrant&quot;</code> do servidor OpenMU-Origins (Referência Idempotente).
-              </>
-            ) : isRu ? (
-              <>
-                Каждое пожертвование начисляет <strong className="text-amber-300">WebShop Credits</strong> для покупок на сайте и автоматически отправляет <strong className="text-emerald-300">WCoinC</strong> в таблицу <code className="text-zinc-200">data.&quot;CashShopCoinGrant&quot;</code> сервера OpenMU-Origins.
-              </>
-            ) : isEs ? (
-              <>
-                Cada donación agrega <strong className="text-amber-300">WebShop Credits</strong> para compras en la web y envía <strong className="text-emerald-300">WCoinC</strong> a la tabla <code className="text-zinc-200">data.&quot;CashShopCoinGrant&quot;</code> de OpenMU-Origins.
-              </>
-            ) : isBg ? (
-              <>
-                Всяко дарение добавя <strong className="text-amber-300">WebShop Credits</strong> и изпраща <strong className="text-emerald-300">WCoinC</strong> директно към базата данни на OpenMU-Origins (<code className="text-zinc-200">data.&quot;CashShopCoinGrant&quot;</code>).
-              </>
-            ) : (
-              <>
-                ทุกยอดการบริจาค (Donate) จะเพิ่มทั้ง <strong className="text-amber-300">WebShop Credits</strong> สำหรับซื้อ/ตีบวกไอเทมหน้าเว็บ และส่ง <strong className="text-emerald-300">WCoinC</strong> เข้าสู่ตาราง <code className="text-zinc-200">data.&quot;CashShopCoinGrant&quot;</code> ของเซิร์ฟเวอร์ OpenMU-Origins แบบอัตโนมัติ (Idempotent Reference)
-              </>
-            )}
+            {L(lang, {
+              en: 'Every top-up grants WebShop Credits for website purchases and delivers WCoinC directly to your Egis-MU in-game CashShop.',
+              th: 'ทุกยอดการเติมจะเพิ่มทั้ง WebShop Credits สำหรับซื้อไอเทมหน้าเว็บ และส่งเหรียญ WCoinC เข้าสู่ CashShop ในเกมโดยอัตโนมัติ',
+              pt: 'Cada doação adiciona WebShop Credits para compras no site e entrega WCoinC diretamente no CashShop do jogo.',
+              ru: 'Каждое пополнение начисляет WebShop Credits на сайте и автоматически отправляет WCoinC в игровой CashShop.',
+              es: 'Cada recarga otorga WebShop Credits para la tienda web y envía WCoinC directamente al CashShop del juego.',
+              bg: 'Всяко зареждане добавя WebShop Credits за сайта и изпраща WCoinC директно в игралния CashShop.',
+            })}
           </p>
         </div>
 
@@ -405,7 +409,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
 
           <div className="px-4 py-2.5 rounded bg-zinc-950 border border-emerald-500/40">
             <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-              OpenMU WCoinC
+              In-Game WCoinC
             </div>
             <div className="text-base font-bold font-mono-tabular text-emerald-400">
               {wCoinCBalance.toLocaleString()} WCoinC
@@ -429,15 +433,14 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           }`}
         >
           <Smartphone className="w-4 h-4" />
-          {isPt
-            ? '1. Doação TrueMoney Wallet (Voucher / PIN)'
-            : isRu
-            ? '1. TrueMoney Wallet (Ваучер / Код)'
-            : isEs
-            ? '1. Donación TrueMoney Wallet (Voucher / PIN)'
-            : isBg
-            ? '1. TrueMoney Wallet (Ваучер / PIN)'
-            : '1. บริจาค TrueMoney Wallet (ซองอั่งเปา / บัตรเงินสด)'}
+          {L(lang, {
+            en: '1. TrueMoney Wallet (Voucher / PIN / QR)',
+            th: '1. เติมผ่าน TrueMoney Wallet (ซองอั่งเปา / บัตรเงินสด / QR)',
+            pt: '1. TrueMoney Wallet (Voucher / PIN / QR)',
+            ru: '1. TrueMoney Wallet (Ваучер / PIN / QR)',
+            es: '1. TrueMoney Wallet (Cupón / PIN / QR)',
+            bg: '1. TrueMoney Wallet (Ваучер / PIN / QR)',
+          })}
         </button>
 
         <button
@@ -453,15 +456,14 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          {isPt
-            ? '2. Doação via PayPal (Checkout Instantâneo)'
-            : isRu
-            ? '2. Пожертвование через PayPal (Мгновенно)'
-            : isEs
-            ? '2. Donación vía PayPal (Checkout Instantáneo)'
-            : isBg
-            ? '2. Дарение чрез PayPal (Мигновено)'
-            : '2. บริจาคผ่าน PayPal (Instant Checkout)'}
+          {L(lang, {
+            en: '2. PayPal Instant Checkout',
+            th: '2. ชำระผ่าน PayPal (Instant Checkout)',
+            pt: '2. Doação via PayPal (Instantâneo)',
+            ru: '2. Пополнение через PayPal',
+            es: '2. Pago vía PayPal (Instantáneo)',
+            bg: '2. Плащане чрез PayPal',
+          })}
         </button>
 
         <button
@@ -474,36 +476,14 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           }`}
         >
           <History className="w-4 h-4" />
-          {isPt
-            ? `Histórico de Doações (${grants.length})`
-            : isRu
-            ? `История пожертвований (${grants.length})`
-            : isEs
-            ? `Historial de Donaciones (${grants.length})`
-            : isBg
-            ? `История на Даренията (${grants.length})`
-            : `ประวัติการบริจาค / Donate (${grants.length})`}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('guide')}
-          className={`px-4 py-2 rounded text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
-            activeTab === 'guide'
-              ? 'bg-emerald-500 text-zinc-950'
-              : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-          }`}
-        >
-          <Code2 className="w-4 h-4" />
-          {isPt
-            ? 'Guia de Integração Login & API OpenMU-Origins'
-            : isRu
-            ? 'Инструкция по интеграции OpenMU-Origins'
-            : isEs
-            ? 'Guía de Integración Login & API OpenMU-Origins'
-            : isBg
-            ? 'Инструкции за интеграция с OpenMU-Origins'
-            : 'วิธีเชื่อม Login & API เข้ากับ OpenMU-Origins'}
+          {L(lang, {
+            en: `Transaction History (${grants.length})`,
+            th: `ประวัติการเติมเครดิต (${grants.length})`,
+            pt: `Histórico de Transações (${grants.length})`,
+            ru: `История платежей (${grants.length})`,
+            es: `Historial de Transacciones (${grants.length})`,
+            bg: `История на Плащанията (${grants.length})`,
+          })}
         </button>
       </div>
 
@@ -535,17 +515,24 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
       {/* TAB 1: TRUEMONEY WALLET */}
       {activeTab === 'truemoney' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left: Tier Selection (7 cols) */}
+          {/* Left: Tier Selection */}
           <div className="lg:col-span-7 p-5 rounded border border-zinc-800 bg-zinc-900/80 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
               <div className="flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-[#ff8300]" />
                 <h3 className="text-sm font-bold text-white">
-                  ขั้นตอนที่ 1: เลือกมูลค่าการบริจาค TrueMoney (บาท)
+                  {L(lang, {
+                    en: 'Step 1: Select TrueMoney Amount (THB)',
+                    th: 'ขั้นตอนที่ 1: เลือกมูลค่าการเติม TrueMoney (บาท)',
+                    pt: 'Passo 1: Selecione o Valor TrueMoney (THB)',
+                    ru: 'Шаг 1: Выберите сумму TrueMoney (THB)',
+                    es: 'Paso 1: Selecciona el Monto TrueMoney (THB)',
+                    bg: 'Стъпка 1: Изберете сума TrueMoney (THB)',
+                  })}
                 </h3>
               </div>
               <span className="text-xs text-zinc-400 font-mono-tabular">
-                1 THB ≈ 10–13 Credits
+                1 THB ≈ 10–13 Cr
               </span>
             </div>
 
@@ -577,7 +564,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                         +{tier.credits.toLocaleString()} Credits
                       </div>
                       <div className="text-[11px] font-mono-tabular text-emerald-400">
-                        +{tier.wCoinC.toLocaleString()} WCoinC (ในเกม)
+                        +{tier.wCoinC.toLocaleString()} WCoinC
                       </div>
                     </div>
                   </button>
@@ -588,16 +575,21 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             {/* Method sub-selector */}
             <div className="pt-2 space-y-3">
               <div className="text-xs font-semibold text-zinc-300">
-                ขั้นตอนที่ 2: เลือกช่องทาง TrueMoney
+                {L(lang, {
+                  en: 'Step 2: Select Payment Channel',
+                  th: 'ขั้นตอนที่ 2: เลือกช่องทางชำระเงิน TrueMoney',
+                  pt: 'Passo 2: Selecione o Canal TrueMoney',
+                  ru: 'Шаг 2: Выберите способ оплаты TrueMoney',
+                  es: 'Paso 2: Selecciona el Canal TrueMoney',
+                  bg: 'Стъпка 2: Изберете метод за плащане TrueMoney',
+                })}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <button
                   type="button"
                   onClick={() => {
                     setTmMethod('angpao');
-                    if (!voucherInput.startsWith('http')) {
-                      generateSampleAngpao();
-                    }
+                    setVoucherInput('');
                   }}
                   className={`p-3 rounded border text-left text-xs cursor-pointer transition-colors ${
                     tmMethod === 'angpao'
@@ -605,9 +597,25 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                       : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
-                  <div>ซองของขวัญ (ซองอั่งเปา)</div>
+                  <div>
+                    {L(lang, {
+                      en: 'Gift Voucher (Angpao)',
+                      th: 'ซองของขวัญ (ซองอั่งเปา)',
+                      pt: 'Envelope de Presente (Angpao)',
+                      ru: 'Подарочный конверт (Angpao)',
+                      es: 'Sobre de Regalo (Angpao)',
+                      bg: 'Подаръчен ваучер (Angpao)',
+                    })}
+                  </div>
                   <div className="text-[10px] text-zinc-400 mt-0.5">
-                    ฟรีค่าธรรมเนียม 0% · รับเครดิตทันที
+                    {L(lang, {
+                      en: '0% Fee · Instant credit',
+                      th: 'ฟรีค่าธรรมเนียม 0% · รับเครดิตทันที',
+                      pt: 'Taxa 0% · Crédito imediato',
+                      ru: 'Комиссия 0% · Мгновенно',
+                      es: '0% Comisión · Acreditación inmediata',
+                      bg: '0% Такса · Мигновено зареждане',
+                    })}
                   </div>
                 </button>
 
@@ -615,9 +623,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                   type="button"
                   onClick={() => {
                     setTmMethod('cashcard');
-                    if (voucherInput.startsWith('http')) {
-                      generateSampleCashCard();
-                    }
+                    setVoucherInput('');
                   }}
                   className={`p-3 rounded border text-left text-xs cursor-pointer transition-colors ${
                     tmMethod === 'cashcard'
@@ -625,9 +631,25 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                       : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
-                  <div>บัตรเงินสด TrueMoney 14 หลัก</div>
+                  <div>
+                    {L(lang, {
+                      en: '14-Digit Cash Card',
+                      th: 'บัตรเงินสด TrueMoney 14 หลัก',
+                      pt: 'Cartão Pré-Pago 14 Dígitos',
+                      ru: 'Карта оплаты (14 цифр)',
+                      es: 'Tarjeta Prepago 14 Dígitos',
+                      bg: 'Предплатена карта (14 цифри)',
+                    })}
+                  </div>
                   <div className="text-[10px] text-zinc-400 mt-0.5">
-                    กรอกรหัสพิน 14 หลักจากสลิป 7-Eleven
+                    {L(lang, {
+                      en: 'Enter 14-digit TrueMoney PIN',
+                      th: 'กรอกรหัสพิน 14 หลัก',
+                      pt: 'Insira o PIN de 14 dígitos',
+                      ru: 'Введите 14-значный PIN-код',
+                      es: 'Ingresa el PIN de 14 dígitos',
+                      bg: 'Въведете 14-цифрен PIN код',
+                    })}
                   </div>
                 </button>
 
@@ -640,16 +662,32 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                       : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
-                  <div>สแกน QR TrueMoney / PromptPay</div>
+                  <div>
+                    {L(lang, {
+                      en: 'TrueMoney / PromptPay QR',
+                      th: 'สแกน QR TrueMoney / PromptPay',
+                      pt: 'QR Code TrueMoney / PromptPay',
+                      ru: 'QR-код TrueMoney / PromptPay',
+                      es: 'Código QR TrueMoney / PromptPay',
+                      bg: 'QR Код TrueMoney / PromptPay',
+                    })}
+                  </div>
                   <div className="text-[10px] text-zinc-400 mt-0.5">
-                    สแกนผ่านแอป TrueMoney หรือธนาคาร
+                    {L(lang, {
+                      en: 'Scan with mobile banking app',
+                      th: 'สแกนผ่านแอปธนาคารหรือ TrueMoney',
+                      pt: 'Escaneie pelo aplicativo bancário',
+                      ru: 'Сканируйте банковским приложением',
+                      es: 'Escanea desde tu app bancaria',
+                      bg: 'Сканирайте с банково приложение',
+                    })}
                   </div>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Right: Redemption Form (5 cols) */}
+          {/* Right: Redemption Form */}
           <form
             onSubmit={handleTrueMoneySubmit}
             className="lg:col-span-5 p-5 rounded border border-zinc-800 bg-zinc-900/90 space-y-4"
@@ -657,10 +695,31 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             <div className="pb-3 border-b border-zinc-800 flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#ff8300]">
                 {tmMethod === 'angpao'
-                  ? 'กรอกลิงก์ซองอั่งเปา TrueMoney Wallet'
+                  ? L(lang, {
+                      en: 'Redeem TrueMoney Gift Voucher',
+                      th: 'กรอกลิงก์ซองอั่งเปา TrueMoney Wallet',
+                      pt: 'Resgatar Voucher TrueMoney',
+                      ru: 'Активация ваучера TrueMoney',
+                      es: 'Canjear Enlace TrueMoney',
+                      bg: 'Активиране на TrueMoney ваучер',
+                    })
                   : tmMethod === 'cashcard'
-                  ? 'กรอกรหัสบัตรเงินสด TrueMoney 14 หลัก'
-                  : 'สแกน QR Code TrueMoney Wallet'}
+                  ? L(lang, {
+                      en: 'Redeem 14-Digit Cash Card PIN',
+                      th: 'กรอกรหัสบัตรเงินสด TrueMoney 14 หลัก',
+                      pt: 'Inserir PIN de 14 Dígitos',
+                      ru: 'Ввод 14-значного PIN-кода',
+                      es: 'Ingresar PIN de 14 Dígitos',
+                      bg: 'Въвеждане на 14-цифрен PIN',
+                    })
+                  : L(lang, {
+                      en: 'Scan PromptPay / TrueMoney QR',
+                      th: 'สแกน QR Code ชำระเงิน',
+                      pt: 'Escanear QR Code TrueMoney',
+                      ru: 'Оплата по QR-коду',
+                      es: 'Escanear Código QR',
+                      bg: 'Сканиране на QR код',
+                    })}
               </h3>
               <span className="text-xs font-mono-tabular text-zinc-400">
                 ID: {account.username}
@@ -669,39 +728,51 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
 
             {tmMethod === 'angpao' && (
               <div className="space-y-3 text-xs">
-                <div className="p-3 rounded bg-zinc-950 border border-zinc-800 space-y-1 text-zinc-300">
+                <div className="p-3 rounded bg-zinc-950 border border-zinc-800 space-y-1 text-zinc-300 leading-relaxed">
                   <div>
-                    1. เปิดแอป <strong>TrueMoney Wallet</strong> เลือกเมนู{' '}
-                    <strong className="text-[#ff8300]">ส่งซองของขวัญ (อั่งเปา)</strong>
+                    {L(lang, {
+                      en: `1. Open TrueMoney Wallet and create a Gift Envelope for ฿${selectedThb} (1 recipient).`,
+                      th: `1. เปิดแอป TrueMoney Wallet เลือกส่งซองของขวัญ ยอด ฿${selectedThb} จำนวน 1 คน`,
+                      pt: `1. Abra o TrueMoney Wallet e crie um envelope de presente de ฿${selectedThb} (1 destinatário).`,
+                      ru: `1. Откройте TrueMoney Wallet и создайте подарочный конверт на ฿${selectedThb} (1 получатель).`,
+                      es: `1. Abre TrueMoney Wallet y crea un sobre de regalo por ฿${selectedThb} (1 destinatario).`,
+                      bg: `1. Отворете TrueMoney Wallet и създайте подаръчен плик за ฿${selectedThb} (1 получател).`,
+                    })}
                   </div>
                   <div>
-                    2. กรอกยอดเงิน <strong>{selectedThb} บาท</strong> เลือกแบ่งจำนวนคนรับเท่ากัน <strong>1 คน</strong>
-                  </div>
-                  <div>
-                    3. คัดลอกลิงก์ซองของขวัญมาวางในช่องด้านล่าง (เบอร์รับซองร้านค้า:{' '}
-                    <code className="text-amber-400">{merchantPhone}</code>)
+                    {L(lang, {
+                      en: '2. Copy the gift link and paste it in the field below.',
+                      th: '2. คัดลอกลิงก์ซองของขวัญมาวางในช่องด้านล่างแล้วกดยืนยัน',
+                      pt: '2. Copie o link gerado e cole no campo abaixo.',
+                      ru: '2. Скопируйте ссылку и вставьте её в поле ниже.',
+                      es: '2. Copia el enlace generado y pégalo abajo.',
+                      bg: '2. Копирайте линка и го поставете в полето по-долу.',
+                    })}
+                    {merchantPhone ? (
+                      <span className="block mt-1 text-amber-400 font-mono-tabular">
+                        Merchant: {merchantPhone}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-zinc-300 font-medium">
-                      ลิงก์ซองของขวัญ (Voucher Link)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={generateSampleAngpao}
-                      className="text-[11px] text-[#ff8300] hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      สุ่มลิงก์ซองอั่งเปาทดสอบใหม่
-                    </button>
-                  </div>
+                  <label className="block text-zinc-300 font-medium mb-1.5">
+                    {L(lang, {
+                      en: 'Voucher Link',
+                      th: 'ลิงก์ซองของขวัญ (Voucher Link)',
+                      pt: 'Link do Voucher',
+                      ru: 'Ссылка на ваучер',
+                      es: 'Enlace del Cupón',
+                      bg: 'Линк към ваучера',
+                    })}
+                  </label>
                   <input
-                    type="text"
+                    type="url"
                     value={voucherInput}
                     onChange={(e) => setVoucherInput(e.target.value)}
                     placeholder="https://gift.truemoney.com/campaign/?v=..."
+                    required
                     className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-700 text-zinc-100 font-mono-tabular text-xs"
                   />
                 </div>
@@ -711,25 +782,33 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             {tmMethod === 'cashcard' && (
               <div className="space-y-3 text-xs">
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-zinc-300 font-medium">
-                      รหัสบัตรเงินสด TrueMoney (ตัวเลข 14 หลัก)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={generateSampleCashCard}
-                      className="text-[11px] text-[#ff8300] hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      สุ่มรหัสบัตร 14 หลักทดสอบ
-                    </button>
-                  </div>
+                  <label className="block text-zinc-300 font-medium mb-1.5">
+                    {L(lang, {
+                      en: '14-Digit Cash Card PIN',
+                      th: 'รหัสบัตรเงินสด TrueMoney (ตัวเลข 14 หลัก)',
+                      pt: 'PIN de 14 Dígitos do Cartão',
+                      ru: '14-значный PIN-код карты',
+                      es: 'PIN de 14 Dígitos de la Tarjeta',
+                      bg: '14-цифрен PIN код на картата',
+                    })}
+                  </label>
                   <input
                     type="text"
+                    inputMode="numeric"
                     maxLength={14}
                     value={voucherInput}
-                    onChange={(e) => setVoucherInput(e.target.value)}
-                    placeholder="กรอกตัวเลข 14 หลัก เช่น 41928374651029"
+                    onChange={(e) =>
+                      setVoucherInput(e.target.value.replace(/\D+/g, '').slice(0, 14))
+                    }
+                    placeholder={L(lang, {
+                      en: 'Enter 14-digit PIN',
+                      th: 'กรอกตัวเลข 14 หลักบนสลิปบัตรเงินสด',
+                      pt: 'Digite os 14 números do PIN',
+                      ru: 'Введите 14 цифр PIN-кода',
+                      es: 'Ingresa los 14 dígitos del PIN',
+                      bg: 'Въведете 14-те цифри на PIN кода',
+                    })}
+                    required
                     className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-700 text-zinc-100 font-mono-tabular text-sm tracking-widest"
                   />
                 </div>
@@ -745,8 +824,19 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                   </span>
                 </div>
                 <div className="text-xs text-zinc-300">
-                  สแกน QR เพื่อชำระยอด <strong>฿{selectedThb}</strong> เข้าเบอร์{' '}
-                  <strong className="text-amber-400">{merchantPhone}</strong>
+                  {L(lang, {
+                    en: `Scan QR to pay ฿${selectedThb}`,
+                    th: `สแกน QR เพื่อชำระยอด ฿${selectedThb}`,
+                    pt: `Escaneie o QR para pagar ฿${selectedThb}`,
+                    ru: `Отсканируйте QR для оплаты ฿${selectedThb}`,
+                    es: `Escanea el QR para pagar ฿${selectedThb}`,
+                    bg: `Сканирайте QR кода за плащане на ฿${selectedThb}`,
+                  })}
+                  {merchantPhone ? (
+                    <span className="block text-amber-400 font-mono-tabular mt-0.5">
+                      {merchantPhone}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -754,17 +844,44 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             {/* Summary Box */}
             <div className="p-3.5 rounded bg-zinc-950 border border-zinc-800 space-y-1.5 text-xs">
               <div className="flex items-center justify-between text-zinc-400">
-                <span>บัญชีผู้รับ (OpenMU LoginName):</span>
+                <span>
+                  {L(lang, {
+                    en: 'Recipient Account:',
+                    th: 'บัญชีผู้รับเครดิต:',
+                    pt: 'Conta de Destino:',
+                    ru: 'Аккаунт получателя:',
+                    es: 'Cuenta Destino:',
+                    bg: 'Получаващ Акаунт:',
+                  })}
+                </span>
                 <strong className="text-white">{account.username}</strong>
               </div>
               <div className="flex items-center justify-between text-zinc-400">
-                <span>เครดิตหน้าเว็บที่จะได้รับ:</span>
+                <span>
+                  {L(lang, {
+                    en: 'WebShop Credits:',
+                    th: 'เครดิตหน้าเว็บที่จะได้รับ:',
+                    pt: 'Créditos WebShop:',
+                    ru: 'Кредиты WebShop:',
+                    es: 'Créditos WebShop:',
+                    bg: 'WebShop Кредити:',
+                  })}
+                </span>
                 <strong className="font-mono-tabular text-amber-400">
                   +{activeTier.credits.toLocaleString()} Credits
                 </strong>
               </div>
               <div className="flex items-center justify-between text-zinc-400">
-                <span>เหรียญ CashShop ในเกม (OpenMU-Origins):</span>
+                <span>
+                  {L(lang, {
+                    en: 'In-Game CashShop:',
+                    th: 'เหรียญ CashShop ในเกม:',
+                    pt: 'CashShop no Jogo:',
+                    ru: 'Игровой CashShop:',
+                    es: 'CashShop en el Juego:',
+                    bg: 'CashShop в Играта:',
+                  })}
+                </span>
                 <strong className="font-mono-tabular text-emerald-400">
                   +{activeTier.wCoinC.toLocaleString()} WCoinC
                 </strong>
@@ -778,8 +895,22 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             >
               <Sparkles className="w-4 h-4" />
               {isSubmittingTm
-                ? 'กำลังตรวจสอบและเติมเครดิต...'
-                : `ยืนยันการเติมเงิน TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} Credits)`}
+                ? L(lang, {
+                    en: 'Verifying Payment...',
+                    th: 'กำลังตรวจสอบรายการ...',
+                    pt: 'Verificando Pagamento...',
+                    ru: 'Проверка платежа...',
+                    es: 'Verificando Pago...',
+                    bg: 'Проверка на плащането...',
+                  })
+                : L(lang, {
+                    en: `Confirm TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} Credits)`,
+                    th: `ยืนยันเติมเงิน TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} Credits)`,
+                    pt: `Confirmar TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} Créditos)`,
+                    ru: `Подтвердить TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} кред.)`,
+                    es: `Confirmar TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} Créditos)`,
+                    bg: `Потвърди TrueMoney ฿${selectedThb.toLocaleString()} (+${activeTier.credits.toLocaleString()} Кредита)`,
+                  })}
             </button>
           </form>
         </div>
@@ -792,16 +923,16 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             <div className="flex items-center gap-2.5 text-zinc-300">
               <ShieldCheck className="w-4 h-4 text-[#3b95ef] shrink-0" />
               <span>
-                เชื่อมต่อตามโครงสร้าง{' '}
-                <code className="text-amber-300">WebShopController.cs</code> และ{' '}
-                <code className="text-amber-300">PayPalCheckoutService</code> ของ{' '}
-                <strong>OpenMU-Origins</strong> (Create Order → Capture → Idempotent{' '}
-                <code>paypal:&lt;token&gt;</code> Grant)
+                {L(lang, {
+                  en: 'Instant PayPal Checkout with idempotent replay protection. Credits and WCoinC are granted immediately upon order capture.',
+                  th: 'ชำระเงินผ่าน PayPal แบบรับเครดิตและ WCoinC อัตโนมัติทันทีหลังยืนยันยอด พร้อมระบบป้องกันการตัดยอดซ้ำ (Idempotency Protection)',
+                  pt: 'Checkout instantâneo via PayPal com proteção contra duplicidade. Créditos e WCoinC são entregues imediatamente.',
+                  ru: 'Мгновенная оплата через PayPal с защитой от повторного списания. Кредиты и WCoinC начисляются сразу.',
+                  es: 'Pago instantáneo con PayPal con protección idempotente. Créditos y WCoinC se acreditan al instante.',
+                  bg: 'Мигновено плащане с PayPal и автоматично начисляване на Credits и WCoinC след потвърждение.',
+                })}
               </span>
             </div>
-            <span className="font-mono-tabular text-zinc-400 shrink-0">
-              Mode: Sandbox / Instant Capture
-            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -819,8 +950,9 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                       {pkg.bonusTag}
                     </span>
                   </div>
-                  <h3 className="text-base font-bold text-white">{pkg.name}</h3>
-                  <div className="text-xs text-zinc-400">{pkg.nameTh}</div>
+                  <h3 className="text-base font-bold text-white">
+                    {lang === 'Thai' ? pkg.nameTh : pkg.name}
+                  </h3>
 
                   <div className="pt-3 border-t border-zinc-800 space-y-1">
                     <div className="text-xl font-bold font-mono-tabular text-amber-400">
@@ -830,7 +962,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                       </span>
                     </div>
                     <div className="text-xs font-mono-tabular text-emerald-400 font-semibold">
-                      +{pkg.wCoinC.toLocaleString()} WCoinC (In-Game CashShop)
+                      +{pkg.wCoinC.toLocaleString()} WCoinC
                     </div>
                   </div>
                 </div>
@@ -851,7 +983,14 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                     className="w-full py-2.5 px-4 rounded font-semibold text-xs bg-[#0070ba] hover:bg-[#005ea6] text-white transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <CreditCard className="w-4 h-4" />
-                    Pay with PayPal
+                    {L(lang, {
+                      en: 'Pay with PayPal',
+                      th: 'ชำระด้วย PayPal',
+                      pt: 'Pagar com PayPal',
+                      ru: 'Оплатить через PayPal',
+                      es: 'Pagar con PayPal',
+                      bg: 'Плати с PayPal',
+                    })}
                   </button>
                 </div>
               </div>
@@ -860,240 +999,123 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         </div>
       )}
 
-      {/* TAB 3: TRANSACTION HISTORY & CASHSHOP GRANTS */}
+      {/* TAB 3: TRANSACTION HISTORY */}
       {activeTab === 'history' && (
         <div className="rounded border border-zinc-800 bg-zinc-900/80 overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-100">
-              OpenMU-Origins `data.&quot;CashShopCoinGrant&quot;` & WebShop Top-Up Ledger
-            </span>
-            <span className="text-[11px] font-mono-tabular text-zinc-400">
-              {bridgeMode}
+              {L(lang, {
+                en: 'Payment & Coin Grant Ledger',
+                th: 'รายการประวัติการเติมเครดิตและเหรียญ WCoinC',
+                pt: 'Registro de Pagamentos e Créditos',
+                ru: 'Журнал пополнений и начислений',
+                es: 'Registro de Pagos y Acreditaciones',
+                bg: 'Дневник на плащанията и кредитите',
+              })}
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-zinc-950/60 text-zinc-400 border-b border-zinc-800">
                 <tr>
-                  <th className="px-4 py-2.5">Reference (Idempotent Key)</th>
-                  <th className="px-4 py-2.5">Account</th>
-                  <th className="px-4 py-2.5">Channel / Reason</th>
-                  <th className="px-4 py-2.5 text-right">WebShop Credits</th>
-                  <th className="px-4 py-2.5 text-right">In-Game WCoinC</th>
-                  <th className="px-4 py-2.5 text-right">Time</th>
+                  <th className="px-4 py-2.5">
+                    {L(lang, {
+                      en: 'Reference',
+                      th: 'เลขอ้างอิง (Reference)',
+                      pt: 'Referência',
+                      ru: 'Референс',
+                      es: 'Referencia',
+                      bg: 'Референция',
+                    })}
+                  </th>
+                  <th className="px-4 py-2.5">
+                    {L(lang, {
+                      en: 'Account',
+                      th: 'บัญชี',
+                      pt: 'Conta',
+                      ru: 'Аккаунт',
+                      es: 'Cuenta',
+                      bg: 'Акаунт',
+                    })}
+                  </th>
+                  <th className="px-4 py-2.5">
+                    {L(lang, {
+                      en: 'Details',
+                      th: 'รายละเอียด',
+                      pt: 'Detalhes',
+                      ru: 'Описание',
+                      es: 'Detalles',
+                      bg: 'Детайли',
+                    })}
+                  </th>
+                  <th className="px-4 py-2.5 text-right">Credits</th>
+                  <th className="px-4 py-2.5 text-right">WCoinC</th>
+                  <th className="px-4 py-2.5 text-right">
+                    {L(lang, {
+                      en: 'Time',
+                      th: 'เวลา',
+                      pt: 'Data/Hora',
+                      ru: 'Время',
+                      es: 'Fecha/Hora',
+                      bg: 'Време',
+                    })}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60">
-                {grants.map((g) => (
-                  <tr key={g.id} className="hover:bg-zinc-800/40">
-                    <td className="px-4 py-2.5 font-mono-tabular text-amber-300">
-                      {g.reference}
-                    </td>
-                    <td className="px-4 py-2.5 font-semibold text-white">
-                      {g.accountLoginName}
-                    </td>
-                    <td className="px-4 py-2.5 text-zinc-300">{g.reason}</td>
-                    <td className="px-4 py-2.5 text-right font-mono-tabular font-bold text-amber-400">
-                      +{g.creditsAdded.toLocaleString()} cr
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono-tabular font-bold text-emerald-400">
-                      +{g.amount.toLocaleString()} {g.coinType}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono-tabular text-zinc-400">
-                      {new Date(g.createdAt).toLocaleString()}
+                {grants.length > 0 ? (
+                  grants.map((g) => (
+                    <tr key={g.id} className="hover:bg-zinc-800/40">
+                      <td className="px-4 py-2.5 font-mono-tabular text-amber-300">
+                        {g.reference}
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold text-white">
+                        {g.accountLoginName}
+                      </td>
+                      <td className="px-4 py-2.5 text-zinc-300">{g.reason}</td>
+                      <td className="px-4 py-2.5 text-right font-mono-tabular font-bold text-amber-400">
+                        +{g.creditsAdded.toLocaleString()} cr
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono-tabular font-bold text-emerald-400">
+                        +{g.amount.toLocaleString()} {g.coinType}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono-tabular text-zinc-400">
+                        {new Date(g.createdAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-4 py-8 text-center text-zinc-500"
+                    >
+                      {L(lang, {
+                        en: 'No payment transactions recorded yet.',
+                        th: 'ยังไม่มีประวัติการทำรายการเติมเครดิต',
+                        pt: 'Nenhuma transação registrada ainda.',
+                        ru: 'Платежей пока не зарегистрировано.',
+                        es: 'Aún no hay transacciones registradas.',
+                        bg: 'Все още няма записани плащания.',
+                      })}
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* TAB 4: OPENMU-ORIGINS INTEGRATION GUIDE & CODE */}
-      {activeTab === 'guide' && (
-        <div className="space-y-5">
-          {copiedNotice && (
-            <div className="p-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 text-xs">
-              คัดลอกโค้ด {copiedNotice} ลงในคลิปบอร์ดเรียบร้อยแล้ว!
-            </div>
-          )}
-
-          {/* Architectural Comparison Card */}
-          <div className="p-5 rounded border border-zinc-800 bg-zinc-900/85 space-y-4">
-            <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2">
-              <KeyRound className="w-4 h-4" />
-              สรุปสิ่งที่ต้องแก้ไขเมื่อเชื่อม Open-Webshop เข้ากับ OpenMU-Origins (`project-bells/OpenMU-Origins`)
-            </h3>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border border-zinc-800">
-                <thead className="bg-zinc-950 text-zinc-300 border-b border-zinc-800">
-                  <tr>
-                    <th className="p-3">ส่วนระบบ (Module)</th>
-                    <th className="p-3">Open-Webshop เดิม (PHP / SavOy)</th>
-                    <th className="p-3 text-emerald-400">
-                      OpenMU-Origins (`MUnique.OpenMU`) + React App นี้
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800 text-zinc-300">
-                  <tr>
-                    <td className="p-3 font-semibold text-white">
-                      1. ฐานข้อมูล & ตารางบัญชี (Account Auth)
-                    </td>
-                    <td className="p-3 font-mono-tabular text-zinc-400">
-                      MSSQL <code>MuOnline.dbo.MEMB_INFO</code> (<code>memb___id</code>, <code>memb__pwd</code> plain/MD5)
-                    </td>
-                    <td className="p-3">
-                      PostgreSQL ตาราง{' '}
-                      <code className="text-amber-300">data.&quot;Account&quot;</code> คอลัมน์{' '}
-                      <code>&quot;LoginName&quot;</code> และ{' '}
-                      <code>&quot;PasswordHash&quot;</code> (เข้ารหัสด้วย{' '}
-                      <strong className="text-white">BCrypt.Net</strong> รูปแบบ{' '}
-                      <code>$2a$11$...</code>) หรือเรียกผ่าน{' '}
-                      <code>POST /webshop/login</code>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-semibold text-white">
-                      2. การสมัครสมาชิกใหม่ (Register)
-                    </td>
-                    <td className="p-3 font-mono-tabular text-zinc-400">
-                      INSERT ลง <code>MEMB_INFO</code> โดยตรง
-                    </td>
-                    <td className="p-3">
-                      เรียก API{' '}
-                      <code className="text-amber-300">POST /api/accounts</code>{' '}
-                      ใน <code>AccountController.cs</code> พร้อมแนบ Header{' '}
-                      <code>X-Api-Key: &lt;32+ char key&gt;</code>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-semibold text-white">
-                      3. ระบบเติมเครดิต / เหรียญ (TrueMoney & PayPal)
-                    </td>
-                    <td className="p-3 font-mono-tabular text-zinc-400">
-                      Stored Procedure <code>exec XCredits @user, @amount</code>
-                    </td>
-                    <td className="p-3">
-                      เรียก API{' '}
-                      <code className="text-amber-300">
-                        POST /api/accounts/&#123;loginName&#125;/cash-shop/grants
-                      </code>{' '}
-                      ใน <code>CashShopController.cs</code> พร้อมส่ง{' '}
-                      <code>reference: &quot;truemoney:...&quot;</code> หรือ{' '}
-                      <code>&quot;paypal:...&quot;</code> (ป้องกันการเติมซ้ำอัตโนมัติ)
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-semibold text-white">
-                      4. คลังเก็บของ (Warehouse Vault)
-                    </td>
-                    <td className="p-3 font-mono-tabular text-zinc-400">
-                      <code>warehouse.Items</code> (<code>varbinary(1920)</code>)
-                    </td>
-                    <td className="p-3">
-                      ตาราง{' '}
-                      <code className="text-amber-300">data.&quot;ItemStorage&quot;</code>{' '}
-                      และ <code className="text-amber-300">data.&quot;Item&quot;</code>{' '}
-                      ผูกผ่าน <code>Account.&quot;VaultId&quot;</code>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Code Snippet 1: OpenMU-Origins appsettings.json & API Key */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div className="p-5 rounded border border-zinc-800 bg-zinc-900/85 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">
-                  1. ตั้งค่าในฝั่ง OpenMU-Origins (`appsettings.json` / AdminPanel)
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    copyText(
-                      `{\n  "WebShop": {\n    "Enabled": true,\n    "PayPalClientId": "YOUR_PAYPAL_CLIENT_ID",\n    "PayPalClientSecret": "YOUR_PAYPAL_SECRET",\n    "UsePayPalSandbox": true,\n    "Packages": [\n      {\n        "Code": "PKG_STARTER",\n        "DisplayName": "Lorencia Starter Pack",\n        "PriceInUsd": 4.99,\n        "WCoinC": 250\n      }\n    ]\n  }\n}`,
-                      'WebShop appsettings.json'
-                    )
-                  }
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-200 cursor-pointer"
-                >
-                  <Copy className="w-3 h-3" />
-                  Copy JSON
-                </button>
-              </div>
-              <pre className="p-3 rounded bg-zinc-950 border border-zinc-800 text-[11px] font-mono-tabular text-emerald-300 overflow-x-auto leading-relaxed">
-{`// ใน OpenMU-Origins (src/Web/AdminPanel/WebShop/WebShopOptions.cs)
-{
-  "WebShop": {
-    "Enabled": true,
-    "PayPalClientId": "YOUR_PAYPAL_CLIENT_ID",
-    "PayPalClientSecret": "YOUR_PAYPAL_SECRET",
-    "UsePayPalSandbox": true,
-    "Packages": [
-      {
-        "Code": "PKG_STARTER",
-        "DisplayName": "Lorencia Starter Pack",
-        "PriceInUsd": 4.99,
-        "WCoinC": 250
-      }
-    ]
-  }
-}`}
-              </pre>
-            </div>
-
-            {/* Code Snippet 2: Calling CashShopController from TrueMoney / PayPal */}
-            <div className="p-5 rounded border border-zinc-800 bg-zinc-900/85 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">
-                  2. การยิง API เติมเงินเข้า `CashShopController.cs` ของ OpenMU-Origins
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    copyText(
-                      `curl -X POST "http://localhost:5000/api/accounts/${account.username}/cash-shop/grants" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Api-Key: YOUR_32_CHAR_OPENMU_API_KEY" \\\n  -d '{\n    "coinType": "WCoinC",\n    "amount": 1350,\n    "reason": "TrueMoney Angpao 500 THB",\n    "reference": "truemoney:v0192837465abcdef"\n  }'`,
-                      'cURL CashShop Grant'
-                    )
-                  }
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-200 cursor-pointer"
-                >
-                  <Copy className="w-3 h-3" />
-                  Copy cURL
-                </button>
-              </div>
-              <pre className="p-3 rounded bg-zinc-950 border border-zinc-800 text-[11px] font-mono-tabular text-amber-300 overflow-x-auto leading-relaxed">
-{`POST /api/accounts/${account.username}/cash-shop/grants
-Host: your-openmu-origins-server:5000
-X-Api-Key: <API_KEY_32_CHARS_FROM_OPENMU_ADMIN_PANEL>
-Content-Type: application/json
-
-{
-  "coinType": "WCoinC",
-  "amount": 1350,
-  "reason": "TrueMoney Angpao 500 THB",
-  "reference": "truemoney:v0192837465abcdef"
-}`}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PayPal Sandbox Interactive Approval Modal */}
+      {/* PayPal Checkout Approval Modal */}
       {activePayPalOrder && (
-        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded border border-zinc-700 bg-zinc-900 p-5 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
               <div className="flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-[#3b95ef]" />
                 <h3 className="text-sm font-bold text-white">
-                  PayPal Express Checkout (`WebShopController`)
+                  PayPal Express Checkout
                 </h3>
               </div>
               <button
@@ -1101,33 +1123,69 @@ Content-Type: application/json
                 onClick={() => setActivePayPalOrder(null)}
                 className="text-xs text-zinc-400 hover:text-white cursor-pointer"
               >
-                Cancel
+                {L(lang, {
+                  en: 'Close',
+                  th: 'ปิด',
+                  pt: 'Fechar',
+                  ru: 'Закрыть',
+                  es: 'Cerrar',
+                  bg: 'Затвори',
+                })}
               </button>
             </div>
 
             <div className="p-3.5 rounded bg-zinc-950 border border-zinc-800 space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-zinc-400">Order Token:</span>
+                <span className="text-zinc-400">Order ID:</span>
                 <span className="font-mono-tabular text-amber-300">
                   {activePayPalOrder.orderToken}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-zinc-400">Package:</span>
+                <span className="text-zinc-400">
+                  {L(lang, {
+                    en: 'Package:',
+                    th: 'แพ็กเกจ:',
+                    pt: 'Pacote:',
+                    ru: 'Пакет:',
+                    es: 'Paquete:',
+                    bg: 'Пакет:',
+                  })}
+                </span>
                 <strong className="text-white">
-                  {activePayPalOrder.pkg.name} ({activePayPalOrder.pkg.code})
+                  {lang === 'Thai'
+                    ? activePayPalOrder.pkg.nameTh
+                    : activePayPalOrder.pkg.name}
                 </strong>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-zinc-400">Amount Due:</span>
+                <span className="text-zinc-400">
+                  {L(lang, {
+                    en: 'Amount Due:',
+                    th: 'ยอดชำระ:',
+                    pt: 'Valor Total:',
+                    ru: 'К оплате:',
+                    es: 'Importe Total:',
+                    bg: 'Сума за плащане:',
+                  })}
+                </span>
                 <strong className="font-mono-tabular text-base text-white">
                   ${activePayPalOrder.pkg.priceUsd.toFixed(2)} USD
                 </strong>
               </div>
               <div className="flex items-center justify-between border-t border-zinc-800 pt-2">
-                <span className="text-zinc-400">Reward to {account.username}:</span>
+                <span className="text-zinc-400">
+                  {L(lang, {
+                    en: `Account (${account.username}):`,
+                    th: `รับเข้าบัญชี (${account.username}):`,
+                    pt: `Conta (${account.username}):`,
+                    ru: `Аккаунт (${account.username}):`,
+                    es: `Cuenta (${account.username}):`,
+                    bg: `Акаунт (${account.username}):`,
+                  })}
+                </span>
                 <span className="font-mono-tabular font-bold text-emerald-400">
-                  +{activePayPalOrder.pkg.credits.toLocaleString()} Credits & +
+                  +{activePayPalOrder.pkg.credits.toLocaleString()} Cr & +
                   {activePayPalOrder.pkg.wCoinC.toLocaleString()} WCoinC
                 </span>
               </div>
@@ -1135,12 +1193,20 @@ Content-Type: application/json
 
             <div className="text-xs space-y-1.5">
               <label className="block text-zinc-400">
-                PayPal Sandbox Buyer Email:
+                {L(lang, {
+                  en: 'Payer Email (Receipt):',
+                  th: 'อีเมลผู้ชำระเงิน (สำหรับใบเสร็จ):',
+                  pt: 'E-mail do Pagador:',
+                  ru: 'E-mail плательщика:',
+                  es: 'Correo del Pagador:',
+                  bg: 'Имейл на платеца:',
+                })}
               </label>
               <input
                 type="email"
                 value={payerEmail}
                 onChange={(e) => setPayerEmail(e.target.value)}
+                placeholder="name@example.com"
                 className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
               />
             </div>
@@ -1151,7 +1217,14 @@ Content-Type: application/json
                 onClick={() => setActivePayPalOrder(null)}
                 className="px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 cursor-pointer"
               >
-                Cancel Order
+                {L(lang, {
+                  en: 'Cancel',
+                  th: 'ยกเลิก',
+                  pt: 'Cancelar',
+                  ru: 'Отмена',
+                  es: 'Cancelar',
+                  bg: 'Отказ',
+                })}
               </button>
               <button
                 type="button"
@@ -1161,8 +1234,22 @@ Content-Type: application/json
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 {isCapturingPayPal
-                  ? 'Capturing Order...'
-                  : `Approve & Pay $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`}
+                  ? L(lang, {
+                      en: 'Processing...',
+                      th: 'กำลังยืนยันยอด...',
+                      pt: 'Processando...',
+                      ru: 'Обработка...',
+                      es: 'Procesando...',
+                      bg: 'Обработка...',
+                    })
+                  : L(lang, {
+                      en: `Confirm & Pay $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`,
+                      th: `ยืนยันชำระเงิน $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`,
+                      pt: `Confirmar e Pagar $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`,
+                      ru: `Оплатить $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`,
+                      es: `Confirmar y Pagar $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`,
+                      bg: `Потвърди и Плати $${activePayPalOrder.pkg.priceUsd.toFixed(2)}`,
+                    })}
               </button>
             </div>
           </div>

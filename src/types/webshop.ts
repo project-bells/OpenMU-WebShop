@@ -39,6 +39,7 @@ export type LanguageCode =
 export interface VaultItemInstance {
   instanceId: string;
   serial: string; // 8-char hex serial e.g. "00A4F812"
+  itemHex?: string; // 32-char MU Season 6 item hex
   slotIndex: number; // 0..119 in 8x15 warehouse grid
   itemUid: number;
   itemId: number;
@@ -95,6 +96,7 @@ export interface Character {
 export interface AccountData {
   username: string;
   password?: string;
+  characterDeleteCode?: string; // Numeric-only Character Delete Code (รหัสสำหรับลบตัวละคร)
   credits: number;
   vaultMoney: number; // Zen in warehouse (max 900M when buying Zen)
   vaultItems: VaultItemInstance[];
@@ -118,9 +120,12 @@ export interface ItemGroup {
 export interface LogEntry {
   id: number;
   accountId: string;
+  ipAddress?: string;
+  action?: string;
   details: string;
   dateline: number; // unix timestamp seconds
   itemSerial?: string;
+  itemHex?: string;
 }
 
 export interface IpBanEntry {

@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { VaultItemInstance, WebShopConfig, WebShopItem } from '../types/webshop';
+import {
+  LanguageCode,
+  VaultItemInstance,
+  WebShopConfig,
+  WebShopItem,
+} from '../types/webshop';
+import { L } from '../translations';
 import { formatItemTooltip } from '../utils/muItemLogic';
 import { ItemTooltipCard } from './ItemTooltip';
 import { RotateCcw, Search, Sparkles } from 'lucide-react';
@@ -12,6 +18,7 @@ interface WarehouseGridProps {
   onRefundItem?: (instance: VaultItemInstance) => void;
   onTrackSerial?: (serial: string) => void;
   classicMode?: boolean;
+  lang?: LanguageCode;
 }
 
 export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
@@ -22,6 +29,7 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
   onRefundItem,
   onTrackSerial,
   classicMode = false,
+  lang = 'English',
 }) => {
   const [hoveredItem, setHoveredItem] = useState<VaultItemInstance | null>(null);
   const [selectedItem, setSelectedItem] = useState<VaultItemInstance | null>(
@@ -60,7 +68,8 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
     ? formatItemTooltip(
         activeInspectItem,
         catalogMap.get(activeInspectItem.itemUid),
-        config
+        config,
+        lang
       )
     : null;
 
@@ -91,7 +100,8 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                       const tip = formatItemTooltip(
                         item,
                         catalogMap.get(item.itemUid),
-                        config
+                        config,
+                        lang
                       );
                       const isSelected = selectedItem?.instanceId === item.instanceId;
                       return (
@@ -188,7 +198,7 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                 ))}
                 <td
                   style={{ width: '28px', height: '28px' }}
-                  title="Creator: Savoy (Open-Webshop)"
+                  title="Egis-MU WEBSHOP [Continent of Egis-MU S6E3]"
                   className={`vault-cell text-center font-mono-tabular text-[11px] font-bold ${
                     classicMode ? 'text-black bg-[#999999]' : 'text-amber-400 bg-zinc-950/80'
                   }`}
@@ -202,9 +212,25 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
 
         <div className="mt-2 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 font-mono-tabular">
           <span>
-            Occupied Slots: {usedCellsCount} / 120 ({vaultItems.length} items)
+            {L(lang, {
+              en: `Occupied Slots: ${usedCellsCount} / 120 (${vaultItems.length} items)`,
+              th: `ช่องคลังที่ใช้: ${usedCellsCount} / 120 (${vaultItems.length} ชิ้น)`,
+              pt: `Slots Ocupados: ${usedCellsCount} / 120 (${vaultItems.length} itens)`,
+              ru: `Занято ячеек: ${usedCellsCount} / 120 (${vaultItems.length} предм.)`,
+              es: `Espacios Ocupados: ${usedCellsCount} / 120 (${vaultItems.length} ítems)`,
+              bg: `Заети клетки: ${usedCellsCount} / 120 (${vaultItems.length} предм.)`,
+            })}
           </span>
-          <span>Grid: 8 × 15</span>
+          <span>
+            {L(lang, {
+              en: 'Grid: 8 × 15',
+              th: 'ตารางคลัง: 8 × 15',
+              pt: 'Grade: 8 × 15',
+              ru: 'Сетка: 8 × 15',
+              es: 'Cuadrícula: 8 × 15',
+              bg: 'Мрежа: 8 × 15',
+            })}
+          </span>
         </div>
       </div>
 
@@ -215,18 +241,31 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
               <span className="font-medium flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                Vault Slot #{activeInspectItem.slotIndex} (Col{' '}
-                {(activeInspectItem.slotIndex % 8) + 1}, Row{' '}
-                {Math.floor(activeInspectItem.slotIndex / 8) + 1})
+                {L(lang, {
+                  en: `Vault Slot #${activeInspectItem.slotIndex} (Col ${(activeInspectItem.slotIndex % 8) + 1}, Row ${Math.floor(activeInspectItem.slotIndex / 8) + 1})`,
+                  th: `ช่องคลัง #${activeInspectItem.slotIndex} (คอลัมน์ ${(activeInspectItem.slotIndex % 8) + 1}, แถว ${Math.floor(activeInspectItem.slotIndex / 8) + 1})`,
+                  pt: `Slot do Baú #${activeInspectItem.slotIndex} (Col ${(activeInspectItem.slotIndex % 8) + 1}, Lin ${Math.floor(activeInspectItem.slotIndex / 8) + 1})`,
+                  ru: `Слот сундука #${activeInspectItem.slotIndex} (Кол. ${(activeInspectItem.slotIndex % 8) + 1}, Ряд ${Math.floor(activeInspectItem.slotIndex / 8) + 1})`,
+                  es: `Casilla #${activeInspectItem.slotIndex} (Col ${(activeInspectItem.slotIndex % 8) + 1}, Fila ${Math.floor(activeInspectItem.slotIndex / 8) + 1})`,
+                  bg: `Слот #${activeInspectItem.slotIndex} (Кол. ${(activeInspectItem.slotIndex % 8) + 1}, Ред ${Math.floor(activeInspectItem.slotIndex / 8) + 1})`,
+                })}
               </span>
               <span className="font-mono-tabular">
-                Paid: {activeInspectItem.paidCredits.toLocaleString()} credits
+                {L(lang, {
+                  en: `Paid: ${activeInspectItem.paidCredits.toLocaleString()} credits`,
+                  th: `ราคาที่ซื้อ: ${activeInspectItem.paidCredits.toLocaleString()} เครดิต`,
+                  pt: `Pago: ${activeInspectItem.paidCredits.toLocaleString()} créditos`,
+                  ru: `Оплачено: ${activeInspectItem.paidCredits.toLocaleString()} кред.`,
+                  es: `Pagado: ${activeInspectItem.paidCredits.toLocaleString()} créditos`,
+                  bg: `Платено: ${activeInspectItem.paidCredits.toLocaleString()} кред.`,
+                })}
               </span>
             </div>
 
             <ItemTooltipCard
               tooltip={activeTooltip}
               showRefundHint={allowRefund && config.credits.sellback_Q > 0}
+              lang={lang}
             />
 
             {/* Actions on selected item */}
@@ -239,15 +278,14 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                     {confirmRefundId === activeInspectItem.instanceId ? (
                       <div className="w-full p-3 rounded border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row items-center justify-between gap-2">
                         <span className="text-xs text-amber-200">
-                          Confirm selling{' '}
-                          <strong className="font-semibold">
-                            {activeTooltip.displayName}
-                          </strong>{' '}
-                          for{' '}
-                          <strong className="font-mono-tabular">
-                            {activeTooltip.refundCredits.toLocaleString()}
-                          </strong>{' '}
-                          credits?
+                          {L(lang, {
+                            en: `Confirm selling ${activeTooltip.displayName} for ${activeTooltip.refundCredits.toLocaleString()} credits?`,
+                            th: `ยืนยันขายคืน ${activeTooltip.displayName} รับเครดิตคืน ${activeTooltip.refundCredits.toLocaleString()} เครดิตหรือไม่?`,
+                            pt: `Confirmar venda de ${activeTooltip.displayName} por ${activeTooltip.refundCredits.toLocaleString()} créditos?`,
+                            ru: `Подтвердить продажу ${activeTooltip.displayName} за ${activeTooltip.refundCredits.toLocaleString()} кредитов?`,
+                            es: `¿Confirmar venta de ${activeTooltip.displayName} por ${activeTooltip.refundCredits.toLocaleString()} créditos?`,
+                            bg: `Потвърждавате ли продажбата на ${activeTooltip.displayName} за ${activeTooltip.refundCredits.toLocaleString()} кредити?`,
+                          })}
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
                           <button
@@ -260,14 +298,28 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                             }}
                             className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded transition-colors cursor-pointer whitespace-nowrap"
                           >
-                            Confirm Sell Back
+                            {L(lang, {
+                              en: 'Confirm Sell Back',
+                              th: 'ยืนยันขายคืน',
+                              pt: 'Confirmar Venda',
+                              ru: 'Подтвердить продажу',
+                              es: 'Confirmar Venta',
+                              bg: 'Потвърди продажба',
+                            })}
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmRefundId(null)}
                             className="px-2.5 py-1.5 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded transition-colors cursor-pointer whitespace-nowrap"
                           >
-                            Cancel
+                            {L(lang, {
+                              en: 'Cancel',
+                              th: 'ยกเลิก',
+                              pt: 'Cancelar',
+                              ru: 'Отмена',
+                              es: 'Cancelar',
+                              bg: 'Отказ',
+                            })}
                           </button>
                         </div>
                       </div>
@@ -280,8 +332,14 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer whitespace-nowrap"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        Sell Back for {activeTooltip.refundCredits.toLocaleString()} Credits (
-                        {Math.round(config.credits.sellback_Q * 100)}%)
+                        {L(lang, {
+                          en: `Sell Back for ${activeTooltip.refundCredits.toLocaleString()} Credits (${Math.round(config.credits.sellback_Q * 100)}%)`,
+                          th: `ขายคืนรับ ${activeTooltip.refundCredits.toLocaleString()} เครดิต (${Math.round(config.credits.sellback_Q * 100)}%)`,
+                          pt: `Vender por ${activeTooltip.refundCredits.toLocaleString()} Créditos (${Math.round(config.credits.sellback_Q * 100)}%)`,
+                          ru: `Продать за ${activeTooltip.refundCredits.toLocaleString()} кредитов (${Math.round(config.credits.sellback_Q * 100)}%)`,
+                          es: `Vender por ${activeTooltip.refundCredits.toLocaleString()} Créditos (${Math.round(config.credits.sellback_Q * 100)}%)`,
+                          bg: `Продай за ${activeTooltip.refundCredits.toLocaleString()} Кредити (${Math.round(config.credits.sellback_Q * 100)}%)`,
+                        })}
                       </button>
                     )}
                   </>
@@ -294,16 +352,28 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Search className="w-3.5 h-3.5" />
-                  Track Serial ({activeInspectItem.serial})
+                  {L(lang, {
+                    en: `Track Serial (${activeInspectItem.serial})`,
+                    th: `ตรวจสอบ Serial (${activeInspectItem.serial})`,
+                    pt: `Rastrear Serial (${activeInspectItem.serial})`,
+                    ru: `Поиск Serial (${activeInspectItem.serial})`,
+                    es: `Rastrear Serial (${activeInspectItem.serial})`,
+                    bg: `Проследи Serial (${activeInspectItem.serial})`,
+                  })}
                 </button>
               )}
             </div>
           </div>
         ) : (
           <div className="p-6 rounded border border-zinc-800 bg-zinc-900/50 text-center text-xs text-zinc-400">
-            Your 8×15 warehouse vault is currently empty. Visit{' '}
-            <strong className="text-amber-400">Get Items</strong> to forge and add
-            equipment directly into your vault.
+            {L(lang, {
+              en: 'Your 8×15 warehouse vault is currently empty. Visit Get Items to forge and add equipment directly into your vault.',
+              th: 'คลังเก็บของ 8×15 ของคุณยังว่างอยู่ สามารถเลือกเมนู สั่งซื้อไอเทม (Get Items) เพื่อสร้างและส่งอุปกรณ์เข้าคลังได้ทันที',
+              pt: 'Seu baú 8×15 está vazio no momento. Acesse Comprar Itens para criar e enviar equipamentos diretamente para o seu baú.',
+              ru: 'Ваш сундук 8×15 сейчас пуст. Перейдите в раздел Купить предметы, чтобы создать и отправить экипировку прямо в сундук.',
+              es: 'Tu baúl 8×15 está vacío actualmente. Visita Comprar Ítems para forjar y enviar equipamiento directamente a tu baúl.',
+              bg: 'Вашият сандък 8×15 в момента е празен. Посетете Купи Предмети, за да създадете и добавите екипировка директно в сандъка.',
+            })}
           </div>
         )}
       </div>

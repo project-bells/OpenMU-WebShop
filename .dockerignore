@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-server
+logs
+*.log
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+README.md
+INSTALLATION.md

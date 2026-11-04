@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AccountData,
   IpBanEntry,
@@ -8,24 +8,26 @@ import {
   WebShopConfig,
   WebShopItem,
 } from '../types/webshop';
-import { CATEGORY_NAMES, formatItemTooltip } from '../utils/muItemLogic';
+import {
+  CATEGORY_NAMES,
+  formatItemTooltip,
+  getCategoryName,
+} from '../utils/muItemLogic';
 import { WarehouseGrid } from './WarehouseGrid';
 import { ItemTooltipCard } from './ItemTooltip';
+import { L } from '../translations';
 import {
-  AlertTriangle,
   ArrowUpDown,
   Check,
   CheckCircle2,
   Coins,
   Copy,
   Crown,
-  Database,
   Download,
   Eye,
   FileSearch,
   Layers,
   Plus,
-  RefreshCw,
   Search,
   ShieldBan,
   Trash2,
@@ -34,8 +36,25 @@ import {
   X,
 } from 'lucide-react';
 
+const getDateLocale = (lang: LanguageCode): string => {
+  switch (lang) {
+    case 'Thai':
+      return 'th-TH';
+    case 'Portuguese_BR':
+      return 'pt-BR';
+    case 'Russian':
+      return 'ru-RU';
+    case 'Spanish':
+      return 'es-ES';
+    case 'Bulgarian':
+      return 'bg-BG';
+    default:
+      return 'en-US';
+  }
+};
+
 // =========================================================================
-// 1. Item Manager (modules/imanager.php)
+// 1. Item Manager
 // =========================================================================
 export const ItemManagerModule: React.FC<{
   catalog: WebShopItem[];
@@ -44,30 +63,41 @@ export const ItemManagerModule: React.FC<{
   onUpdateItem: (updated: WebShopItem) => void;
   onAddItem: (newItem: WebShopItem) => void;
   onRemoveItem: (uid: number) => void;
-}> = ({ catalog, initialEditUid, lang = 'Thai', onUpdateItem, onAddItem, onRemoveItem }) => {
-  const isTh = lang === 'Thai';
+}> = ({
+  catalog,
+  initialEditUid,
+  lang = 'Thai',
+  onUpdateItem,
+  onAddItem,
+  onRemoveItem,
+}) => {
   const [activeTab, setActiveTab] = useState<'edit' | 'create'>('edit');
   const [search, setSearch] = useState('');
   const [selectedUid, setSelectedUid] = useState<number>(
     initialEditUid || catalog[0]?.uid || 1
   );
-  const [savedNotice, setSavedNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmRemoveUid, setConfirmRemoveUid] = useState<number | null>(null);
+  const [savedNotice, setSavedNotice] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialEditUid) {
       setSelectedUid(initialEditUid);
       setActiveTab('edit');
     }
   }, [initialEditUid]);
 
-  const activeItem = catalog.find((it) => it.uid === selectedUid) || catalog[0];
+  const activeItem =
+    catalog.find((it) => it.uid === selectedUid) || catalog[0];
 
   const baseTemplateItem: WebShopItem = catalog[0] || {
     uid: 1,
     id: 0,
     type: 0,
     category: 0,
-    name: 'New Item',
+    name: '',
     credits: 100,
     X: 1,
     Y: 1,
@@ -89,34 +119,42 @@ export const ItemManagerModule: React.FC<{
     cansellitem: 1,
     class: 0,
     groupid: 0,
-    thumb: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=120&auto=format&fit=crop&q=80',
-    exlThumb: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=120&auto=format&fit=crop&q=80',
+    thumb: '/items/00008000.gif',
+    exlThumb: '/items/00008000.gif',
   };
 
-  const [formState, setFormState] = useState<WebShopItem>(activeItem || baseTemplateItem);
+  const [formState, setFormState] = useState<WebShopItem>(
+    activeItem || baseTemplateItem
+  );
 
-  // State for new item creation
   const nextUid = useMemo(() => {
-    return catalog.length > 0 ? Math.max(...catalog.map((it) => it.uid)) + 1 : 1;
+    return catalog.length > 0
+      ? Math.max(...catalog.map((it) => it.uid)) + 1
+      : 1;
   }, [catalog]);
 
   const [newItemState, setNewItemState] = useState<WebShopItem>(() => ({
     ...baseTemplateItem,
     uid: nextUid,
-    id: 30,
+    id: 0,
     type: 0,
     category: 0,
-    name: 'Dragon Knight Sword',
-    credits: 350,
+    name: '',
+    credits: 100,
     X: 1,
-    Y: 4,
-    str: 600,
-    agi: 200,
+    Y: 1,
+    str: 0,
+    agi: 0,
   }));
 
-  React.useEffect(() => {
+  useEffect(() => {
+    setNewItemState((prev) => ({ ...prev, uid: nextUid }));
+  }, [nextUid]);
+
+  useEffect(() => {
     if (activeItem && activeTab === 'edit') {
       setFormState(activeItem);
+      setConfirmRemoveUid(null);
     }
   }, [activeItem, activeTab]);
 
@@ -133,30 +171,42 @@ export const ItemManagerModule: React.FC<{
     onUpdateItem(formState);
     setSavedNotice({
       ok: true,
-      text: isTh
-        ? `บันทึกการตั้งค่าไอเทม "${formState.name}" (UID #${formState.uid}) เรียบร้อยแล้ว`
-        : `Updated item settings for "${formState.name}" (UID #${formState.uid}).`,
+      text: L(lang, {
+        en: `Saved item settings for "${formState.name}" (UID #${formState.uid}).`,
+        th: `บันทึกการตั้งค่าไอเทม "${formState.name}" (UID #${formState.uid}) เรียบร้อยแล้ว`,
+        pt: `Configurações do item "${formState.name}" (UID #${formState.uid}) salvas.`,
+        ru: `Настройки предмета «${formState.name}» (UID #${formState.uid}) сохранены.`,
+        es: `Configuración guardada para "${formState.name}" (UID #${formState.uid}).`,
+        bg: `Настройките на предмет "${formState.name}" (UID #${formState.uid}) са запазени.`,
+      }),
     });
   };
 
   const handleCreateNew = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemState.name.trim()) return;
-    onAddItem(newItemState);
+    const created: WebShopItem = {
+      ...newItemState,
+      name: newItemState.name.trim(),
+    };
+    onAddItem(created);
     setSavedNotice({
       ok: true,
-      text: isTh
-        ? `เพิ่มไอเทมใหม่ "${newItemState.name}" (UID #${newItemState.uid}) เข้าสู่ระบบสำเร็จ!`
-        : `Added new item "${newItemState.name}" (UID #${newItemState.uid}) to WebShop!`,
+      text: L(lang, {
+        en: `Added new item "${created.name}" (UID #${created.uid}) to WebShop.`,
+        th: `เพิ่มไอเทมใหม่ "${created.name}" (UID #${created.uid}) เข้าสู่ระบบสำเร็จ!`,
+        pt: `Novo item "${created.name}" (UID #${created.uid}) adicionado ao WebShop.`,
+        ru: `Добавлен новый предмет «${created.name}» (UID #${created.uid}).`,
+        es: `Nuevo objeto "${created.name}" (UID #${created.uid}) añadido al WebShop.`,
+        bg: `Добавен е нов предмет "${created.name}" (UID #${created.uid}).`,
+      }),
     });
-    // Switch to editing the newly created item
-    setSelectedUid(newItemState.uid);
+    setSelectedUid(created.uid);
     setActiveTab('edit');
-    // Prepare next UID for subsequent additions
     setNewItemState((prev) => ({
       ...prev,
       uid: prev.uid + 1,
-      name: `${prev.name} (Copy)`,
+      name: '',
     }));
   };
 
@@ -170,15 +220,19 @@ export const ItemManagerModule: React.FC<{
     setSelectedUid(cloned.uid);
     setSavedNotice({
       ok: true,
-      text: isTh
-        ? `คัดลอกไอเทมเป็น "${cloned.name}" (UID #${cloned.uid}) สำเร็จ!`
-        : `Cloned item as "${cloned.name}" (UID #${cloned.uid})!`,
+      text: L(lang, {
+        en: `Cloned item as "${cloned.name}" (UID #${cloned.uid}).`,
+        th: `คัดลอกไอเทมเป็น "${cloned.name}" (UID #${cloned.uid}) สำเร็จ!`,
+        pt: `Item duplicado como "${cloned.name}" (UID #${cloned.uid}).`,
+        ru: `Предмет скопирован как «${cloned.name}» (UID #${cloned.uid}).`,
+        es: `Objeto clonado como "${cloned.name}" (UID #${cloned.uid}).`,
+        bg: `Предметът е клониран като "${cloned.name}" (UID #${cloned.uid}).`,
+      }),
     });
   };
 
   return (
     <div className="space-y-5">
-      {/* Top Banner & Mode Switcher */}
       <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/90 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
@@ -186,12 +240,24 @@ export const ItemManagerModule: React.FC<{
           </div>
           <div>
             <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-              {isTh ? 'ระบบจัดการไอเทมในเว็บช็อป (Item Manager)' : 'WebShop Item Manager'}
+              {L(lang, {
+                en: 'WebShop Item Manager',
+                th: 'ระบบจัดการไอเทมในเว็บช็อป (Item Manager)',
+                pt: 'Gerenciador de Itens do WebShop',
+                ru: 'Управление предметами WebShop',
+                es: 'Gestor de Objetos del WebShop',
+                bg: 'Управление на предмети в WebShop',
+              })}
             </h2>
             <p className="text-xs text-zinc-400">
-              {isTh
-                ? `จัดการไอเทมทั้งหมดในระบบ (${catalog.length} รายการ) แก้ไขราคา ออปชัน และเพิ่มไอเทมใหม่`
-                : `Manage catalog items (${catalog.length} items), configure prices, sizes, and attributes.`}
+              {L(lang, {
+                en: `Manage store catalog (${catalog.length} items), configure prices, grid sizes, and options.`,
+                th: `จัดการไอเทมทั้งหมดในระบบ (${catalog.length} รายการ) แก้ไขราคา ออปชัน และเพิ่มไอเทมใหม่`,
+                pt: `Gerencie os itens do catálogo (${catalog.length} itens), preços, tamanhos e opções.`,
+                ru: `Управление каталогом (${catalog.length} предметов), ценами, размерами и опциями.`,
+                es: `Administra el catálogo (${catalog.length} objetos), precios, tamaños y opciones.`,
+                bg: `Управлявайте каталога (${catalog.length} предмета), цени, размери и опции.`,
+              })}
             </p>
           </div>
         </div>
@@ -206,7 +272,14 @@ export const ItemManagerModule: React.FC<{
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            {isTh ? 'แก้ไขไอเทมเดิม' : 'Edit Existing'}
+            {L(lang, {
+              en: 'Edit Existing',
+              th: 'แก้ไขไอเทมเดิม',
+              pt: 'Editar Existente',
+              ru: 'Редактировать',
+              es: 'Editar Existente',
+              bg: 'Редакция',
+            })}
           </button>
           <button
             type="button"
@@ -218,7 +291,16 @@ export const ItemManagerModule: React.FC<{
             }`}
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>{isTh ? '+ เพิ่มไอเทมใหม่' : '+ Add New Item'}</span>
+            <span>
+              {L(lang, {
+                en: 'Add New Item',
+                th: 'เพิ่มไอเทมใหม่',
+                pt: 'Novo Item',
+                ru: 'Новый предмет',
+                es: 'Nuevo Objeto',
+                bg: 'Нов предмет',
+              })}
+            </span>
           </button>
         </div>
       </div>
@@ -241,28 +323,50 @@ export const ItemManagerModule: React.FC<{
 
       {activeTab === 'edit' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Item Selector Sidebar */}
           <div className="lg:col-span-4 p-4 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-3">
             <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
               <span className="flex items-center gap-1.5">
                 <Search className="w-3.5 h-3.5 text-amber-400" />
-                {isTh ? 'เลือกไอเทมในระบบ' : 'Select Item'} ({filteredItems.length})
+                {L(lang, {
+                  en: 'Select Item',
+                  th: 'เลือกไอเทมในระบบ',
+                  pt: 'Selecionar Item',
+                  ru: 'Выбор предмета',
+                  es: 'Seleccionar Objeto',
+                  bg: 'Избор на предмет',
+                })}{' '}
+                ({filteredItems.length})
               </span>
               <button
                 type="button"
                 onClick={handleDuplicateCurrent}
                 className="text-[11px] text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-                title="Duplicate this item to a new UID"
               >
                 <Copy className="w-3 h-3" />
-                <span>{isTh ? 'คัดลอก' : 'Duplicate'}</span>
+                <span>
+                  {L(lang, {
+                    en: 'Duplicate',
+                    th: 'คัดลอก',
+                    pt: 'Duplicar',
+                    ru: 'Копировать',
+                    es: 'Duplicar',
+                    bg: 'Дублирай',
+                  })}
+                </span>
               </button>
             </div>
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={isTh ? 'ค้นหาชื่อไอเทม หรือ UID...' : 'Find item by name or UID...'}
+              placeholder={L(lang, {
+                en: 'Find item by name or UID...',
+                th: 'ค้นหาชื่อไอเทม หรือ UID...',
+                pt: 'Buscar por nome ou UID...',
+                ru: 'Поиск по названию или UID...',
+                es: 'Buscar por nombre o UID...',
+                bg: 'Търсене по име или UID...',
+              })}
               className="w-full px-3 py-1.5 text-xs rounded bg-zinc-950 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600"
             />
             <select
@@ -282,7 +386,6 @@ export const ItemManagerModule: React.FC<{
             </select>
           </div>
 
-          {/* Item Settings Editor Form */}
           <form
             onSubmit={handleSaveEdit}
             className="lg:col-span-8 p-5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-4"
@@ -299,7 +402,15 @@ export const ItemManagerModule: React.FC<{
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white">
-                    {isTh ? 'กำลังแก้ไข:' : 'Editing:'} {formState.name} (UID #{formState.uid})
+                    {L(lang, {
+                      en: 'Editing:',
+                      th: 'กำลังแก้ไข:',
+                      pt: 'Editando:',
+                      ru: 'Редактирование:',
+                      es: 'Editando:',
+                      bg: 'Редактиране:',
+                    })}{' '}
+                    {formState.name} (UID #{formState.uid})
                   </h3>
                   <div className="text-[11px] font-mono-tabular text-zinc-400 truncate max-w-sm">
                     URL: {formState.thumb}
@@ -308,28 +419,86 @@ export const ItemManagerModule: React.FC<{
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm(isTh ? `ยืนยันการลบไอเทม #${formState.uid} (${formState.name}) ออกจากระบบ?` : `Remove item #${formState.uid} (${formState.name})?`)) {
-                      onRemoveItem(formState.uid);
-                      setSavedNotice({
-                        ok: true,
-                        text: isTh ? `ลบไอเทม #${formState.uid} เรียบร้อยแล้ว` : `Removed item #${formState.uid}.`,
-                      });
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>{isTh ? 'ลบไอเทม' : 'Remove Item'}</span>
-                </button>
+                {confirmRemoveUid === formState.uid ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const removedUid = formState.uid;
+                        onRemoveItem(removedUid);
+                        setConfirmRemoveUid(null);
+                        setSavedNotice({
+                          ok: true,
+                          text: L(lang, {
+                            en: `Removed item #${removedUid}.`,
+                            th: `ลบไอเทม #${removedUid} เรียบร้อยแล้ว`,
+                            pt: `Item #${removedUid} removido.`,
+                            ru: `Предмет #${removedUid} удалён.`,
+                            es: `Objeto #${removedUid} eliminado.`,
+                            bg: `Предмет #${removedUid} е премахнат.`,
+                          }),
+                        });
+                      }}
+                      className="px-3 py-1.5 rounded text-xs font-bold bg-rose-500 hover:bg-rose-400 text-zinc-950 cursor-pointer"
+                    >
+                      {L(lang, {
+                        en: 'Confirm Delete',
+                        th: 'ยืนยันลบ',
+                        pt: 'Confirmar',
+                        ru: 'Подтвердить',
+                        es: 'Confirmar',
+                        bg: 'Потвърди',
+                      })}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveUid(null)}
+                      className="px-2.5 py-1.5 rounded text-xs bg-zinc-800 text-zinc-300 cursor-pointer"
+                    >
+                      {L(lang, {
+                        en: 'Cancel',
+                        th: 'ยกเลิก',
+                        pt: 'Cancelar',
+                        ru: 'Отмена',
+                        es: 'Cancelar',
+                        bg: 'Отказ',
+                      })}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemoveUid(formState.uid)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>
+                      {L(lang, {
+                        en: 'Remove Item',
+                        th: 'ลบไอเทม',
+                        pt: 'Remover Item',
+                        ru: 'Удалить',
+                        es: 'Eliminar',
+                        bg: 'Премахни',
+                      })}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-xs">
               <div>
-                <label className="block text-zinc-400 mb-1">{isTh ? 'ชื่อไอเทม' : 'Item Name'}</label>
+                <label className="block text-zinc-400 mb-1">
+                  {L(lang, {
+                    en: 'Item Name',
+                    th: 'ชื่อไอเทม',
+                    pt: 'Nome do Item',
+                    ru: 'Название',
+                    es: 'Nombre del Objeto',
+                    bg: 'Име на предмет',
+                  })}
+                </label>
                 <input
                   type="text"
                   value={formState.name}
@@ -342,7 +511,14 @@ export const ItemManagerModule: React.FC<{
 
               <div>
                 <label className="block text-zinc-400 mb-1">
-                  {isTh ? 'ราคาเครดิต (0 = ห้ามขาย)' : 'Required Credits'}
+                  {L(lang, {
+                    en: 'Credits (0 = Disabled)',
+                    th: 'ราคาเครดิต (0 = ห้ามขาย)',
+                    pt: 'Créditos (0 = Desativado)',
+                    ru: 'Кредиты (0 = скрыто)',
+                    es: 'Créditos (0 = Desactivado)',
+                    bg: 'Кредити (0 = скрит)',
+                  })}
                 </label>
                 <input
                   type="number"
@@ -359,7 +535,14 @@ export const ItemManagerModule: React.FC<{
 
               <div>
                 <label className="block text-zinc-400 mb-1">
-                  {isTh ? 'หมวดหมู่ไอเทม' : 'Display Category'}
+                  {L(lang, {
+                    en: 'Category',
+                    th: 'หมวดหมู่ไอเทม',
+                    pt: 'Categoria',
+                    ru: 'Категория',
+                    es: 'Categoría',
+                    bg: 'Категория',
+                  })}
                 </label>
                 <select
                   value={formState.category}
@@ -371,9 +554,9 @@ export const ItemManagerModule: React.FC<{
                   }
                   className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
                 >
-                  {Object.entries(CATEGORY_NAMES).map(([id, label]) => (
+                  {Object.keys(CATEGORY_NAMES).map((id) => (
                     <option key={id} value={Number(id)}>
-                      {isTh ? label.th : label.en} ({id})
+                      {getCategoryName(Number(id), lang)} ({id})
                     </option>
                   ))}
                 </select>
@@ -381,7 +564,14 @@ export const ItemManagerModule: React.FC<{
 
               <div>
                 <label className="block text-zinc-400 mb-1">
-                  {isTh ? 'ขนาดในคลัง (ช่อง กว้าง × สูง)' : 'Inventory Space (X × Y)'}
+                  {L(lang, {
+                    en: 'Grid Size (X × Y)',
+                    th: 'ขนาดในคลัง (กว้าง × สูง)',
+                    pt: 'Tamanho no Baú (X × Y)',
+                    ru: 'Размер в сундуке (X × Y)',
+                    es: 'Tamaño en Baúl (X × Y)',
+                    bg: 'Размер в сандъка (X × Y)',
+                  })}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -410,7 +600,14 @@ export const ItemManagerModule: React.FC<{
 
               <div>
                 <label className="block text-zinc-400 mb-1">
-                  {isTh ? 'สเตตัสที่ต้องการ (STR / AGI)' : 'STR / AGI Req'}
+                  {L(lang, {
+                    en: 'STR / AGI Req',
+                    th: 'สเตตัสที่ต้องการ (STR / AGI)',
+                    pt: 'Req. STR / AGI',
+                    ru: 'Треб. STR / AGI',
+                    es: 'Req. STR / AGI',
+                    bg: 'Изиск. STR / AGI',
+                  })}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -436,7 +633,14 @@ export const ItemManagerModule: React.FC<{
 
               <div>
                 <label className="block text-zinc-400 mb-1">
-                  {isTh ? 'ประเภท Excellent (ex_type)' : 'Exl/Anc Type'}
+                  {L(lang, {
+                    en: 'Excellent Type',
+                    th: 'ประเภท Excellent (ex_type)',
+                    pt: 'Tipo Excellent',
+                    ru: 'Тип Excellent',
+                    es: 'Tipo Excellent',
+                    bg: 'Тип Excellent',
+                  })}
                 </label>
                 <select
                   value={formState.ex_type}
@@ -449,17 +653,24 @@ export const ItemManagerModule: React.FC<{
                   className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
                 >
                   <option value={-1}>-1: None</option>
-                  <option value={0}>0: Weapon (อาวุธ)</option>
-                  <option value={1}>1: Armor / Set (เกราะ)</option>
-                  <option value={2}>2: Wings S2 (ปีก 2)</option>
-                  <option value={3}>3: Ancient (เซ็ตโบราณ)</option>
-                  <option value={4}>4: Wings S3 (ปีก 3)</option>
+                  <option value={0}>0: Weapon</option>
+                  <option value={1}>1: Armor / Shield</option>
+                  <option value={2}>2: Wings S2</option>
+                  <option value={3}>3: Ancient</option>
+                  <option value={4}>4: Wings S3</option>
                 </select>
               </div>
 
               <div className="sm:col-span-3">
                 <label className="block text-zinc-400 mb-1">
-                  {isTh ? 'URL รูปภาพไอเทม (Image Thumbnail)' : 'Image URL'}
+                  {L(lang, {
+                    en: 'Image URL',
+                    th: 'URL รูปภาพไอเทม',
+                    pt: 'URL da Imagem',
+                    ru: 'URL изображения',
+                    es: 'URL de Imagen',
+                    bg: 'URL на изображение',
+                  })}
                 </label>
                 <input
                   type="text"
@@ -472,14 +683,43 @@ export const ItemManagerModule: React.FC<{
               </div>
             </div>
 
-            {/* Toggle flags */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 text-xs">
               {[
-                { key: 'hasLevel', label: isTh ? 'มีระดับ +1..13' : 'Can Have Level' },
-                { key: 'hasOption', label: isTh ? 'มีออปชัน +4..28' : 'Can Have Option' },
-                { key: 'luck', label: isTh ? 'มี Luck' : 'Can Have Luck' },
-                { key: 'skill', label: isTh ? 'มี Skill' : 'Can Have Skill' },
-                { key: 'cansellitem', label: isTh ? 'ขายคืนรับ 50%' : 'Can Sell Back' },
+                {
+                  key: 'hasLevel',
+                  label: L(lang, {
+                    en: 'Level +1..13',
+                    th: 'มีระดับ +1..13',
+                    pt: 'Nível +1..13',
+                    ru: 'Уровень +1..13',
+                    es: 'Nivel +1..13',
+                    bg: 'Ниво +1..13',
+                  }),
+                },
+                {
+                  key: 'hasOption',
+                  label: L(lang, {
+                    en: 'Option +4..28',
+                    th: 'มีออปชัน +4..28',
+                    pt: 'Opção +4..28',
+                    ru: 'Опция +4..28',
+                    es: 'Opción +4..28',
+                    bg: 'Опция +4..28',
+                  }),
+                },
+                { key: 'luck', label: 'Luck' },
+                { key: 'skill', label: 'Skill' },
+                {
+                  key: 'cansellitem',
+                  label: L(lang, {
+                    en: '50% Refund',
+                    th: 'ขายคืนรับ 50%',
+                    pt: 'Venda 50%',
+                    ru: 'Возврат 50%',
+                    es: 'Reembolso 50%',
+                    bg: 'Продажба 50%',
+                  }),
+                },
               ].map((flag) => (
                 <label
                   key={flag.key}
@@ -487,9 +727,9 @@ export const ItemManagerModule: React.FC<{
                 >
                   <input
                     type="checkbox"
-                    checked={
-                      Boolean((formState as unknown as Record<string, number>)[flag.key])
-                    }
+                    checked={Boolean(
+                      (formState as unknown as Record<string, number>)[flag.key]
+                    )}
                     onChange={(e) =>
                       setFormState({
                         ...formState,
@@ -508,13 +748,19 @@ export const ItemManagerModule: React.FC<{
                 type="submit"
                 className="px-5 py-2 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors cursor-pointer shadow-lg"
               >
-                {isTh ? 'บันทึกการเปลี่ยนแปลงไอเทม' : 'Save Changes'}
+                {L(lang, {
+                  en: 'Save Changes',
+                  th: 'บันทึกการเปลี่ยนแปลงไอเทม',
+                  pt: 'Salvar Alterações',
+                  ru: 'Сохранить изменения',
+                  es: 'Guardar Cambios',
+                  bg: 'Запази промените',
+                })}
               </button>
             </div>
           </form>
         </div>
       ) : (
-        /* Create New Item Form */
         <form
           onSubmit={handleCreateNew}
           className="p-6 rounded-xl border border-emerald-500/30 bg-zinc-900/90 space-y-4 max-w-3xl"
@@ -522,7 +768,14 @@ export const ItemManagerModule: React.FC<{
           <div className="flex items-center gap-2 pb-3 border-b border-zinc-800">
             <Plus className="w-5 h-5 text-emerald-400" />
             <h3 className="text-sm font-bold text-white">
-              {isTh ? 'เพิ่มไอเทมใหม่เข้าสู่ระบบ WebShop' : 'Add New WebShop Item'}
+              {L(lang, {
+                en: 'Add New WebShop Item',
+                th: 'เพิ่มไอเทมใหม่เข้าสู่ระบบ WebShop',
+                pt: 'Adicionar Novo Item ao WebShop',
+                ru: 'Добавить новый предмет в WebShop',
+                es: 'Añadir Nuevo Objeto al WebShop',
+                bg: 'Добави нов предмет в WebShop',
+              })}
             </h3>
           </div>
 
@@ -537,7 +790,16 @@ export const ItemManagerModule: React.FC<{
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-zinc-400 mb-1">{isTh ? 'ชื่อไอเทม' : 'Item Name'}</label>
+              <label className="block text-zinc-400 mb-1">
+                {L(lang, {
+                  en: 'Item Name',
+                  th: 'ชื่อไอเทม',
+                  pt: 'Nome do Item',
+                  ru: 'Название',
+                  es: 'Nombre del Objeto',
+                  bg: 'Име на предмет',
+                })}
+              </label>
               <input
                 type="text"
                 required
@@ -545,12 +807,29 @@ export const ItemManagerModule: React.FC<{
                 onChange={(e) =>
                   setNewItemState({ ...newItemState, name: e.target.value })
                 }
+                placeholder={L(lang, {
+                  en: 'Enter item name',
+                  th: 'ระบุชื่อไอเทม',
+                  pt: 'Digite o nome do item',
+                  ru: 'Введите название предмета',
+                  es: 'Ingresa el nombre del objeto',
+                  bg: 'Въведете име на предмета',
+                })}
                 className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
               />
             </div>
 
             <div>
-              <label className="block text-zinc-400 mb-1">{isTh ? 'ราคาเครดิต' : 'Credits'}</label>
+              <label className="block text-zinc-400 mb-1">
+                {L(lang, {
+                  en: 'Credits',
+                  th: 'ราคาเครดิต',
+                  pt: 'Créditos',
+                  ru: 'Кредиты',
+                  es: 'Créditos',
+                  bg: 'Кредити',
+                })}
+              </label>
               <input
                 type="number"
                 min={0}
@@ -567,7 +846,16 @@ export const ItemManagerModule: React.FC<{
             </div>
 
             <div>
-              <label className="block text-zinc-400 mb-1">{isTh ? 'หมวดหมู่' : 'Category'}</label>
+              <label className="block text-zinc-400 mb-1">
+                {L(lang, {
+                  en: 'Category',
+                  th: 'หมวดหมู่',
+                  pt: 'Categoria',
+                  ru: 'Категория',
+                  es: 'Categoría',
+                  bg: 'Категория',
+                })}
+              </label>
               <select
                 value={newItemState.category}
                 onChange={(e) =>
@@ -578,9 +866,9 @@ export const ItemManagerModule: React.FC<{
                 }
                 className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
               >
-                {Object.entries(CATEGORY_NAMES).map(([id, label]) => (
+                {Object.keys(CATEGORY_NAMES).map((id) => (
                   <option key={id} value={Number(id)}>
-                    {isTh ? label.th : label.en} ({id})
+                    {getCategoryName(Number(id), lang)} ({id})
                   </option>
                 ))}
               </select>
@@ -588,7 +876,14 @@ export const ItemManagerModule: React.FC<{
 
             <div>
               <label className="block text-zinc-400 mb-1">
-                {isTh ? 'ขนาด (X × Y)' : 'Size (X × Y)'}
+                {L(lang, {
+                  en: 'Size (X × Y)',
+                  th: 'ขนาด (X × Y)',
+                  pt: 'Tamanho (X × Y)',
+                  ru: 'Размер (X × Y)',
+                  es: 'Tamaño (X × Y)',
+                  bg: 'Размер (X × Y)',
+                })}
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -617,7 +912,14 @@ export const ItemManagerModule: React.FC<{
 
             <div className="sm:col-span-3">
               <label className="block text-zinc-400 mb-1">
-                {isTh ? 'URL รูปภาพ' : 'Image URL'}
+                {L(lang, {
+                  en: 'Image URL',
+                  th: 'URL รูปภาพ',
+                  pt: 'URL da Imagem',
+                  ru: 'URL изображения',
+                  es: 'URL de Imagen',
+                  bg: 'URL на изображение',
+                })}
               </label>
               <input
                 type="text"
@@ -636,13 +938,27 @@ export const ItemManagerModule: React.FC<{
               onClick={() => setActiveTab('edit')}
               className="px-4 py-2 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
             >
-              {isTh ? 'ยกเลิก' : 'Cancel'}
+              {L(lang, {
+                en: 'Cancel',
+                th: 'ยกเลิก',
+                pt: 'Cancelar',
+                ru: 'Отмена',
+                es: 'Cancelar',
+                bg: 'Отказ',
+              })}
             </button>
             <button
               type="submit"
               className="px-5 py-2 text-xs font-bold rounded bg-emerald-500 hover:bg-emerald-400 text-zinc-950 cursor-pointer shadow-lg"
             >
-              {isTh ? 'ยืนยันเพิ่มไอเทมใหม่' : 'Create Item'}
+              {L(lang, {
+                en: 'Create Item',
+                th: 'ยืนยันเพิ่มไอเทมใหม่',
+                pt: 'Criar Item',
+                ru: 'Создать предмет',
+                es: 'Crear Objeto',
+                bg: 'Създай предмет',
+              })}
             </button>
           </div>
         </form>
@@ -652,7 +968,7 @@ export const ItemManagerModule: React.FC<{
 };
 
 // =========================================================================
-// 2. Item Group Manager (modules/groupmanager.php)
+// 2. Item Group Manager
 // =========================================================================
 export const GroupManagerModule: React.FC<{
   groups: ItemGroup[];
@@ -661,22 +977,35 @@ export const GroupManagerModule: React.FC<{
   onAddGroup: (group: ItemGroup) => void;
   onUpdateGroup?: (group: ItemGroup) => void;
   onDeleteGroup: (id: number) => void;
-}> = ({ groups, catalog, lang = 'Thai', onAddGroup, onUpdateGroup, onDeleteGroup }) => {
-  const isTh = lang === 'Thai';
+}> = ({
+  groups,
+  catalog,
+  lang = 'Thai',
+  onAddGroup,
+  onUpdateGroup,
+  onDeleteGroup,
+}) => {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const nextGid = useMemo(() => {
     return groups.length > 0 ? Math.max(...groups.map((g) => g.id)) + 1 : 1;
   }, [groups]);
 
   const [gid, setGid] = useState(nextGid);
-  const [grname, setGrname] = useState('Dark Phoenix Full Set (5 pcs)');
-  const [gcr, setGcr] = useState(550);
+  const [grname, setGrname] = useState('');
+  const [gcr, setGcr] = useState(500);
   const [basedon, setBasedon] = useState(catalog[0]?.uid || 1);
-  const [selectedMembers, setSelectedMembers] = useState<number[]>([
-    catalog[0]?.uid || 1,
-  ]);
+  const [selectedMembers, setSelectedMembers] = useState<number[]>(
+    catalog[0] ? [catalog[0].uid] : []
+  );
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    if (editingGroupId === null) {
+      setGid(nextGid);
+    }
+  }, [nextGid, editingGroupId]);
 
   const handleEditClick = (grp: ItemGroup) => {
     setEditingGroupId(grp.id);
@@ -690,9 +1019,9 @@ export const GroupManagerModule: React.FC<{
   const handleResetForm = () => {
     setEditingGroupId(null);
     setGid(nextGid);
-    setGrname('Grand Soul Full Set (5 pcs)');
-    setGcr(480);
-    setSelectedMembers([catalog[0]?.uid || 1]);
+    setGrname('');
+    setGcr(500);
+    setSelectedMembers(catalog[0] ? [catalog[0].uid] : []);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -711,17 +1040,27 @@ export const GroupManagerModule: React.FC<{
       onUpdateGroup(groupPayload);
       setMsg({
         ok: true,
-        text: isTh
-          ? `อัปเดตเซ็ตไอเทม #${gid} (${grname}) สำเร็จ!`
-          : `Updated group #${gid} (${grname})!`,
+        text: L(lang, {
+          en: `Updated item set #${gid} (${groupPayload.name}).`,
+          th: `อัปเดตเซ็ตไอเทม #${gid} (${groupPayload.name}) สำเร็จ!`,
+          pt: `Conjunto #${gid} (${groupPayload.name}) atualizado.`,
+          ru: `Набор #${gid} («${groupPayload.name}») обновлён.`,
+          es: `Set #${gid} (${groupPayload.name}) actualizado.`,
+          bg: `Сет #${gid} (${groupPayload.name}) е обновен.`,
+        }),
       });
     } else {
       onAddGroup(groupPayload);
       setMsg({
         ok: true,
-        text: isTh
-          ? `สร้างเซ็ตไอเทมใหม่ #${gid} (${grname}) สำเร็จ!`
-          : `Created new group #${gid} (${grname})!`,
+        text: L(lang, {
+          en: `Created new item set #${gid} (${groupPayload.name}).`,
+          th: `สร้างเซ็ตไอเทมใหม่ #${gid} (${groupPayload.name}) สำเร็จ!`,
+          pt: `Novo conjunto #${gid} (${groupPayload.name}) criado.`,
+          ru: `Создан новый набор #${gid} («${groupPayload.name}»).`,
+          es: `Nuevo set #${gid} (${groupPayload.name}) creado.`,
+          bg: `Създаден е нов сет #${gid} (${groupPayload.name}).`,
+        }),
       });
     }
     handleResetForm();
@@ -735,7 +1074,6 @@ export const GroupManagerModule: React.FC<{
 
   return (
     <div className="space-y-6 max-w-5xl">
-      {/* Group Form */}
       <form
         onSubmit={handleSubmit}
         className="p-5 rounded-xl border border-zinc-800 bg-zinc-900/90 space-y-4"
@@ -745,12 +1083,22 @@ export const GroupManagerModule: React.FC<{
             <Layers className="w-5 h-5 text-amber-400" />
             <h3 className="text-sm font-bold text-white">
               {editingGroupId !== null
-                ? isTh
-                  ? `แก้ไขเซ็ตไอเทม #${editingGroupId}`
-                  : `Edit Item Group #${editingGroupId}`
-                : isTh
-                ? 'เพิ่มเซ็ตไอเทมใหม่ (WebShop Group Adder)'
-                : 'WebShop Admin: Add New Item Group'}
+                ? L(lang, {
+                    en: `Edit Item Set #${editingGroupId}`,
+                    th: `แก้ไขเซ็ตไอเทม #${editingGroupId}`,
+                    pt: `Editar Conjunto #${editingGroupId}`,
+                    ru: `Редактирование набора #${editingGroupId}`,
+                    es: `Editar Set #${editingGroupId}`,
+                    bg: `Редакция на сет #${editingGroupId}`,
+                  })
+                : L(lang, {
+                    en: 'Add New Item Set Group',
+                    th: 'เพิ่มเซ็ตไอเทมใหม่ (Item Group Manager)',
+                    pt: 'Adicionar Novo Conjunto de Itens',
+                    ru: 'Добавить новый набор предметов',
+                    es: 'Añadir Nuevo Set de Objetos',
+                    bg: 'Добави нов сет предмети',
+                  })}
             </h3>
           </div>
           {editingGroupId !== null && (
@@ -759,7 +1107,14 @@ export const GroupManagerModule: React.FC<{
               onClick={handleResetForm}
               className="text-xs text-amber-400 hover:underline cursor-pointer"
             >
-              {isTh ? 'ยกเลิกการแก้ไข / สลับไปโหมดสร้างใหม่' : 'Cancel Edit'}
+              {L(lang, {
+                en: 'Cancel Edit',
+                th: 'ยกเลิกการแก้ไข',
+                pt: 'Cancelar Edição',
+                ru: 'Отменить редактирование',
+                es: 'Cancelar Edición',
+                bg: 'Отказ на редакцията',
+              })}
             </button>
           )}
         </div>
@@ -767,7 +1122,11 @@ export const GroupManagerModule: React.FC<{
         {msg && (
           <div className="p-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 text-xs flex items-center justify-between">
             <span>{msg.text}</span>
-            <button type="button" onClick={() => setMsg(null)} className="cursor-pointer">
+            <button
+              type="button"
+              onClick={() => setMsg(null)}
+              className="cursor-pointer"
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -775,7 +1134,7 @@ export const GroupManagerModule: React.FC<{
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'Group ID' : 'Group ID'}</label>
+            <label className="block text-zinc-400 mb-1">Group ID</label>
             <input
               type="number"
               value={gid}
@@ -785,17 +1144,43 @@ export const GroupManagerModule: React.FC<{
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-zinc-400 mb-1">{isTh ? 'ชื่อเซ็ตไอเทม' : 'Group Name'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Set Name',
+                th: 'ชื่อเซ็ตไอเทม',
+                pt: 'Nome do Conjunto',
+                ru: 'Название набора',
+                es: 'Nombre del Set',
+                bg: 'Име на сета',
+              })}
+            </label>
             <input
               type="text"
               required
               value={grname}
               onChange={(e) => setGrname(e.target.value)}
+              placeholder={L(lang, {
+                en: 'Enter item set name',
+                th: 'ระบุชื่อเซ็ตไอเทม',
+                pt: 'Digite o nome do conjunto',
+                ru: 'Введите название набора',
+                es: 'Ingresa el nombre del set',
+                bg: 'Въведете име на сета',
+              })}
               className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
             />
           </div>
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'ราคาเซ็ต (Credits)' : 'Set Credits'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Set Credits',
+                th: 'ราคาเซ็ต (Credits)',
+                pt: 'Créditos do Set',
+                ru: 'Кредиты за набор',
+                es: 'Créditos del Set',
+                bg: 'Кредити за сета',
+              })}
+            </label>
             <input
               type="number"
               min={0}
@@ -807,16 +1192,17 @@ export const GroupManagerModule: React.FC<{
           </div>
         </div>
 
-        {/* Member Items Multi-Selector */}
         <div className="space-y-2 pt-2 border-t border-zinc-800">
           <div className="flex items-center justify-between text-xs">
             <span className="font-semibold text-zinc-300">
-              {isTh
-                ? `เลือกชิ้นส่วนไอเทมที่รวมในเซ็ตนี้ (เลือกแล้ว ${selectedMembers.length} ชิ้น):`
-                : `Select Member Items Included in Set (${selectedMembers.length} selected):`}
-            </span>
-            <span className="text-zinc-500 text-[11px]">
-              {isTh ? 'คลิกที่ไอเทมเพื่อเลือก/ยกเลิก' : 'Click to toggle items'}
+              {L(lang, {
+                en: `Select Member Items Included in Set (${selectedMembers.length} selected):`,
+                th: `เลือกชิ้นส่วนไอเทมที่รวมในเซ็ตนี้ (เลือกแล้ว ${selectedMembers.length} ชิ้น):`,
+                pt: `Selecione os itens incluídos no conjunto (${selectedMembers.length} selecionados):`,
+                ru: `Выберите предметы набора (выбрано ${selectedMembers.length}):`,
+                es: `Selecciona los objetos del set (${selectedMembers.length} seleccionados):`,
+                bg: `Изберете предмети в сета (избрани ${selectedMembers.length}):`,
+              })}
             </span>
           </div>
 
@@ -844,9 +1230,13 @@ export const GroupManagerModule: React.FC<{
                   </div>
                   <div className="truncate flex-1">
                     <div className="truncate font-medium">{it.name}</div>
-                    <div className="text-[10px] text-zinc-500 font-mono-tabular">#{it.uid}</div>
+                    <div className="text-[10px] text-zinc-500 font-mono-tabular">
+                      #{it.uid}
+                    </div>
                   </div>
-                  {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  )}
                 </button>
               );
             })}
@@ -859,31 +1249,92 @@ export const GroupManagerModule: React.FC<{
             className="px-5 py-2 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors cursor-pointer shadow-lg"
           >
             {editingGroupId !== null
-              ? isTh ? 'บันทึกการแก้ไขเซ็ต' : 'Save Set Changes'
-              : isTh ? '+ บันทึกเซ็ตไอเทมใหม่' : '+ Add New Group'}
+              ? L(lang, {
+                  en: 'Save Set Changes',
+                  th: 'บันทึกการแก้ไขเซ็ต',
+                  pt: 'Salvar Conjunto',
+                  ru: 'Сохранить набор',
+                  es: 'Guardar Set',
+                  bg: 'Запази сета',
+                })
+              : L(lang, {
+                  en: '+ Add Item Set',
+                  th: '+ บันทึกเซ็ตไอเทมใหม่',
+                  pt: '+ Adicionar Conjunto',
+                  ru: '+ Добавить набор',
+                  es: '+ Añadir Set',
+                  bg: '+ Добави сет',
+                })}
           </button>
         </div>
       </form>
 
-      {/* Groups List Table */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 overflow-hidden">
         <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between text-xs font-semibold text-zinc-200">
-          <span>{isTh ? 'รายการเซ็ตไอเทมทั้งหมดในเว็บช็อป' : 'All Configured Item Sets'} ({groups.length})</span>
+          <span>
+            {L(lang, {
+              en: 'All Configured Item Sets',
+              th: 'รายการเซ็ตไอเทมทั้งหมดในเว็บช็อป',
+              pt: 'Todos os Conjuntos Configurados',
+              ru: 'Настроенные наборы предметов',
+              es: 'Sets de Objetos Configurados',
+              bg: 'Конфигурирани сетове предмети',
+            })}{' '}
+            ({groups.length})
+          </span>
         </div>
         <table className="w-full text-left text-xs">
           <thead className="bg-zinc-950/60 text-zinc-400 border-b border-zinc-800">
             <tr>
               <th className="px-4 py-2.5">ID</th>
-              <th className="px-4 py-2.5">{isTh ? 'ชื่อเซ็ต' : 'Group Name'}</th>
-              <th className="px-4 py-2.5">{isTh ? 'ราคาเครดิต' : 'Credits'}</th>
-              <th className="px-4 py-2.5">{isTh ? 'ชิ้นส่วนในเซ็ต' : 'Items in Set'}</th>
-              <th className="px-4 py-2.5 text-right">{isTh ? 'จัดการ' : 'Action'}</th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'Group Name',
+                  th: 'ชื่อเซ็ต',
+                  pt: 'Nome do Conjunto',
+                  ru: 'Название',
+                  es: 'Nombre del Set',
+                  bg: 'Име на сет',
+                })}
+              </th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'Credits',
+                  th: 'ราคาเครดิต',
+                  pt: 'Créditos',
+                  ru: 'Кредиты',
+                  es: 'Créditos',
+                  bg: 'Кредити',
+                })}
+              </th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'Items in Set',
+                  th: 'ชิ้นส่วนในเซ็ต',
+                  pt: 'Itens no Conjunto',
+                  ru: 'Предметы',
+                  es: 'Objetos en Set',
+                  bg: 'Предмети в сета',
+                })}
+              </th>
+              <th className="px-4 py-2.5 text-right">
+                {L(lang, {
+                  en: 'Action',
+                  th: 'จัดการ',
+                  pt: 'Ação',
+                  ru: 'Действие',
+                  es: 'Acción',
+                  bg: 'Действие',
+                })}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
             {groups.map((grp) => (
               <tr key={grp.id} className="hover:bg-zinc-800/40">
-                <td className="px-4 py-2.5 font-mono-tabular text-zinc-400">#{grp.id}</td>
+                <td className="px-4 py-2.5 font-mono-tabular text-zinc-400">
+                  #{grp.id}
+                </td>
                 <td className="px-4 py-2.5 font-bold text-white">{grp.name}</td>
                 <td className="px-4 py-2.5 font-mono-tabular text-amber-400 font-bold">
                   {grp.credits.toLocaleString()} Cr
@@ -909,19 +1360,49 @@ export const GroupManagerModule: React.FC<{
                     onClick={() => handleEditClick(grp)}
                     className="text-amber-400 hover:underline cursor-pointer"
                   >
-                    {isTh ? 'แก้ไข' : 'Edit'}
+                    {L(lang, {
+                      en: 'Edit',
+                      th: 'แก้ไข',
+                      pt: 'Editar',
+                      ru: 'Ред.',
+                      es: 'Editar',
+                      bg: 'Ред.',
+                    })}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(isTh ? `ต้องการลบเซ็ต #${grp.id} (${grp.name}) หรือไม่?` : `Delete group #${grp.id}?`)) {
+                  {confirmDeleteId === grp.id ? (
+                    <button
+                      type="button"
+                      onClick={() => {
                         onDeleteGroup(grp.id);
-                      }
-                    }}
-                    className="text-rose-400 hover:underline cursor-pointer"
-                  >
-                    {isTh ? 'ลบ' : 'Delete'}
-                  </button>
+                        setConfirmDeleteId(null);
+                      }}
+                      className="text-rose-300 font-bold hover:underline cursor-pointer"
+                    >
+                      {L(lang, {
+                        en: 'Confirm?',
+                        th: 'ยืนยันลบ?',
+                        pt: 'Confirmar?',
+                        ru: 'Точно?',
+                        es: '¿Confirmar?',
+                        bg: 'Потвърди?',
+                      })}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(grp.id)}
+                      className="text-rose-400 hover:underline cursor-pointer"
+                    >
+                      {L(lang, {
+                        en: 'Delete',
+                        th: 'ลบ',
+                        pt: 'Excluir',
+                        ru: 'Удалить',
+                        es: 'Eliminar',
+                        bg: 'Изтрий',
+                      })}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -933,7 +1414,7 @@ export const GroupManagerModule: React.FC<{
 };
 
 // =========================================================================
-// 3. Account Credit Manager (modules/usercredits.php)
+// 3. Account Credit & Zen Manager
 // =========================================================================
 export const ManageCreditsModule: React.FC<{
   accounts: AccountData[];
@@ -941,20 +1422,30 @@ export const ManageCreditsModule: React.FC<{
   lang?: LanguageCode;
   onAdjustCredits: (username: string, delta: number) => number;
   onAdjustVaultZen?: (username: string, amount: number) => void;
-}> = ({ accounts, initialUser, lang = 'Thai', onAdjustCredits, onAdjustVaultZen }) => {
-  const isTh = lang === 'Thai';
+}> = ({
+  accounts,
+  initialUser,
+  lang = 'Thai',
+  onAdjustCredits,
+  onAdjustVaultZen,
+}) => {
   const [uacc, setUacc] = useState(initialUser || accounts[0]?.username || '');
   const [ucr, setUcr] = useState(500);
   const [mode, setMode] = useState<'adjust' | 'zen'>('adjust');
   const [zenAmount, setZenAmount] = useState<number>(100_000_000);
-  const [resultMsg, setResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [resultMsg, setResultMsg] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialUser) setUacc(initialUser);
   }, [initialUser]);
 
   const selectedAccountData = useMemo(() => {
-    return accounts.find((a) => a.username.toLowerCase() === uacc.trim().toLowerCase());
+    return accounts.find(
+      (a) => a.username.toLowerCase() === uacc.trim().toLowerCase()
+    );
   }, [accounts, uacc]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -965,40 +1456,58 @@ export const ManageCreditsModule: React.FC<{
       const newBal = onAdjustCredits(uacc.trim(), ucr);
       setResultMsg({
         ok: true,
-        text: isTh
-          ? `อัปเดตเครดิตของ "${uacc.trim()}" สำเร็จ! ยอดปัจจุบันคือ ${newBal.toLocaleString()} Credits (${ucr >= 0 ? `+${ucr.toLocaleString()}` : ucr.toLocaleString()})`
-          : `Updated "${uacc.trim()}" credit balance. Current total: ${newBal.toLocaleString()} credits.`,
+        text: L(lang, {
+          en: `Updated "${uacc.trim()}" credit balance. Current total: ${newBal.toLocaleString()} Credits.`,
+          th: `อัปเดตเครดิตของ "${uacc.trim()}" สำเร็จ! ยอดปัจจุบันคือ ${newBal.toLocaleString()} Credits`,
+          pt: `Saldo de créditos de "${uacc.trim()}" atualizado: ${newBal.toLocaleString()} Créditos.`,
+          ru: `Баланс кредитов «${uacc.trim()}» обновлён: ${newBal.toLocaleString()} кредитов.`,
+          es: `Saldo de créditos de "${uacc.trim()}" actualizado: ${newBal.toLocaleString()} Créditos.`,
+          bg: `Кредитният баланс на "${uacc.trim()}" е обновен: ${newBal.toLocaleString()} кредита.`,
+        }),
       });
     } else if (mode === 'zen' && onAdjustVaultZen) {
       onAdjustVaultZen(uacc.trim(), zenAmount);
       setResultMsg({
         ok: true,
-        text: isTh
-          ? `ปรับยอดเงิน Zen ในคลังของ "${uacc.trim()}" เพิ่ม ${(zenAmount / 1_000_000).toLocaleString()}M Zen สำเร็จ!`
-          : `Adjusted vault Zen for "${uacc.trim()}" by +${zenAmount.toLocaleString()} Zen!`,
+        text: L(lang, {
+          en: `Adjusted vault Zen for "${uacc.trim()}" by ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
+          th: `ปรับยอดเงิน Zen ในคลังของ "${uacc.trim()}" เพิ่ม ${(zenAmount / 1_000_000).toLocaleString()}M Zen สำเร็จ!`,
+          pt: `Zen do baú de "${uacc.trim()}" ajustado em ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
+          ru: `Zen сундука «${uacc.trim()}» изменён на ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
+          es: `Zen del baúl de "${uacc.trim()}" ajustado en ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
+          bg: `Zen в сандъка на "${uacc.trim()}" е променен с ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
+        }),
       });
     }
   };
 
-  const handleQuickAdd = (amount: number) => {
-    setUcr(amount);
-  };
-
   return (
     <div className="max-w-2xl space-y-5">
-      <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/90 flex items-center justify-between">
+      <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/90 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
             <Coins className="w-5 h-5" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-              {isTh ? 'เสก / ปรับเครดิตและเงิน Zen ของผู้เล่น' : 'Manage Account Credits & Zen'}
+              {L(lang, {
+                en: 'Manage Account Credits & Zen',
+                th: 'จัดการเครดิตและเงิน Zen ของผู้เล่น',
+                pt: 'Gerenciar Créditos e Zen da Conta',
+                ru: 'Управление кредитами и Zen аккаунта',
+                es: 'Gestionar Créditos y Zen de Cuenta',
+                bg: 'Управление на кредити и Zen на акаунт',
+              })}
             </h2>
             <p className="text-xs text-zinc-400">
-              {isTh
-                ? 'คำสั่งแอดมินจำลอง `exec XCredits` เติมหรือลดเครดิตและ Zen ของบัญชีผู้เล่น'
-                : 'Directly adjust player credits or vault Zen.'}
+              {L(lang, {
+                en: 'Grant or deduct player Credits and Warehouse Zen.',
+                th: 'เพิ่มหรือลดเครดิตและเงิน Zen ในคลังของบัญชีผู้เล่น',
+                pt: 'Adicione ou deduza Créditos e Zen do baú do jogador.',
+                ru: 'Начисление или списание кредитов и Zen в сундуке игрока.',
+                es: 'Añade o deduce Créditos y Zen del baúl del jugador.',
+                bg: 'Добавяне или отнемане на кредити и Zen в сандъка.',
+              })}
             </p>
           </div>
         </div>
@@ -1008,7 +1517,9 @@ export const ManageCreditsModule: React.FC<{
             type="button"
             onClick={() => setMode('adjust')}
             className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
-              mode === 'adjust' ? 'bg-amber-500 text-zinc-950 font-bold' : 'text-zinc-400'
+              mode === 'adjust'
+                ? 'bg-amber-500 text-zinc-950 font-bold'
+                : 'text-zinc-400'
             }`}
           >
             Credits
@@ -1017,7 +1528,9 @@ export const ManageCreditsModule: React.FC<{
             type="button"
             onClick={() => setMode('zen')}
             className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
-              mode === 'zen' ? 'bg-amber-500 text-zinc-950 font-bold' : 'text-zinc-400'
+              mode === 'zen'
+                ? 'bg-amber-500 text-zinc-950 font-bold'
+                : 'text-zinc-400'
             }`}
           >
             Vault Zen
@@ -1031,36 +1544,52 @@ export const ManageCreditsModule: React.FC<{
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{resultMsg.text}</span>
           </div>
-          <button type="button" onClick={() => setResultMsg(null)} className="cursor-pointer">
+          <button
+            type="button"
+            onClick={() => setResultMsg(null)}
+            className="cursor-pointer"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Selected Account Info Card */}
       {selectedAccountData && (
         <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/70 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div>
-            <span className="text-zinc-400 block">{isTh ? 'บัญชี' : 'Account'}:</span>
-            <span className="font-bold text-white text-sm">{selectedAccountData.username}</span>
+            <span className="text-zinc-400 block">
+              {L(lang, {
+                en: 'Account',
+                th: 'บัญชี',
+                pt: 'Conta',
+                ru: 'Аккаунт',
+                es: 'Cuenta',
+                bg: 'Акаунт',
+              })}
+              :
+            </span>
+            <span className="font-bold text-white text-sm">
+              {selectedAccountData.username}
+            </span>
           </div>
           <div>
-            <span className="text-zinc-400 block">{isTh ? 'เครดิตปัจจุบัน' : 'Credits'}:</span>
+            <span className="text-zinc-400 block">Credits:</span>
             <span className="font-bold text-amber-400 font-mono-tabular text-sm">
               {selectedAccountData.credits.toLocaleString()} Cr
             </span>
           </div>
           <div>
-            <span className="text-zinc-400 block">{isTh ? 'Zen ในคลัง' : 'Vault Zen'}:</span>
+            <span className="text-zinc-400 block">Vault Zen:</span>
             <span className="font-mono-tabular text-zinc-200">
               {(selectedAccountData.vaultMoney / 1_000_000).toFixed(0)}M Zen
             </span>
           </div>
           <div>
-            <span className="text-zinc-400 block">{isTh ? 'สถานะ VIP' : 'VIP Status'}:</span>
+            <span className="text-zinc-400 block">VIP:</span>
             <span className="font-medium text-emerald-400">
-              {selectedAccountData.vipUntil && new Date(selectedAccountData.vipUntil) > new Date()
-                ? 'VIP Active 👑'
+              {selectedAccountData.vipUntil &&
+              new Date(selectedAccountData.vipUntil) > new Date()
+                ? 'VIP Active'
                 : 'Regular'}
             </span>
           </div>
@@ -1073,13 +1602,30 @@ export const ManageCreditsModule: React.FC<{
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>
-            <label className="block text-zinc-400 mb-1.5">{isTh ? 'ชื่อบัญชีเป้าหมาย' : 'Target Account'}</label>
+            <label className="block text-zinc-400 mb-1.5">
+              {L(lang, {
+                en: 'Target Account',
+                th: 'ชื่อบัญชีเป้าหมาย',
+                pt: 'Conta Alvo',
+                ru: 'Целевой аккаунт',
+                es: 'Cuenta Destino',
+                bg: 'Целеви акаунт',
+              })}
+            </label>
             <input
               type="text"
               list="admin-acc-list"
               required
               value={uacc}
               onChange={(e) => setUacc(e.target.value)}
+              placeholder={L(lang, {
+                en: 'Enter account username',
+                th: 'ระบุชื่อบัญชีผู้เล่น',
+                pt: 'Digite o usuário da conta',
+                ru: 'Введите логин аккаунта',
+                es: 'Ingresa el usuario',
+                bg: 'Въведете потребителско име',
+              })}
               className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
             />
             <datalist id="admin-acc-list">
@@ -1094,7 +1640,14 @@ export const ManageCreditsModule: React.FC<{
           {mode === 'adjust' ? (
             <div>
               <label className="block text-zinc-400 mb-1.5">
-                {isTh ? 'จำนวนเครดิต (+ เพิ่ม, - ลด)' : 'Credits Delta (+ or -)'}
+                {L(lang, {
+                  en: 'Credits Delta (+ or -)',
+                  th: 'จำนวนเครดิต (+ เพิ่ม, - ลด)',
+                  pt: 'Variação de Créditos (+ ou -)',
+                  ru: 'Изменение кредитов (+ или -)',
+                  es: 'Cambio de Créditos (+ o -)',
+                  bg: 'Промяна на кредити (+ или -)',
+                })}
               </label>
               <input
                 type="number"
@@ -1106,7 +1659,14 @@ export const ManageCreditsModule: React.FC<{
           ) : (
             <div>
               <label className="block text-zinc-400 mb-1.5">
-                {isTh ? 'จำนวนเงิน Zen (+ เพิ่มเข้าคลัง)' : 'Vault Zen Amount'}
+                {L(lang, {
+                  en: 'Vault Zen Amount',
+                  th: 'จำนวนเงิน Zen (+ เพิ่มเข้าคลัง)',
+                  pt: 'Quantidade de Zen no Baú',
+                  ru: 'Сумма Zen в сундук',
+                  es: 'Cantidad de Zen en Baúl',
+                  bg: 'Сума на Zen в сандъка',
+                })}
               </label>
               <input
                 type="number"
@@ -1121,13 +1681,22 @@ export const ManageCreditsModule: React.FC<{
 
         {mode === 'adjust' && (
           <div className="space-y-1.5 pt-1">
-            <span className="text-[11px] text-zinc-400">{isTh ? 'ปุ่มลัดเลือกจำนวนเครดิต:' : 'Quick Presets:'}</span>
+            <span className="text-[11px] text-zinc-400">
+              {L(lang, {
+                en: 'Quick Presets:',
+                th: 'ปุ่มลัดเลือกจำนวนเครดิต:',
+                pt: 'Atalhos Rápidos:',
+                ru: 'Быстрый выбор:',
+                es: 'Ajustes Rápidos:',
+                bg: 'Бърз избор:',
+              })}
+            </span>
             <div className="flex flex-wrap gap-1.5">
               {[+100, +500, +1000, +5000, -500, -1000].map((val) => (
                 <button
                   key={val}
                   type="button"
-                  onClick={() => handleQuickAdd(val)}
+                  onClick={() => setUcr(val)}
                   className={`px-2.5 py-1 rounded text-xs font-mono-tabular cursor-pointer border ${
                     val > 0
                       ? 'bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border-zinc-700'
@@ -1147,8 +1716,22 @@ export const ManageCreditsModule: React.FC<{
             className="px-5 py-2.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors cursor-pointer shadow-lg"
           >
             {mode === 'adjust'
-              ? isTh ? 'ยืนยันปรับยอดเครดิต' : 'Confirm Credit Update'
-              : isTh ? 'ยืนยันปรับยอด Zen' : 'Confirm Zen Update'}
+              ? L(lang, {
+                  en: 'Confirm Credit Update',
+                  th: 'ยืนยันปรับยอดเครดิต',
+                  pt: 'Confirmar Créditos',
+                  ru: 'Обновить кредиты',
+                  es: 'Confirmar Créditos',
+                  bg: 'Потвърди кредити',
+                })
+              : L(lang, {
+                  en: 'Confirm Zen Update',
+                  th: 'ยืนยันปรับยอด Zen',
+                  pt: 'Confirmar Zen',
+                  ru: 'Обновить Zen',
+                  es: 'Confirmar Zen',
+                  bg: 'Потвърди Zen',
+                })}
           </button>
         </div>
       </form>
@@ -1157,7 +1740,7 @@ export const ManageCreditsModule: React.FC<{
 };
 
 // =========================================================================
-// 4. Hawk Eye — Shop Log (modules/viewlog.php)
+// 4. Hawk Eye — Audit & Shop Logs
 // =========================================================================
 export const HawkEyeLogModule: React.FC<{
   logs: LogEntry[];
@@ -1174,13 +1757,13 @@ export const HawkEyeLogModule: React.FC<{
   onSelectSerialSearch,
   onClearLogs,
 }) => {
-  const isTh = lang === 'Thai';
   const [sstr, setSstr] = useState('');
   const [sacc, setSacc] = useState(initialAccountFilter);
   const [todayOnly, setTodayOnly] = useState(false);
   const [sortDesc, setSortDesc] = useState(true);
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialAccountFilter) setSacc(initialAccountFilter);
   }, [initialAccountFilter]);
 
@@ -1190,10 +1773,16 @@ export const HawkEyeLogModule: React.FC<{
     const todaySec = Math.floor(startOfToday.getTime() / 1000);
 
     const res = logs.filter((l) => {
-      if (sstr.trim() && !l.details.toLowerCase().includes(sstr.trim().toLowerCase())) {
+      if (
+        sstr.trim() &&
+        !l.details.toLowerCase().includes(sstr.trim().toLowerCase())
+      ) {
         return false;
       }
-      if (sacc.trim() && l.accountId.toLowerCase() !== sacc.trim().toLowerCase()) {
+      if (
+        sacc.trim() &&
+        l.accountId.toLowerCase() !== sacc.trim().toLowerCase()
+      ) {
         return false;
       }
       if (todayOnly && l.dateline < todaySec) {
@@ -1208,21 +1797,36 @@ export const HawkEyeLogModule: React.FC<{
   }, [logs, sstr, sacc, todayOnly, sortDesc]);
 
   const handleExportCSV = () => {
-    const headers = ['ID', 'Account', 'Details', 'Serial', 'Timestamp', 'Date'];
+    const headers = [
+      'ID',
+      'AccountID',
+      'IP_Address',
+      'Action',
+      'Item_Serial',
+      'Item_Hex',
+      'Details',
+      'Timestamp',
+      'ISO_Date',
+    ];
     const rows = filteredLogs.map((l) => [
       l.id,
       `"${l.accountId}"`,
-      `"${l.details.replace(/"/g, '""')}"`,
+      `"${l.ipAddress || '127.0.0.1'}"`,
+      `"${l.action || 'SHOP_ACTION'}"`,
       l.itemSerial || '',
+      `"${l.itemHex || ''}"`,
+      `"${l.details.replace(/"/g, '""')}"`,
       l.dateline,
       `"${new Date(l.dateline * 1000).toISOString()}"`,
     ]);
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join(
+      '\n'
+    );
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `open_webshop_logs_${Date.now()}.csv`);
+    link.setAttribute('download', `egis_mu_audit_logs_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1230,26 +1834,57 @@ export const HawkEyeLogModule: React.FC<{
 
   return (
     <div className="space-y-5">
-      {/* Search & Filter Header */}
       <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/80 flex flex-wrap items-end justify-between gap-4 text-xs">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'ค้นหาข้อความ' : 'Search Details'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Search Details',
+                th: 'ค้นหาข้อความ',
+                pt: 'Buscar Detalhes',
+                ru: 'Поиск по деталям',
+                es: 'Buscar Detalles',
+                bg: 'Търсене в детайли',
+              })}
+            </label>
             <input
               type="text"
               value={sstr}
               onChange={(e) => setSstr(e.target.value)}
-              placeholder="e.g. Bone Blade, VIP..."
+              placeholder={L(lang, {
+                en: 'Item, serial, action...',
+                th: 'ชื่อไอเทม, Serial, รายการ...',
+                pt: 'Item, serial, ação...',
+                ru: 'Предмет, серийник, действие...',
+                es: 'Objeto, serial, acción...',
+                bg: 'Предмет, сериен №, действие...',
+              })}
               className="px-3 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
             />
           </div>
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'กรองตามบัญชี' : 'Account'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Account',
+                th: 'กรองตามบัญชี',
+                pt: 'Conta',
+                ru: 'Аккаунт',
+                es: 'Cuenta',
+                bg: 'Акаунт',
+              })}
+            </label>
             <input
               type="text"
               value={sacc}
               onChange={(e) => setSacc(e.target.value)}
-              placeholder="e.g. netsplit"
+              placeholder={L(lang, {
+                en: 'Username...',
+                th: 'ชื่อบัญชี...',
+                pt: 'Usuário...',
+                ru: 'Логин...',
+                es: 'Usuario...',
+                bg: 'Потребител...',
+              })}
               className="px-3 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
             />
           </div>
@@ -1260,7 +1895,16 @@ export const HawkEyeLogModule: React.FC<{
               onChange={(e) => setTodayOnly(e.target.checked)}
               className="accent-amber-500"
             />
-            <span>{isTh ? 'เฉพาะวันนี้' : 'Today Only'}</span>
+            <span>
+              {L(lang, {
+                en: 'Today Only',
+                th: 'เฉพาะวันนี้',
+                pt: 'Apenas Hoje',
+                ru: 'Только сегодня',
+                es: 'Solo Hoy',
+                bg: 'Само днес',
+              })}
+            </span>
           </label>
           {(sstr || sacc || todayOnly) && (
             <button
@@ -1272,7 +1916,14 @@ export const HawkEyeLogModule: React.FC<{
               }}
               className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
             >
-              {isTh ? 'ล้างตัวกรอง' : 'Reset'}
+              {L(lang, {
+                en: 'Reset',
+                th: 'ล้างตัวกรอง',
+                pt: 'Limpar',
+                ru: 'Сбросить',
+                es: 'Limpiar',
+                bg: 'Изчисти',
+              })}
             </button>
           )}
         </div>
@@ -1284,7 +1935,25 @@ export const HawkEyeLogModule: React.FC<{
             className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center gap-1.5 cursor-pointer"
           >
             <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" />
-            <span>{sortDesc ? (isTh ? 'ใหม่สุดก่อน' : 'Newest First') : (isTh ? 'เก่าสุดก่อน' : 'Oldest First')}</span>
+            <span>
+              {sortDesc
+                ? L(lang, {
+                    en: 'Newest First',
+                    th: 'ใหม่สุดก่อน',
+                    pt: 'Mais Recentes',
+                    ru: 'Сначала новые',
+                    es: 'Más Recientes',
+                    bg: 'Най-нови',
+                  })
+                : L(lang, {
+                    en: 'Oldest First',
+                    th: 'เก่าสุดก่อน',
+                    pt: 'Mais Antigos',
+                    ru: 'Сначала старые',
+                    es: 'Más Antiguos',
+                    bg: 'Най-стари',
+                  })}
+            </span>
           </button>
           <button
             type="button"
@@ -1292,74 +1961,203 @@ export const HawkEyeLogModule: React.FC<{
             className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-1.5 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{isTh ? 'ส่งออก CSV' : 'Export CSV'}</span>
+            <span>
+              {L(lang, {
+                en: 'Export CSV',
+                th: 'ส่งออก CSV',
+                pt: 'Exportar CSV',
+                ru: 'Экспорт CSV',
+                es: 'Exportar CSV',
+                bg: 'Експорт CSV',
+              })}
+            </span>
           </button>
-          {onClearLogs && (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm(isTh ? 'ต้องการล้างประวัติการทำรายการทั้งหมดหรือไม่?' : 'Clear all logs?')) {
-                  onClearLogs();
-                }
-              }}
-              className="px-3 py-1.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 cursor-pointer"
-            >
-              {isTh ? 'ล้างประวัติ' : 'Clear Logs'}
-            </button>
-          )}
+          {onClearLogs &&
+            (confirmClear ? (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClearLogs();
+                    setConfirmClear(false);
+                  }}
+                  className="px-3 py-1.5 rounded bg-rose-500 hover:bg-rose-400 text-zinc-950 font-bold cursor-pointer"
+                >
+                  {L(lang, {
+                    en: 'Confirm Clear',
+                    th: 'ยืนยันล้าง',
+                    pt: 'Confirmar',
+                    ru: 'Подтвердить',
+                    es: 'Confirmar',
+                    bg: 'Потвърди',
+                  })}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClear(false)}
+                  className="px-2 py-1.5 rounded bg-zinc-800 text-zinc-300 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                className="px-3 py-1.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 cursor-pointer"
+              >
+                {L(lang, {
+                  en: 'Clear Logs',
+                  th: 'ล้างประวัติ',
+                  pt: 'Limpar Logs',
+                  ru: 'Очистить логи',
+                  es: 'Limpiar Logs',
+                  bg: 'Изчисти логове',
+                })}
+              </button>
+            ))}
         </div>
       </div>
 
-      {/* Logs Table */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 overflow-hidden shadow-lg">
         <div className="px-4 py-3 border-b border-zinc-800 text-xs font-semibold text-zinc-200 flex items-center justify-between">
           <span className="flex items-center gap-2">
             <FileSearch className="w-4 h-4 text-amber-400" />
-            <span>{isTh ? 'ประวัติการทำรายการในร้านค้า (Hawk Eye Logs)' : 'Hawk Eye Shop Log Results'}</span>
+            <span>
+              {L(lang, {
+                en: 'Hawk Eye Audit & Transaction Logs',
+                th: 'ประวัติการทำรายการในร้านค้า (Hawk Eye Logs)',
+                pt: 'Registros de Auditoria Hawk Eye',
+                ru: 'Журнал транзакций Hawk Eye',
+                es: 'Registros de Auditoría Hawk Eye',
+                bg: 'Одит дневник Hawk Eye',
+              })}
+            </span>
           </span>
-          <span className="text-zinc-500 font-mono-tabular">{filteredLogs.length} entries</span>
+          <span className="text-zinc-500 font-mono-tabular">
+            {filteredLogs.length} entries
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-zinc-950/60 text-zinc-400 border-b border-zinc-800">
               <tr>
                 <th className="px-4 py-2.5 w-16">ID</th>
-                <th className="px-4 py-2.5 w-32">{isTh ? 'บัญชี' : 'Account'}</th>
-                <th className="px-4 py-2.5">{isTh ? 'รายละเอียด' : 'Details'}</th>
-                <th className="px-4 py-2.5 text-right w-44">{isTh ? 'เวลา' : 'Time'}</th>
+                <th className="px-4 py-2.5 w-32">
+                  {L(lang, {
+                    en: 'Account / IP',
+                    th: 'บัญชี / IP',
+                    pt: 'Conta / IP',
+                    ru: 'Аккаунт / IP',
+                    es: 'Cuenta / IP',
+                    bg: 'Акаунт / IP',
+                  })}
+                </th>
+                <th className="px-4 py-2.5 w-40">
+                  {L(lang, {
+                    en: 'Action',
+                    th: 'ประเภทธุรกรรม',
+                    pt: 'Ação',
+                    ru: 'Действие',
+                    es: 'Acción',
+                    bg: 'Действие',
+                  })}
+                </th>
+                <th className="px-4 py-2.5">
+                  {L(lang, {
+                    en: 'Details & Item Hex/Serial',
+                    th: 'รายละเอียด & Item Hex/Serial',
+                    pt: 'Detalhes & Hex/Serial',
+                    ru: 'Детали и Hex/Serial',
+                    es: 'Detalles y Hex/Serial',
+                    bg: 'Детайли и Hex/Serial',
+                  })}
+                </th>
+                <th className="px-4 py-2.5 text-right w-44">
+                  {L(lang, {
+                    en: 'Timestamp',
+                    th: 'เวลา',
+                    pt: 'Data/Hora',
+                    ru: 'Время',
+                    es: 'Fecha/Hora',
+                    bg: 'Време',
+                  })}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
-              {filteredLogs.map((entry) => (
-                <tr key={entry.id} className="hover:bg-zinc-800/40">
-                  <td className="px-4 py-2.5 font-mono-tabular text-zinc-500">#{entry.id}</td>
-                  <td className="px-4 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => onSelectAccountCredits(entry.accountId)}
-                      className="font-semibold text-amber-400 hover:underline cursor-pointer"
-                      title="Manage this account credits"
-                    >
-                      {entry.accountId}
-                    </button>
-                  </td>
-                  <td className="px-4 py-2.5 text-zinc-200">
-                    <span>{entry.details}</span>
-                    {entry.itemSerial && (
-                      <button
-                        type="button"
-                        onClick={() => onSelectSerialSearch(entry.itemSerial!)}
-                        className="ml-2 text-[11px] font-mono-tabular text-emerald-400 hover:underline cursor-pointer"
-                      >
-                        [Track Serial: {entry.itemSerial}]
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono-tabular text-zinc-400">
-                    {new Date(entry.dateline * 1000).toLocaleString(isTh ? 'th-TH' : 'en-US')}
+              {filteredLogs.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-4 py-8 text-center text-zinc-500"
+                  >
+                    {L(lang, {
+                      en: 'No transaction logs recorded yet.',
+                      th: 'ยังไม่มีประวัติการทำรายการในระบบ',
+                      pt: 'Nenhum registro de transação encontrado.',
+                      ru: 'Записи о транзакциях отсутствуют.',
+                      es: 'Aún no hay registros de transacciones.',
+                      bg: 'Все още няма записани транзакции.',
+                    })}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredLogs.map((entry) => (
+                  <tr key={entry.id} className="hover:bg-zinc-800/40">
+                    <td className="px-4 py-2.5 font-mono-tabular text-zinc-500">
+                      #{entry.id}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() => onSelectAccountCredits(entry.accountId)}
+                        className="font-semibold text-amber-400 hover:underline cursor-pointer block"
+                      >
+                        {entry.accountId}
+                      </button>
+                      <span className="text-[10px] font-mono-tabular text-zinc-500">
+                        {entry.ipAddress || '127.0.0.1'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono-tabular text-[11px] text-zinc-300">
+                      {entry.action ||
+                        (entry.itemSerial ? 'PURCHASE_ITEM' : 'ACCOUNT_ACTION')}
+                    </td>
+                    <td className="px-4 py-2.5 text-zinc-200">
+                      <div>{entry.details}</div>
+                      {(entry.itemSerial || entry.itemHex) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-mono-tabular">
+                          {entry.itemSerial && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onSelectSerialSearch(entry.itemSerial!)
+                              }
+                              className="text-emerald-400 hover:underline cursor-pointer"
+                            >
+                              [Serial: {entry.itemSerial}]
+                            </button>
+                          )}
+                          {entry.itemHex && (
+                            <span
+                              className="text-zinc-400 truncate max-w-xs"
+                              title={entry.itemHex}
+                            >
+                              Hex: {entry.itemHex}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono-tabular text-zinc-400">
+                      {new Date(entry.dateline * 1000).toLocaleString(
+                        getDateLocale(lang)
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -1369,7 +2167,7 @@ export const HawkEyeLogModule: React.FC<{
 };
 
 // =========================================================================
-// 5. Serial Search (modules/serial.php)
+// 5. Serial Search & Anti-Dupe Tracker
 // =========================================================================
 export const SerialSearchModule: React.FC<{
   accounts: AccountData[];
@@ -1378,7 +2176,11 @@ export const SerialSearchModule: React.FC<{
   config: WebShopConfig;
   initialSerial?: string;
   lang?: LanguageCode;
-  onAdminDeleteVaultItem?: (username: string, instanceId: string, serial: string) => void;
+  onAdminDeleteVaultItem?: (
+    username: string,
+    instanceId: string,
+    serial: string
+  ) => void;
 }> = ({
   accounts,
   logs,
@@ -1388,11 +2190,13 @@ export const SerialSearchModule: React.FC<{
   lang = 'Thai',
   onAdminDeleteVaultItem,
 }) => {
-  const isTh = lang === 'Thai';
-  const [serialInput, setSerialInput] = useState(initialSerial || '00A84F21');
+  const [serialInput, setSerialInput] = useState(initialSerial || '');
+  const [confirmDeleteInstance, setConfirmDeleteInstance] = useState<
+    string | null
+  >(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialSerial) setSerialInput(initialSerial);
   }, [initialSerial]);
 
@@ -1400,7 +2204,10 @@ export const SerialSearchModule: React.FC<{
 
   const matches = useMemo(() => {
     if (cleanSerial.length !== 8) return null;
-    const vaultFound: { account: string; item: AccountData['vaultItems'][0] }[] = [];
+    const vaultFound: {
+      account: string;
+      item: AccountData['vaultItems'][0];
+    }[] = [];
     for (const acc of accounts) {
       for (const item of acc.vaultItems) {
         if (item.serial.toUpperCase() === cleanSerial) {
@@ -1422,16 +2229,25 @@ export const SerialSearchModule: React.FC<{
         <div className="flex items-center gap-2 pb-3 border-b border-zinc-800">
           <FileSearch className="w-5 h-5 text-amber-400" />
           <h3 className="text-sm font-bold text-white">
-            {isTh
-              ? 'ระบบค้นหาและตรวจจับ Serial ไอเทม (Serial Search & Dupe Tracker)'
-              : 'WebShop Admin: Item Serial Search'}
+            {L(lang, {
+              en: 'Item Serial Search & Anti-Dupe Tracker',
+              th: 'ระบบค้นหาและตรวจจับ Serial ไอเทม (Serial Search & Dupe Tracker)',
+              pt: 'Busca de Serial e Rastreador Anti-Dupe',
+              ru: 'Поиск по серийному номеру и анти-дюп',
+              es: 'Búsqueda de Serial y Rastreador Anti-Dupe',
+              bg: 'Търсене на сериен номер и анти-дюп',
+            })}
           </h3>
         </div>
 
         {actionNotice && (
           <div className="p-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 text-xs flex items-center justify-between">
             <span>{actionNotice}</span>
-            <button type="button" onClick={() => setActionNotice(null)} className="cursor-pointer">
+            <button
+              type="button"
+              onClick={() => setActionNotice(null)}
+              className="cursor-pointer"
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1439,52 +2255,99 @@ export const SerialSearchModule: React.FC<{
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-zinc-300">
-            {isTh ? 'กรอก Serial ไอเทม (เลขฐาน 16 จำนวน 8 หลัก):' : 'Item Serial (8 Hex Digits):'}
+            {L(lang, {
+              en: 'Item Serial (8 Hex Digits):',
+              th: 'กรอก Serial ไอเทม (เลขฐาน 16 จำนวน 8 หลัก):',
+              pt: 'Serial do Item (8 dígitos Hex):',
+              ru: 'Серийный номер предмета (8 Hex-символов):',
+              es: 'Serial del Objeto (8 dígitos Hex):',
+              bg: 'Сериен номер на предмета (8 Hex символа):',
+            })}
           </label>
           <input
             type="text"
             maxLength={8}
             value={serialInput}
             onChange={(e) => setSerialInput(e.target.value)}
+            placeholder="00A1B2C3"
             className="px-3 py-1.5 text-xs font-mono-tabular uppercase rounded bg-zinc-950 border border-zinc-700 text-amber-400 font-bold"
           />
-          <span className="text-[11px] text-zinc-400">
-            {isTh ? 'ตัวอย่าง:' : 'Try:'} <code className="text-zinc-200">00A84F21</code> ·{' '}
-            <code className="text-zinc-200">00B91E04</code> ·{' '}
-            <code className="text-zinc-200">00000000</code>
-          </span>
         </div>
 
-        {cleanSerial === '00000000' ? (
+        {cleanSerial.length === 0 ? (
+          <div className="text-xs text-zinc-400">
+            {L(lang, {
+              en: 'Enter an 8-character hexadecimal item serial to inspect vaults and purchase logs.',
+              th: 'กรอกรหัส Serial 8 หลักเพื่อค้นหาตำแหน่งไอเทมในคลังและประวัติการสั่งซื้อ',
+              pt: 'Digite um serial hexadecimal de 8 caracteres para buscar nos baús e registros.',
+              ru: 'Введите 8-значный серийный номер для проверки сундуков и журнала покупок.',
+              es: 'Ingresa un serial hexadecimal de 8 caracteres para inspeccionar baúles y registros.',
+              bg: 'Въведете 8-символен шестнадесетичен сериен номер за проверка.',
+            })}
+          </div>
+        ) : cleanSerial === '00000000' ? (
           <div className="p-3.5 rounded border border-rose-500/40 bg-rose-500/10 text-xs text-rose-200 leading-relaxed">
-            {isTh
-              ? 'คำเตือน: การค้นหาไอเทม Serial `00000000` (ไอเทมเสก/ปั๊มโกง) มีปริมาณมากบนเซิร์ฟเวอร์ OpenMU กรุณาตรวจสอบผ่านคำสั่ง SQL บนคอนโซลหรือโปรแกรมจัดการเซิร์ฟเวอร์โดยตรง'
-              : 'Searching for serial 00000000 exceeds timeout. Please check database directly.'}
+            {L(lang, {
+              en: 'Warning: Serial 00000000 corresponds to non-serial/NPC items. Query the SQL database directly for full scans.',
+              th: 'คำเตือน: การค้นหาไอเทม Serial 00000000 มีปริมาณมากบนเซิร์ฟเวอร์ กรุณาตรวจสอบผ่านฐานข้อมูล SQL โดยตรง',
+              pt: 'Aviso: O serial 00000000 corresponde a itens de NPC. Consulte o banco SQL diretamente.',
+              ru: 'Внимание: Серийный номер 00000000 относится к NPC-предметам. Проверьте базу SQL напрямую.',
+              es: 'Advertencia: El serial 00000000 corresponde a objetos NPC. Consulta la base SQL directamente.',
+              bg: 'Предупреждение: Сериен номер 00000000 е за NPC предмети. Проверете SQL базата директно.',
+            })}
           </div>
         ) : cleanSerial.length !== 8 ? (
           <div className="text-xs text-rose-400">
-            {isTh ? 'หมายเลข Serial ต้องมีขนาดตรง 8 ตัวอักษรพอดี' : 'The serial must be exactly 8 characters long!'}
+            {L(lang, {
+              en: 'The item serial must be exactly 8 hexadecimal characters long.',
+              th: 'หมายเลข Serial ต้องมีขนาดตรง 8 ตัวอักษรพอดี',
+              pt: 'O serial deve ter exatamente 8 caracteres.',
+              ru: 'Серийный номер должен состоять ровно из 8 символов.',
+              es: 'El serial debe tener exactamente 8 caracteres.',
+              bg: 'Серийният номер трябва да е точно 8 символа.',
+            })}
           </div>
         ) : (
           matches && (
             <div className="space-y-5 pt-2">
-              {/* Vault Matches */}
               <div className="space-y-3">
                 <div className="text-xs font-bold text-zinc-200 flex items-center justify-between">
                   <span>
-                    {isTh ? 'พบอยู่ในคลังของผู้เล่น (Warehouse Vaults)' : 'Found in Warehouse Vaults'}: ({matches.vaultFound.length})
+                    {L(lang, {
+                      en: 'Found in Warehouse Vaults',
+                      th: 'พบอยู่ในคลังของผู้เล่น (Warehouse Vaults)',
+                      pt: 'Encontrado nos Baús',
+                      ru: 'Найдено в сундуках игроков',
+                      es: 'Encontrado en Baúles',
+                      bg: 'Намерено в сандъци',
+                    })}
+                    : ({matches.vaultFound.length})
                   </span>
                   {matches.vaultFound.length > 1 && (
                     <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold text-[10px] uppercase">
-                      ⚠️ {isTh ? 'ตรวจพบ Serial ซ้ำ (Duplicated Item)!' : 'Dupe Detected!'}
+                      {L(lang, {
+                        en: 'Dupe Detected!',
+                        th: 'ตรวจพบ Serial ซ้ำ!',
+                        pt: 'Dupe Detectado!',
+                        ru: 'Обнаружен дюп!',
+                        es: '¡Dupe Detectado!',
+                        bg: 'Открит дубликат!',
+                      })}
                     </span>
                   )}
                 </div>
 
                 {matches.vaultFound.length > 0 ? (
                   matches.vaultFound.map((vf, idx) => {
-                    const catItem = catalog.find((c) => c.uid === vf.item.itemUid);
-                    const tip = formatItemTooltip(vf.item, catItem, config);
+                    const catItem = catalog.find(
+                      (c) => c.uid === vf.item.itemUid
+                    );
+                    const tip = formatItemTooltip(
+                      vf.item,
+                      catItem,
+                      config,
+                      lang
+                    );
                     return (
                       <div
                         key={idx}
@@ -1492,50 +2355,114 @@ export const SerialSearchModule: React.FC<{
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
                           <div className="text-xs text-emerald-400 font-medium">
-                            {isTh ? 'อยู่ในคลังบัญชี:' : 'Located in Account:'}{' '}
+                            {L(lang, {
+                              en: 'Account:',
+                              th: 'อยู่ในคลังบัญชี:',
+                              pt: 'Conta:',
+                              ru: 'Аккаунт:',
+                              es: 'Cuenta:',
+                              bg: 'Акаунт:',
+                            })}{' '}
                             <strong className="text-white">{vf.account}</strong>{' '}
-                            (Vault Slot #{vf.item.slotIndex} · แถว {Math.floor(vf.item.slotIndex / 8) + 1}, คอลัมน์ {(vf.item.slotIndex % 8) + 1})
+                            (Slot #{vf.item.slotIndex})
                           </div>
-                          {onAdminDeleteVaultItem && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    isTh
-                                      ? `ยืนยันการลบไอเทม Serial ${vf.item.serial} ออกจากคลังของ ${vf.account}?`
-                                      : `Delete item ${vf.item.serial} from ${vf.account}'s vault?`
-                                  )
-                                ) {
-                                  onAdminDeleteVaultItem(vf.account, vf.item.instanceId, vf.item.serial);
-                                  setActionNotice(
-                                    isTh
-                                      ? `ลบไอเทม Serial ${vf.item.serial} จากคลังของ ${vf.account} สำเร็จ`
-                                      : `Deleted item from ${vf.account}'s vault.`
-                                  );
+                          {onAdminDeleteVaultItem &&
+                            (confirmDeleteInstance === vf.item.instanceId ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onAdminDeleteVaultItem(
+                                      vf.account,
+                                      vf.item.instanceId,
+                                      vf.item.serial
+                                    );
+                                    setConfirmDeleteInstance(null);
+                                    setActionNotice(
+                                      L(lang, {
+                                        en: `Deleted serial ${vf.item.serial} from ${vf.account}'s vault.`,
+                                        th: `ลบไอเทม Serial ${vf.item.serial} จากคลังของ ${vf.account} สำเร็จ`,
+                                        pt: `Serial ${vf.item.serial} removido do baú de ${vf.account}.`,
+                                        ru: `Предмет ${vf.item.serial} удалён из сундука ${vf.account}.`,
+                                        es: `Serial ${vf.item.serial} eliminado del baúl de ${vf.account}.`,
+                                        bg: `Предмет ${vf.item.serial} е изтрит от сандъка на ${vf.account}.`,
+                                      })
+                                    );
+                                  }}
+                                  className="px-2.5 py-1 rounded bg-rose-500 text-zinc-950 text-xs font-bold cursor-pointer"
+                                >
+                                  {L(lang, {
+                                    en: 'Confirm Delete',
+                                    th: 'ยืนยันลบ',
+                                    pt: 'Confirmar',
+                                    ru: 'Подтвердить',
+                                    es: 'Confirmar',
+                                    bg: 'Потвърди',
+                                  })}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteInstance(null)}
+                                  className="px-2 py-1 rounded bg-zinc-800 text-zinc-300 text-xs cursor-pointer"
+                                >
+                                  {L(lang, {
+                                    en: 'Cancel',
+                                    th: 'ยกเลิก',
+                                    pt: 'Cancelar',
+                                    ru: 'Отмена',
+                                    es: 'Cancelar',
+                                    bg: 'Отказ',
+                                  })}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setConfirmDeleteInstance(vf.item.instanceId)
                                 }
-                              }}
-                              className="px-2.5 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold cursor-pointer"
-                            >
-                              {isTh ? 'ลบไอเทมนี้ออกจากคลังผู้เล่น' : 'Delete from Vault'}
-                            </button>
-                          )}
+                                className="px-2.5 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold cursor-pointer"
+                              >
+                                {L(lang, {
+                                  en: 'Delete from Vault',
+                                  th: 'ลบออกจากคลังผู้เล่น',
+                                  pt: 'Remover do Baú',
+                                  ru: 'Удалить из сундука',
+                                  es: 'Eliminar del Baúl',
+                                  bg: 'Изтрий от сандъка',
+                                })}
+                              </button>
+                            ))}
                         </div>
-                        <ItemTooltipCard tooltip={tip} />
+                        <ItemTooltipCard tooltip={tip} lang={lang} />
                       </div>
                     );
                   })
                 ) : (
                   <div className="text-xs text-zinc-500 p-3 rounded bg-zinc-950 border border-zinc-800/80">
-                    {isTh ? 'ไม่พบไอเทม Serial นี้ในคลังของผู้เล่นคนใดในขณะนี้' : 'Not currently found in any user warehouse.'}
+                    {L(lang, {
+                      en: 'Not currently found in any user warehouse.',
+                      th: 'ไม่พบไอเทม Serial นี้ในคลังของผู้เล่นคนใดในขณะนี้',
+                      pt: 'Não encontrado em nenhum baú de jogador.',
+                      ru: 'Не найдено ни в одном сундуке игрока.',
+                      es: 'No encontrado en ningún baúl de jugador.',
+                      bg: 'Не е намерено в нито един сандък на играч.',
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Purchase Log Matches */}
               <div className="space-y-2">
                 <div className="text-xs font-bold text-zinc-200">
-                  {isTh ? 'ประวัติการซื้อในร้านค้าที่เกี่ยวข้อง' : 'Found in Purchase Logs'}: ({matches.logFound.length})
+                  {L(lang, {
+                    en: 'Found in Purchase Logs',
+                    th: 'ประวัติการซื้อในร้านค้าที่เกี่ยวข้อง',
+                    pt: 'Registros de Compra Relacionados',
+                    ru: 'Записи в журнале покупок',
+                    es: 'Registros de Compra Relacionados',
+                    bg: 'Записи в дневника за покупки',
+                  })}
+                  : ({matches.logFound.length})
                 </div>
                 {matches.logFound.length > 0 ? (
                   matches.logFound.map((lf) => (
@@ -1544,16 +2471,28 @@ export const SerialSearchModule: React.FC<{
                       className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 flex items-center justify-between"
                     >
                       <span>
-                        <strong className="text-amber-400">{lf.accountId}</strong>: {lf.details}
+                        <strong className="text-amber-400">
+                          {lf.accountId}
+                        </strong>
+                        : {lf.details}
                       </span>
                       <span className="font-mono-tabular text-zinc-500 text-[11px]">
-                        {new Date(lf.dateline * 1000).toLocaleString(isTh ? 'th-TH' : 'en-US')}
+                        {new Date(lf.dateline * 1000).toLocaleString(
+                          getDateLocale(lang)
+                        )}
                       </span>
                     </div>
                   ))
                 ) : (
                   <div className="text-xs text-zinc-500 p-3 rounded bg-zinc-950 border border-zinc-800/80">
-                    {isTh ? 'ไม่พบประวัติการซื้อ Serial นี้ในระบบ WebShop' : 'No purchase records found.'}
+                    {L(lang, {
+                      en: 'No purchase records found for this serial.',
+                      th: 'ไม่พบประวัติการซื้อ Serial นี้ในระบบ WebShop',
+                      pt: 'Nenhum registro de compra encontrado.',
+                      ru: 'Записей о покупке не найдено.',
+                      es: 'No se encontraron registros de compra.',
+                      bg: 'Няма намерени записи за покупка.',
+                    })}
                   </div>
                 )}
               </div>
@@ -1566,7 +2505,7 @@ export const SerialSearchModule: React.FC<{
 };
 
 // =========================================================================
-// 6. Top Credited Accounts (modules/top.php)
+// 6. Top Credited Accounts
 // =========================================================================
 export const TopAccountsModule: React.FC<{
   accounts: AccountData[];
@@ -1574,8 +2513,13 @@ export const TopAccountsModule: React.FC<{
   lang?: LanguageCode;
   onManageUserCredits: (username: string) => void;
   onViewUserLogs: (username: string) => void;
-}> = ({ accounts, logs, lang = 'Thai', onManageUserCredits, onViewUserLogs }) => {
-  const isTh = lang === 'Thai';
+}> = ({
+  accounts,
+  logs,
+  lang = 'Thai',
+  onManageUserCredits,
+  onViewUserLogs,
+}) => {
   const [sortBy, setSortBy] = useState<'credits' | 'zen' | 'online'>('credits');
 
   const sorted = useMemo(() => {
@@ -1592,19 +2536,66 @@ export const TopAccountsModule: React.FC<{
         <div className="px-4 py-3 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 font-bold text-zinc-100">
             <Trophy className="w-4 h-4 text-amber-400" />
-            <span>{isTh ? 'อันดับบัญชีผู้เล่นสูงสุดในระบบ' : 'Account Rankings'}</span>
+            <span>
+              {L(lang, {
+                en: 'Account Rankings',
+                th: 'อันดับบัญชีผู้เล่นสูงสุดในระบบ',
+                pt: 'Ranking de Contas',
+                ru: 'Рейтинг аккаунтов',
+                es: 'Ranking de Cuentas',
+                bg: 'Класация на акаунти',
+              })}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-zinc-400">{isTh ? 'จัดเรียงตาม:' : 'Sort by:'}</span>
+            <span className="text-zinc-400">
+              {L(lang, {
+                en: 'Sort by:',
+                th: 'จัดเรียงตาม:',
+                pt: 'Ordenar por:',
+                ru: 'Сортировка:',
+                es: 'Ordenar por:',
+                bg: 'Сортирай по:',
+              })}
+            </span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'credits' | 'zen' | 'online')}
+              onChange={(e) =>
+                setSortBy(e.target.value as 'credits' | 'zen' | 'online')
+              }
               className="bg-zinc-950 border border-zinc-700 rounded px-2.5 py-1 text-zinc-200 cursor-pointer"
             >
-              <option value="credits">{isTh ? 'เครดิตสูงสุด' : 'Top Credits'}</option>
-              <option value="zen">{isTh ? 'Zen ในคลังสูงสุด' : 'Top Vault Zen'}</option>
-              <option value="online">{isTh ? 'เวลาออนไลน์สูงสุด' : 'Top Online Time'}</option>
+              <option value="credits">
+                {L(lang, {
+                  en: 'Top Credits',
+                  th: 'เครดิตสูงสุด',
+                  pt: 'Mais Créditos',
+                  ru: 'Топ кредитов',
+                  es: 'Más Créditos',
+                  bg: 'Топ кредити',
+                })}
+              </option>
+              <option value="zen">
+                {L(lang, {
+                  en: 'Top Vault Zen',
+                  th: 'Zen ในคลังสูงสุด',
+                  pt: 'Mais Zen no Baú',
+                  ru: 'Топ Zen в сундуке',
+                  es: 'Más Zen en Baúl',
+                  bg: 'Топ Zen в сандъка',
+                })}
+              </option>
+              <option value="online">
+                {L(lang, {
+                  en: 'Top Online Time',
+                  th: 'เวลาออนไลน์สูงสุด',
+                  pt: 'Mais Tempo Online',
+                  ru: 'Топ онлайн-времени',
+                  es: 'Más Tiempo Online',
+                  bg: 'Топ онлайн време',
+                })}
+              </option>
             </select>
           </div>
         </div>
@@ -1613,75 +2604,123 @@ export const TopAccountsModule: React.FC<{
           <thead className="bg-zinc-950/60 text-zinc-400 border-b border-zinc-800">
             <tr>
               <th className="px-4 py-2.5 w-12">#</th>
-              <th className="px-4 py-2.5">{isTh ? 'ชื่อบัญชี' : 'Username'}</th>
-              <th className="px-4 py-2.5 text-right">{isTh ? 'เครดิต' : 'Credits'}</th>
-              <th className="px-4 py-2.5 text-right">{isTh ? 'Zen ในคลัง' : 'Vault Zen'}</th>
-              <th className="px-4 py-2.5 text-center">{isTh ? 'เวลาออนไลน์' : 'Online Time'}</th>
-              <th className="px-4 py-2.5 text-center">{isTh ? 'สถานะ VIP' : 'VIP'}</th>
-              <th className="px-4 py-2.5 text-right">{isTh ? 'จัดการ' : 'Action'}</th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'Username',
+                  th: 'ชื่อบัญชี',
+                  pt: 'Usuário',
+                  ru: 'Аккаунт',
+                  es: 'Usuario',
+                  bg: 'Потребител',
+                })}
+              </th>
+              <th className="px-4 py-2.5 text-right">Credits</th>
+              <th className="px-4 py-2.5 text-right">Vault Zen</th>
+              <th className="px-4 py-2.5 text-center">
+                {L(lang, {
+                  en: 'Online Time',
+                  th: 'เวลาออนไลน์',
+                  pt: 'Tempo Online',
+                  ru: 'Онлайн',
+                  es: 'Tiempo Online',
+                  bg: 'Онлайн време',
+                })}
+              </th>
+              <th className="px-4 py-2.5 text-center">VIP</th>
+              <th className="px-4 py-2.5 text-right">
+                {L(lang, {
+                  en: 'Action',
+                  th: 'จัดการ',
+                  pt: 'Ação',
+                  ru: 'Действие',
+                  es: 'Acción',
+                  bg: 'Действие',
+                })}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {sorted.map((acc, idx) => {
-              const logCount = logs.filter((l) => l.accountId.toLowerCase() === acc.username.toLowerCase()).length;
-              const isVip = !!(acc.vipUntil && new Date(acc.vipUntil) > new Date());
-              return (
-                <tr key={acc.username} className="hover:bg-zinc-800/40">
-                  <td className="px-4 py-2.5 font-mono-tabular text-zinc-500 font-bold">
-                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                  </td>
-                  <td className="px-4 py-2.5 font-semibold text-white">
-                    <button
-                      type="button"
-                      onClick={() => onManageUserCredits(acc.username)}
-                      className="text-amber-400 hover:underline cursor-pointer"
-                    >
-                      {acc.username}
-                    </button>
-                    {acc.isAdmin && (
-                      <span className="ml-1.5 px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
-                        Admin
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono-tabular font-bold text-amber-400">
-                    {acc.credits.toLocaleString()} Cr
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono-tabular text-zinc-300">
-                    {(acc.vaultMoney / 1_000_000).toFixed(0)}M Zen
-                  </td>
-                  <td className="px-4 py-2.5 text-center font-mono-tabular text-emerald-400">
-                    {Math.floor((acc.onlineMinutes || 0) / 60)}h {(acc.onlineMinutes || 0) % 60}m
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    {isVip ? (
-                      <span className="inline-flex items-center gap-1 text-amber-300 text-[11px] font-bold">
-                        <Crown className="w-3 h-3 fill-amber-400" />
-                        VIP
-                      </span>
-                    ) : (
-                      <span className="text-zinc-600">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-right space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => onManageUserCredits(acc.username)}
-                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[11px] cursor-pointer"
-                    >
-                      {isTh ? 'ปรับเครดิต' : 'Credits'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onViewUserLogs(acc.username)}
-                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] cursor-pointer"
-                    >
-                      Logs ({logCount})
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                  {L(lang, {
+                    en: 'No registered accounts yet.',
+                    th: 'ยังไม่มีข้อมูลบัญชีผู้เล่นในระบบ',
+                    pt: 'Nenhuma conta registrada ainda.',
+                    ru: 'Зарегистрированных аккаунтов пока нет.',
+                    es: 'Aún no hay cuentas registradas.',
+                    bg: 'Все още няма регистрирани акаунти.',
+                  })}
+                </td>
+              </tr>
+            ) : (
+              sorted.map((acc, idx) => {
+                const logCount = logs.filter(
+                  (l) =>
+                    l.accountId.toLowerCase() === acc.username.toLowerCase()
+                ).length;
+                const isVip = Boolean(
+                  acc.vipUntil && new Date(acc.vipUntil) > new Date()
+                );
+                return (
+                  <tr key={acc.username} className="hover:bg-zinc-800/40">
+                    <td className="px-4 py-2.5 font-mono-tabular text-zinc-500 font-bold">
+                      {idx + 1}
+                    </td>
+                    <td className="px-4 py-2.5 font-semibold text-white">
+                      <button
+                        type="button"
+                        onClick={() => onManageUserCredits(acc.username)}
+                        className="text-amber-400 hover:underline cursor-pointer"
+                      >
+                        {acc.username}
+                      </button>
+                      {acc.isAdmin && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
+                          Admin
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono-tabular font-bold text-amber-400">
+                      {acc.credits.toLocaleString()} Cr
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono-tabular text-zinc-300">
+                      {(acc.vaultMoney / 1_000_000).toFixed(0)}M Zen
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-mono-tabular text-emerald-400">
+                      {Math.floor((acc.onlineMinutes || 0) / 60)}h{' '}
+                      {(acc.onlineMinutes || 0) % 60}m
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {isVip ? (
+                        <span className="inline-flex items-center gap-1 text-amber-300 text-[11px] font-bold">
+                          <Crown className="w-3 h-3 fill-amber-400" />
+                          VIP
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => onManageUserCredits(acc.username)}
+                        className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[11px] cursor-pointer"
+                      >
+                        Credits
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onViewUserLogs(acc.username)}
+                        className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] cursor-pointer"
+                      >
+                        Logs ({logCount})
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
@@ -1690,7 +2729,7 @@ export const TopAccountsModule: React.FC<{
 };
 
 // =========================================================================
-// 7. User Vaults Viewer (modules/admwh.php)
+// 7. User Vaults Viewer
 // =========================================================================
 export const UserVaultsViewerModule: React.FC<{
   accounts: AccountData[];
@@ -1698,11 +2737,32 @@ export const UserVaultsViewerModule: React.FC<{
   config: WebShopConfig;
   lang?: LanguageCode;
   onTrackSerial: (serial: string) => void;
-  onAdminDeleteVaultItem?: (username: string, instanceId: string, serial: string) => void;
-}> = ({ accounts, catalog, config, lang = 'Thai', onTrackSerial, onAdminDeleteVaultItem }) => {
-  const isTh = lang === 'Thai';
-  const [selectedUser, setSelectedUser] = useState(accounts[0]?.username || 'netsplit');
-  const targetAcc = accounts.find((a) => a.username.toLowerCase() === selectedUser.toLowerCase());
+  onAdminDeleteVaultItem?: (
+    username: string,
+    instanceId: string,
+    serial: string
+  ) => void;
+}> = ({
+  accounts,
+  catalog,
+  config,
+  lang = 'Thai',
+  onTrackSerial,
+  onAdminDeleteVaultItem,
+}) => {
+  const [selectedUser, setSelectedUser] = useState(
+    accounts[0]?.username || ''
+  );
+
+  useEffect(() => {
+    if (!accounts.some((a) => a.username === selectedUser)) {
+      setSelectedUser(accounts[0]?.username || '');
+    }
+  }, [accounts, selectedUser]);
+
+  const targetAcc = accounts.find(
+    (a) => a.username.toLowerCase() === selectedUser.toLowerCase()
+  );
 
   return (
     <div className="space-y-5">
@@ -1711,18 +2771,39 @@ export const UserVaultsViewerModule: React.FC<{
           <Eye className="w-5 h-5 text-amber-400" />
           <div>
             <h3 className="font-bold text-white uppercase tracking-wider">
-              {isTh ? 'ส่องคลังเก็บของของผู้เล่น (User Vaults Viewer)' : 'User Vaults Viewer'}
+              {L(lang, {
+                en: 'User Vaults Viewer',
+                th: 'ตรวจสอบคลังเก็บของของผู้เล่น (User Vaults Viewer)',
+                pt: 'Visualizador de Baús de Jogadores',
+                ru: 'Просмотр сундуков игроков',
+                es: 'Visor de Baúles de Jugadores',
+                bg: 'Преглед на сандъци на играчи',
+              })}
             </h3>
             <p className="text-zinc-400 text-[11px]">
-              {isTh
-                ? 'ดูไอเทมในคลังขนาด 8×15 ของผู้เล่นทุกคน ตรวจสอบ Serial หรือลบไอเทมผิดกฎหมาย'
-                : 'Inspect any player 8×15 warehouse vault and track item serials.'}
+              {L(lang, {
+                en: 'Inspect any player 8×15 warehouse vault and track item serials.',
+                th: 'ดูไอเทมในคลังขนาด 8×15 ของผู้เล่น ตรวจสอบ Serial หรือลบไอเทมออกจากคลัง',
+                pt: 'Inspecione o baú 8×15 de qualquer jogador e rastreie seriais.',
+                ru: 'Просмотр сундука 8×15 любого игрока и проверка серийных номеров.',
+                es: 'Inspecciona el baúl 8×15 de cualquier jugador y rastrea seriales.',
+                bg: 'Проверете сандъка 8×15 на всеки играч и проследете серийни номера.',
+              })}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-zinc-400">{isTh ? 'เลือกบัญชีผู้เล่น:' : 'Select Account:'}</span>
+          <span className="text-zinc-400">
+            {L(lang, {
+              en: 'Select Account:',
+              th: 'เลือกบัญชีผู้เล่น:',
+              pt: 'Selecionar Conta:',
+              ru: 'Выберите аккаунт:',
+              es: 'Seleccionar Cuenta:',
+              bg: 'Изберете акаунт:',
+            })}
+          </span>
           <select
             value={selectedUser}
             onChange={(e) => setSelectedUser(e.target.value)}
@@ -1730,7 +2811,16 @@ export const UserVaultsViewerModule: React.FC<{
           >
             {accounts.map((a) => (
               <option key={a.username} value={a.username}>
-                {a.username} ({a.vaultItems.length} {isTh ? 'ไอเทม' : 'items'} · {(a.vaultMoney / 1_000_000).toFixed(0)}M Zen)
+                {a.username} ({a.vaultItems.length}{' '}
+                {L(lang, {
+                  en: 'items',
+                  th: 'ชิ้น',
+                  pt: 'itens',
+                  ru: 'предм.',
+                  es: 'objetos',
+                  bg: 'предм.',
+                })}{' '}
+                · {(a.vaultMoney / 1_000_000).toFixed(0)}M Zen)
               </option>
             ))}
           </select>
@@ -1741,13 +2831,29 @@ export const UserVaultsViewerModule: React.FC<{
         <div className="p-5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-zinc-800 text-xs">
             <span className="text-zinc-300">
-              {isTh ? 'คลังของผู้เล่น:' : 'Vault of:'} <strong className="text-amber-400">{targetAcc.username}</strong>
+              {L(lang, {
+                en: 'Vault of:',
+                th: 'คลังของผู้เล่น:',
+                pt: 'Baú de:',
+                ru: 'Сундук игрока:',
+                es: 'Baúl de:',
+                bg: 'Сандък на:',
+              })}{' '}
+              <strong className="text-amber-400">{targetAcc.username}</strong>
               <span className="ml-3 font-mono-tabular text-zinc-400">
                 Zen: {targetAcc.vaultMoney.toLocaleString()} / 900,000,000
               </span>
             </span>
             <span className="text-zinc-500 font-mono-tabular">
-              {targetAcc.vaultItems.length} {isTh ? 'ชิ้นในคลัง' : 'vault items'}
+              {targetAcc.vaultItems.length}{' '}
+              {L(lang, {
+                en: 'vault items',
+                th: 'ชิ้นในคลัง',
+                pt: 'itens no baú',
+                ru: 'предметов',
+                es: 'objetos en baúl',
+                bg: 'предмета',
+              })}
             </span>
           </div>
 
@@ -1755,25 +2861,30 @@ export const UserVaultsViewerModule: React.FC<{
             vaultItems={targetAcc.vaultItems}
             catalog={catalog}
             config={config}
+            lang={lang}
             allowRefund={true}
             onRefundItem={(inst) => {
-              if (
-                onAdminDeleteVaultItem &&
-                window.confirm(
-                  isTh
-                    ? `ยืนยันการลบ ${inst.name} (Serial: ${inst.serial}) ออกจากคลังของ ${targetAcc.username}?`
-                    : `Remove ${inst.name} (Serial: ${inst.serial}) from ${targetAcc.username}'s vault?`
-                )
-              ) {
-                onAdminDeleteVaultItem(targetAcc.username, inst.instanceId, inst.serial);
+              if (onAdminDeleteVaultItem) {
+                onAdminDeleteVaultItem(
+                  targetAcc.username,
+                  inst.instanceId,
+                  inst.serial
+                );
               }
             }}
             onTrackSerial={onTrackSerial}
           />
         </div>
       ) : (
-        <div className="text-xs text-rose-400 p-4 rounded bg-zinc-950 border border-zinc-800">
-          {isTh ? 'ไม่พบคลังของผู้เล่นนี้' : 'User has no vault.'}
+        <div className="text-xs text-zinc-400 p-4 rounded bg-zinc-950 border border-zinc-800">
+          {L(lang, {
+            en: 'No player account selected.',
+            th: 'ยังไม่มีข้อมูลบัญชีผู้เล่น',
+            pt: 'Nenhuma conta selecionada.',
+            ru: 'Аккаунт не выбран.',
+            es: 'Ninguna cuenta seleccionada.',
+            bg: 'Няма избран акаунт.',
+          })}
         </div>
       )}
     </div>
@@ -1781,7 +2892,7 @@ export const UserVaultsViewerModule: React.FC<{
 };
 
 // =========================================================================
-// 8. IP Ban Manager (modules/managebans.php)
+// 8. IP Ban Manager
 // =========================================================================
 export const IpBanManagerModule: React.FC<{
   bans: IpBanEntry[];
@@ -1789,30 +2900,52 @@ export const IpBanManagerModule: React.FC<{
   onAddBan: (name: string, iprange: string, displtxt: string) => void;
   onRemoveBan: (id: number) => void;
 }> = ({ bans, lang = 'Thai', onAddBan, onRemoveBan }) => {
-  const isTh = lang === 'Thai';
-  const [bname, setBname] = useState('Undefined Ban');
-  const [ipStart, setIpStart] = useState('192.168.1.1');
-  const [ipEnd, setIpEnd] = useState('192.168.1.255');
-  const [displ, setDispl] = useState(
-    'You are not permitted to access this area.'
-  );
+  const [bname, setBname] = useState('');
+  const [ipStart, setIpStart] = useState('');
+  const [ipEnd, setIpEnd] = useState('');
+  const [displ, setDispl] = useState('');
+  const [confirmRemoveId, setConfirmRemoveId] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [testIpInput, setTestIpInput] = useState('');
-  const [testResult, setTestResult] = useState<{ matched: boolean; text: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    matched: boolean;
+    text: string;
+  } | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!bname.trim() || !ipStart.trim() || !ipEnd.trim()) return;
 
-    onAddBan(bname.trim(), `${ipStart.trim()}-${ipEnd.trim()}`, displ.trim());
-    setNotice(
-      isTh
-        ? `เพิ่มกฎแบน IP "${bname.trim()}" (${ipStart.trim()}-${ipEnd.trim()}) สำเร็จ!`
-        : `Added IP ban rule for ${ipStart.trim()}-${ipEnd.trim()}!`
+    const messageText =
+      displ.trim() ||
+      L(lang, {
+        en: 'Access denied from this IP range.',
+        th: 'ไม่อนุญาตให้เข้าใช้งานจากช่วง IP นี้',
+        pt: 'Acesso negado para esta faixa de IP.',
+        ru: 'Доступ с этого диапазона IP запрещён.',
+        es: 'Acceso denegado desde este rango de IP.',
+        bg: 'Достъпът от този IP диапазон е отказан.',
+      });
+
+    onAddBan(
+      bname.trim(),
+      `${ipStart.trim()}-${ipEnd.trim()}`,
+      messageText
     );
-    setBname('Botnet Ban');
-    setIpStart('10.0.0.1');
-    setIpEnd('10.0.0.255');
+    setNotice(
+      L(lang, {
+        en: `Added IP ban rule "${bname.trim()}" (${ipStart.trim()}-${ipEnd.trim()}).`,
+        th: `เพิ่มกฎแบน IP "${bname.trim()}" (${ipStart.trim()}-${ipEnd.trim()}) สำเร็จ!`,
+        pt: `Regra de bloqueio IP "${bname.trim()}" adicionada.`,
+        ru: `Добавлено правило блокировки IP «${bname.trim()}».`,
+        es: `Regla de bloqueo IP "${bname.trim()}" añadida.`,
+        bg: `Добавено е правило за IP бан "${bname.trim()}".`,
+      })
+    );
+    setBname('');
+    setIpStart('');
+    setIpEnd('');
+    setDispl('');
   };
 
   const handleTestIp = () => {
@@ -1827,16 +2960,26 @@ export const IpBanManagerModule: React.FC<{
     if (matched) {
       setTestResult({
         matched: true,
-        text: isTh
-          ? `⚠️ IP ${ip} ตรงกับกฎแบน #${matched.id} ("${matched.name}") ข้อความ: "${matched.displtxt}"`
-          : `⚠️ IP ${ip} matches ban rule #${matched.id} ("${matched.name}"): "${matched.displtxt}"`,
+        text: L(lang, {
+          en: `IP ${ip} matches ban rule #${matched.id} ("${matched.name}"): "${matched.displtxt}"`,
+          th: `IP ${ip} ตรงกับกฎแบน #${matched.id} ("${matched.name}") ข้อความ: "${matched.displtxt}"`,
+          pt: `IP ${ip} corresponde à regra #${matched.id} ("${matched.name}"): "${matched.displtxt}"`,
+          ru: `IP ${ip} совпадает с правилом #${matched.id} («${matched.name}»): «${matched.displtxt}»`,
+          es: `IP ${ip} coincide con la regla #${matched.id} ("${matched.name}"): "${matched.displtxt}"`,
+          bg: `IP ${ip} съвпада с правило #${matched.id} ("${matched.name}"): "${matched.displtxt}"`,
+        }),
       });
     } else {
       setTestResult({
         matched: false,
-        text: isTh
-          ? `✅ IP ${ip} ปลอดภัย ไม่อยู่ในรายชื่อ IP ที่ถูกแบน`
-          : `✅ IP ${ip} is NOT banned. Access is permitted.`,
+        text: L(lang, {
+          en: `IP ${ip} is not banned. Access permitted.`,
+          th: `IP ${ip} ปลอดภัย ไม่อยู่ในรายชื่อ IP ที่ถูกแบน`,
+          pt: `IP ${ip} não está bloqueado. Acesso permitido.`,
+          ru: `IP ${ip} не заблокирован. Доступ разрешён.`,
+          es: `IP ${ip} no está bloqueada. Acceso permitido.`,
+          bg: `IP ${ip} не е блокиран. Достъпът е разрешен.`,
+        }),
       });
     }
   };
@@ -1849,60 +2992,170 @@ export const IpBanManagerModule: React.FC<{
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{notice}</span>
           </div>
-          <button type="button" onClick={() => setNotice(null)} className="cursor-pointer">
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="cursor-pointer"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* IP Ban List */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 overflow-hidden shadow-xl">
         <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between text-xs font-semibold text-zinc-100">
           <div className="flex items-center gap-2">
             <ShieldBan className="w-4 h-4 text-amber-400" />
-            <span>{isTh ? 'รายการแบน IP ทั้งหมดในระบบ' : 'Configured IP Ban Rules'} ({bans.length})</span>
+            <span>
+              {L(lang, {
+                en: 'Configured IP Ban Rules',
+                th: 'รายการแบน IP ทั้งหมดในระบบ',
+                pt: 'Regras de Bloqueio de IP',
+                ru: 'Правила блокировки IP',
+                es: 'Reglas de Bloqueo de IP',
+                bg: 'Правила за IP блокиране',
+              })}{' '}
+              ({bans.length})
+            </span>
           </div>
         </div>
         <table className="w-full text-left text-xs">
           <thead className="bg-zinc-950/60 text-zinc-400 border-b border-zinc-800">
             <tr>
               <th className="px-4 py-2.5">#</th>
-              <th className="px-4 py-2.5">{isTh ? 'ชื่อกฎ / ผู้ถูกแบน' : 'Identity'}</th>
-              <th className="px-4 py-2.5">{isTh ? 'ช่วง IP' : 'IP Range'}</th>
-              <th className="px-4 py-2.5">{isTh ? 'ข้อความแจ้งเตือน' : 'Text to Display'}</th>
-              <th className="px-4 py-2.5 text-center">{isTh ? 'จำนวนครั้งที่บล็อก' : 'Attempts'}</th>
-              <th className="px-4 py-2.5 text-right">{isTh ? 'จัดการ' : 'Action'}</th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'Identity / Reason',
+                  th: 'ชื่อกฎ / เหตุผล',
+                  pt: 'Identificação / Motivo',
+                  ru: 'Название / Причина',
+                  es: 'Identidad / Motivo',
+                  bg: 'Име / Причина',
+                })}
+              </th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'IP Range',
+                  th: 'ช่วง IP',
+                  pt: 'Faixa de IP',
+                  ru: 'Диапазон IP',
+                  es: 'Rango IP',
+                  bg: 'IP диапазон',
+                })}
+              </th>
+              <th className="px-4 py-2.5">
+                {L(lang, {
+                  en: 'Display Message',
+                  th: 'ข้อความแจ้งเตือน',
+                  pt: 'Mensagem Exibida',
+                  ru: 'Сообщение',
+                  es: 'Mensaje Mostrado',
+                  bg: 'Съобщение',
+                })}
+              </th>
+              <th className="px-4 py-2.5 text-center">
+                {L(lang, {
+                  en: 'Attempts',
+                  th: 'จำนวนครั้งที่บล็อก',
+                  pt: 'Tentativas',
+                  ru: 'Попытки',
+                  es: 'Intentos',
+                  bg: 'Опити',
+                })}
+              </th>
+              <th className="px-4 py-2.5 text-right">
+                {L(lang, {
+                  en: 'Action',
+                  th: 'จัดการ',
+                  pt: 'Ação',
+                  ru: 'Действие',
+                  es: 'Acción',
+                  bg: 'Действие',
+                })}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {bans.map((b, idx) => (
-              <tr key={b.id} className="hover:bg-zinc-800/40">
-                <td className="px-4 py-2.5 font-mono-tabular text-zinc-500">{idx + 1}</td>
-                <td className="px-4 py-2.5 font-bold text-white">{b.name}</td>
-                <td className="px-4 py-2.5 font-mono-tabular text-amber-400">{b.iprange}</td>
-                <td className="px-4 py-2.5 text-zinc-300">{b.displtxt}</td>
-                <td className="px-4 py-2.5 font-mono-tabular text-center text-zinc-400">{b.attempts}</td>
-                <td className="px-4 py-2.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(isTh ? `ยืนยันการปลดแบน IP #${b.id} (${b.name})?` : `Remove ban rule #${b.id}?`)) {
-                        onRemoveBan(b.id);
-                        setNotice(isTh ? `ปลดแบน IP #${b.id} เรียบร้อยแล้ว` : `Removed ban #${b.id}.`);
-                      }
-                    }}
-                    className="text-rose-400 hover:underline cursor-pointer font-medium"
-                  >
-                    {isTh ? 'ปลดแบน' : 'Remove'}
-                  </button>
+            {bans.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                  {L(lang, {
+                    en: 'No active IP ban rules.',
+                    th: 'ยังไม่มีรายการแบน IP ในระบบ',
+                    pt: 'Nenhuma regra de bloqueio de IP ativa.',
+                    ru: 'Активных блокировок IP нет.',
+                    es: 'No hay reglas de bloqueo de IP activas.',
+                    bg: 'Няма активни правила за IP бан.',
+                  })}
                 </td>
               </tr>
-            ))}
+            ) : (
+              bans.map((b, idx) => (
+                <tr key={b.id} className="hover:bg-zinc-800/40">
+                  <td className="px-4 py-2.5 font-mono-tabular text-zinc-500">
+                    {idx + 1}
+                  </td>
+                  <td className="px-4 py-2.5 font-bold text-white">{b.name}</td>
+                  <td className="px-4 py-2.5 font-mono-tabular text-amber-400">
+                    {b.iprange}
+                  </td>
+                  <td className="px-4 py-2.5 text-zinc-300">{b.displtxt}</td>
+                  <td className="px-4 py-2.5 font-mono-tabular text-center text-zinc-400">
+                    {b.attempts}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {confirmRemoveId === b.id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onRemoveBan(b.id);
+                          setConfirmRemoveId(null);
+                          setNotice(
+                            L(lang, {
+                              en: `Removed IP ban #${b.id}.`,
+                              th: `ปลดแบน IP #${b.id} เรียบร้อยแล้ว`,
+                              pt: `Bloqueio IP #${b.id} removido.`,
+                              ru: `Блокировка IP #${b.id} снята.`,
+                              es: `Bloqueo IP #${b.id} eliminado.`,
+                              bg: `IP бан #${b.id} е премахнат.`,
+                            })
+                          );
+                        }}
+                        className="text-rose-300 font-bold hover:underline cursor-pointer"
+                      >
+                        {L(lang, {
+                          en: 'Confirm?',
+                          th: 'ยืนยันปลดแบน?',
+                          pt: 'Confirmar?',
+                          ru: 'Точно?',
+                          es: '¿Confirmar?',
+                          bg: 'Потвърди?',
+                        })}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemoveId(b.id)}
+                        className="text-rose-400 hover:underline cursor-pointer font-medium"
+                      >
+                        {L(lang, {
+                          en: 'Remove',
+                          th: 'ปลดแบน',
+                          pt: 'Remover',
+                          ru: 'Снять',
+                          es: 'Eliminar',
+                          bg: 'Премахни',
+                        })}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
-      {/* Add New Ban Form */}
       <form
         onSubmit={handleSubmit}
         className="p-5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-4 text-xs"
@@ -1910,29 +3163,63 @@ export const IpBanManagerModule: React.FC<{
         <div className="flex items-center gap-2 pb-3 border-b border-zinc-800">
           <Plus className="w-4 h-4 text-amber-400" />
           <h3 className="font-bold text-white">
-            {isTh ? 'เพิ่มกฎแบน IP ใหม่' : 'Add New IP Ban Rule'}
+            {L(lang, {
+              en: 'Add New IP Ban Rule',
+              th: 'เพิ่มกฎแบน IP ใหม่',
+              pt: 'Adicionar Regra de Bloqueio de IP',
+              ru: 'Добавить правило блокировки IP',
+              es: 'Añadir Regla de Bloqueo de IP',
+              bg: 'Добави ново правило за IP бан',
+            })}
           </h3>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'ชื่อผู้ถูกแบน / เหตุผล' : 'Ban Identity'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Ban Label / Reason',
+                th: 'ชื่อผู้ถูกแบน / เหตุผล',
+                pt: 'Identificação / Motivo',
+                ru: 'Метка / Причина',
+                es: 'Etiqueta / Motivo',
+                bg: 'Етикет / Причина',
+              })}
+            </label>
             <input
               type="text"
               required
               value={bname}
               onChange={(e) => setBname(e.target.value)}
+              placeholder={L(lang, {
+                en: 'Rule name',
+                th: 'ระบุชื่อกฎแบน',
+                pt: 'Nome da regra',
+                ru: 'Название правила',
+                es: 'Nombre de regla',
+                bg: 'Име на правило',
+              })}
               className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
             />
           </div>
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'IP เริ่มต้น – IP สิ้นสุด' : 'Start IP – End IP'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Start IP – End IP',
+                th: 'IP เริ่มต้น – IP สิ้นสุด',
+                pt: 'IP Inicial – IP Final',
+                ru: 'Нач. IP – Кон. IP',
+                es: 'IP Inicio – IP Fin',
+                bg: 'Начален IP – Краен IP',
+              })}
+            </label>
             <div className="flex items-center gap-1">
               <input
                 type="text"
                 required
                 value={ipStart}
                 onChange={(e) => setIpStart(e.target.value)}
+                placeholder="0.0.0.0"
                 className="w-full px-2 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
               />
               <span>-</span>
@@ -1941,17 +3228,34 @@ export const IpBanManagerModule: React.FC<{
                 required
                 value={ipEnd}
                 onChange={(e) => setIpEnd(e.target.value)}
+                placeholder="0.0.0.0"
                 className="w-full px-2 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
               />
             </div>
           </div>
           <div>
-            <label className="block text-zinc-400 mb-1">{isTh ? 'ข้อความแจ้งเตือนที่แสดง' : 'Display Message'}</label>
+            <label className="block text-zinc-400 mb-1">
+              {L(lang, {
+                en: 'Display Message',
+                th: 'ข้อความแจ้งเตือนที่แสดง',
+                pt: 'Mensagem de Bloqueio',
+                ru: 'Текст уведомления',
+                es: 'Mensaje de Bloqueo',
+                bg: 'Съобщение при бан',
+              })}
+            </label>
             <input
               type="text"
-              required
               value={displ}
               onChange={(e) => setDispl(e.target.value)}
+              placeholder={L(lang, {
+                en: 'Optional message',
+                th: 'ข้อความที่จะแสดงให้ผู้เล่นเห็น',
+                pt: 'Mensagem opcional',
+                ru: 'Сообщение для игрока',
+                es: 'Mensaje opcional',
+                bg: 'Съобщение по избор',
+              })}
               className="w-full px-2.5 py-1.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
             />
           </div>
@@ -1959,22 +3263,35 @@ export const IpBanManagerModule: React.FC<{
             type="submit"
             className="px-4 py-2 font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors cursor-pointer shadow-lg"
           >
-            {isTh ? '+ เพิ่มกฎแบน IP' : 'Add New Ban'}
+            {L(lang, {
+              en: '+ Add IP Ban',
+              th: '+ เพิ่มกฎแบน IP',
+              pt: '+ Adicionar Ban',
+              ru: '+ Добавить бан',
+              es: '+ Añadir Ban',
+              bg: '+ Добави бан',
+            })}
           </button>
         </div>
       </form>
 
-      {/* Diagnostic: Test IP against bans */}
       <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/60 space-y-2 text-xs">
         <span className="font-semibold text-zinc-300">
-          {isTh ? 'เครื่องมือทดสอบการบล็อก IP (Test IP Diagnostic):' : 'Test IP Ban Diagnostic:'}
+          {L(lang, {
+            en: 'Test IP Ban Diagnostic:',
+            th: 'เครื่องมือตรวจสอบช่วง IP:',
+            pt: 'Verificar Endereço IP:',
+            ru: 'Проверка IP-адреса:',
+            es: 'Verificar Dirección IP:',
+            bg: 'Проверка на IP адрес:',
+          })}
         </span>
         <div className="flex items-center gap-2 max-w-md">
           <input
             type="text"
             value={testIpInput}
             onChange={(e) => setTestIpInput(e.target.value)}
-            placeholder="e.g. 192.168.1.50"
+            placeholder="0.0.0.0"
             className="flex-1 px-3 py-1.5 font-mono-tabular rounded bg-zinc-900 border border-zinc-700 text-zinc-100"
           />
           <button
@@ -1982,7 +3299,14 @@ export const IpBanManagerModule: React.FC<{
             onClick={handleTestIp}
             className="px-3.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
           >
-            {isTh ? 'ตรวจสอบ' : 'Check'}
+            {L(lang, {
+              en: 'Check',
+              th: 'ตรวจสอบ',
+              pt: 'Verificar',
+              ru: 'Проверить',
+              es: 'Verificar',
+              bg: 'Провери',
+            })}
           </button>
         </div>
         {testResult && (
