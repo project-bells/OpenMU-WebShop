@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { AccountData, LanguageCode } from '../types/webshop';
+import {
+  AccountData,
+  LanguageCode,
+  PayPalPromoPackage,
+  PromotionConfig,
+  TrueMoneyPromoTier,
+} from '../types/webshop';
 import { L } from '../translations';
 import {
   AlertTriangle,
@@ -9,6 +15,7 @@ import {
   ExternalLink,
   History,
   QrCode,
+  Settings,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -28,23 +35,15 @@ export interface OpenMuCoinGrantRecord {
   status: 'Created' | 'AlreadyGranted';
 }
 
-interface PayPalPackage {
-  code: string;
-  name: string;
-  nameTh: string;
-  priceUsd: number;
-  priceThb: number;
-  credits: number;
-  wCoinC: number;
-  bonusTag: string;
-}
+type PayPalPackage = PayPalPromoPackage & {
+  baseCredits?: number;
+  baseWCoinC?: number;
+};
 
-interface TrueMoneyTier {
-  amountThb: number;
-  credits: number;
-  wCoinC: number;
-  bonusText: string;
-}
+type TrueMoneyTier = TrueMoneyPromoTier & {
+  baseCredits?: number;
+  baseWCoinC?: number;
+};
 
 interface TopUpAndOpenMuModuleProps {
   account: AccountData;
@@ -55,59 +54,146 @@ interface TopUpAndOpenMuModuleProps {
     wCoinCAdded: number,
     logDetail: string
   ) => void;
+  onManagePromotions?: () => void;
   initialTab?: 'truemoney' | 'paypal' | 'history';
 }
 
 const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
   {
-    code: 'PKG_STARTER',
+    code: 'PKG_50',
+    name: 'Egis Explorer Pack',
+    nameTh: 'แพ็กเกจนักผจญภัย Egis',
+    priceUsd: 1.43,
+    priceThb: 50,
+    bonusPercent: 0,
+    credits: 500,
+    wCoinC: 100,
+    bonusTag: 'Standard Rate',
+    bonusTagTh: 'เรทมาตรฐาน',
+    enabled: true,
+  },
+  {
+    code: 'PKG_100',
     name: 'Egis Starter Pack',
     nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
-    priceUsd: 4.99,
-    priceThb: 179,
-    credits: 1200,
-    wCoinC: 250,
-    bonusTag: '+5%',
+    priceUsd: 2.86,
+    priceThb: 100,
+    bonusPercent: 5,
+    credits: 1050,
+    wCoinC: 210,
+    bonusTag: '+5% Bonus',
+    bonusTagTh: 'โบนัส +5%',
+    enabled: true,
   },
   {
-    code: 'PKG_KNIGHT',
+    code: 'PKG_150',
+    name: 'Lorencia Vanguard Pack',
+    nameTh: 'แพ็กเกจแนวหน้า Lorencia',
+    priceUsd: 4.29,
+    priceThb: 150,
+    bonusPercent: 10,
+    credits: 1650,
+    wCoinC: 330,
+    bonusTag: '+10% Bonus',
+    bonusTagTh: 'โบนัส +10%',
+    enabled: true,
+  },
+  {
+    code: 'PKG_300',
     name: 'Blade Knight Treasury',
     nameTh: 'แพ็กเกจขุนพล Blade Knight',
-    priceUsd: 9.99,
-    priceThb: 349,
-    credits: 2600,
-    wCoinC: 550,
-    bonusTag: '+15%',
+    priceUsd: 8.57,
+    priceThb: 300,
+    bonusPercent: 15,
+    credits: 3450,
+    wCoinC: 690,
+    bonusTag: '+15% Bonus',
+    bonusTagTh: 'โบนัส +15%',
+    enabled: true,
   },
   {
-    code: 'PKG_ICARUS',
+    code: 'PKG_500',
     name: 'Icarus Sky Sovereign',
     nameTh: 'แพ็กเกจเจ้าเวหา Icarus',
-    priceUsd: 24.99,
-    priceThb: 879,
-    credits: 7000,
-    wCoinC: 1500,
-    bonusTag: '+25%',
+    priceUsd: 14.29,
+    priceThb: 500,
+    bonusPercent: 20,
+    credits: 6000,
+    wCoinC: 1200,
+    bonusTag: 'Popular · +20% Bonus',
+    bonusTagTh: 'ยอดนิยม · โบนัส +20%',
+    enabled: true,
   },
   {
-    code: 'PKG_KUNDUN',
+    code: 'PKG_1000',
     name: 'Kundun Conqueror Chest',
     nameTh: 'แพ็กเกจผู้พิชิต Kundun',
-    priceUsd: 49.99,
-    priceThb: 1750,
-    credits: 15500,
-    wCoinC: 3500,
-    bonusTag: '+40%',
+    priceUsd: 28.57,
+    priceThb: 1000,
+    bonusPercent: 30,
+    credits: 13000,
+    wCoinC: 2600,
+    bonusTag: 'Best Value · +30% Bonus',
+    bonusTagTh: 'คุ้มค่าสูงสุด · โบนัส +30%',
+    enabled: true,
   },
 ];
 
 const DEFAULT_TRUEMONEY_TIERS: TrueMoneyTier[] = [
-  { amountThb: 50, credits: 500, wCoinC: 100, bonusText: 'Standard' },
-  { amountThb: 90, credits: 950, wCoinC: 200, bonusText: '+5%' },
-  { amountThb: 150, credits: 1650, wCoinC: 350, bonusText: '+10%' },
-  { amountThb: 300, credits: 3450, wCoinC: 750, bonusText: '+15%' },
-  { amountThb: 500, credits: 6000, wCoinC: 1350, bonusText: '+20%' },
-  { amountThb: 1000, credits: 13000, wCoinC: 3000, bonusText: '+30%' },
+  {
+    amountThb: 50,
+    bonusPercent: 0,
+    credits: 500,
+    wCoinC: 100,
+    bonusText: 'เรทมาตรฐาน',
+    bonusTextEn: 'Standard Rate',
+    enabled: true,
+  },
+  {
+    amountThb: 100,
+    bonusPercent: 5,
+    credits: 1050,
+    wCoinC: 210,
+    bonusText: 'โบนัส +5%',
+    bonusTextEn: '+5% Bonus',
+    enabled: true,
+  },
+  {
+    amountThb: 150,
+    bonusPercent: 10,
+    credits: 1650,
+    wCoinC: 330,
+    bonusText: 'โบนัส +10%',
+    bonusTextEn: '+10% Bonus',
+    enabled: true,
+  },
+  {
+    amountThb: 300,
+    bonusPercent: 15,
+    credits: 3450,
+    wCoinC: 690,
+    bonusText: 'โบนัส +15%',
+    bonusTextEn: '+15% Bonus',
+    enabled: true,
+  },
+  {
+    amountThb: 500,
+    bonusPercent: 20,
+    credits: 6000,
+    wCoinC: 1200,
+    bonusText: 'ยอดนิยม · โบนัส +20%',
+    bonusTextEn: 'Popular · +20% Bonus',
+    enabled: true,
+  },
+  {
+    amountThb: 1000,
+    bonusPercent: 30,
+    credits: 13000,
+    wCoinC: 2600,
+    bonusText: 'คุ้มค่าสูงสุด · โบนัส +30%',
+    bonusTextEn: 'Best Value · +30% Bonus',
+    enabled: true,
+  },
 ];
 
 export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
@@ -115,6 +201,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   wCoinCBalance,
   lang = 'Thai',
   onCreditsGranted,
+  onManagePromotions,
   initialTab = 'truemoney',
 }) => {
   const [activeTab, setActiveTab] = useState<'truemoney' | 'paypal' | 'history'>(
@@ -129,6 +216,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   const [merchantPhone, setMerchantPhone] = useState<string>('');
   const [isSubmittingTm, setIsSubmittingTm] = useState(false);
 
+  const [promoConfig, setPromoConfig] = useState<PromotionConfig | null>(null);
   const [packages, setPackages] = useState<PayPalPackage[]>(
     DEFAULT_PAYPAL_PACKAGES
   );
@@ -154,8 +242,22 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
       const res = await fetch('/api/openmu/status');
       if (res.ok) {
         const data = await res.json();
-        if (data.packages) setPackages(data.packages);
-        if (data.trueMoneyTiers) setTmTiers(data.trueMoneyTiers);
+        if (data.promotionConfig) {
+          setPromoConfig(data.promotionConfig);
+        }
+        if (Array.isArray(data.packages) && data.packages.length > 0) {
+          setPackages(data.packages);
+        }
+        if (Array.isArray(data.trueMoneyTiers) && data.trueMoneyTiers.length > 0) {
+          setTmTiers(data.trueMoneyTiers);
+          if (
+            !data.trueMoneyTiers.some(
+              (t: TrueMoneyTier) => t.amountThb === selectedThb
+            )
+          ) {
+            setSelectedThb(data.trueMoneyTiers[0].amountThb);
+          }
+        }
         if (Array.isArray(data.recentGrants)) {
           setGrants(
             data.recentGrants.filter(
@@ -398,6 +500,22 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {account.isAdmin && onManagePromotions && (
+            <button
+              type="button"
+              onClick={onManagePromotions}
+              className="px-3.5 py-2.5 rounded border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-xs font-semibold text-amber-300 inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>
+                {L(lang, {
+                  en: 'Manage Promotions (Admin)',
+                  th: 'ตั้งค่าโปรโมชั่น (Admin)',
+                })}
+              </span>
+            </button>
+          )}
+
           <div className="px-4 py-2.5 rounded bg-zinc-950 border border-amber-500/40">
             <div className="text-[10px] uppercase tracking-wider text-zinc-400">
               WebShop Credits
@@ -417,6 +535,44 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Unified Promotion Parity Info + Active Campaign Event Banner */}
+      {promoConfig?.campaignActive && promoConfig.extraBonusPercent > 0 ? (
+        <div className="p-4 rounded border border-amber-500/50 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <div>
+              <div className="font-bold text-amber-300">
+                {lang === 'Thai'
+                  ? promoConfig.campaignTitleTh
+                  : promoConfig.campaignTitleEn}
+              </div>
+              <div className="text-zinc-300 mt-0.5">
+                {L(lang, {
+                  en: `Extra +${promoConfig.extraBonusPercent}% bonus is automatically applied to all TrueMoney Wallet & PayPal packages below!`,
+                  th: `รับโบนัสพิเศษเพิ่มอีก +${promoConfig.extraBonusPercent}% ทั้งช่องทาง TrueMoney Wallet และ PayPal โดยคำนวณรวมในยอดด้านล่างเรียบร้อยแล้ว`,
+                })}
+              </div>
+            </div>
+          </div>
+          <span className="font-mono-tabular font-bold text-amber-300 whitespace-nowrap shrink-0">
+            +{promoConfig.extraBonusPercent}% EVENT BONUS
+          </span>
+        </div>
+      ) : (
+        <div className="px-4 py-2.5 rounded border border-zinc-800 bg-zinc-900/60 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-300">
+          <span>
+            {L(lang, {
+              en: 'Unified Promotion Standard: TrueMoney Wallet and PayPal receive identical bonus tiers (0% to +30%).',
+              th: 'มาตรฐานโปรโมชั่นเดียวกันทั้งระบบ: เติมผ่าน TrueMoney Wallet หรือ PayPal ได้รับเรทเครดิตและโบนัสเท่ากันทุกขั้น (0% ถึง +30%)',
+            })}
+          </span>
+          <span className="font-mono-tabular text-amber-400">
+            1 THB = {promoConfig?.baseCreditsPerThb ?? 10} Cr +{' '}
+            {promoConfig?.baseWCoinCPerThb ?? 2} WCoinC
+          </span>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded bg-zinc-900 border border-zinc-800">
@@ -532,13 +688,17 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                 </h3>
               </div>
               <span className="text-xs text-zinc-400 font-mono-tabular">
-                1 THB ≈ 10–13 Cr
+                1 THB = {promoConfig?.baseCreditsPerThb ?? 10} Cr (+Bonus)
               </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {tmTiers.map((tier) => {
                 const isSelected = selectedThb === tier.amountThb;
+                const label =
+                  lang === 'Thai'
+                    ? tier.bonusText
+                    : tier.bonusTextEn || tier.bonusText;
                 return (
                   <button
                     key={tier.amountThb}
@@ -550,12 +710,12 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                         : 'border-zinc-800 bg-zinc-950/70 hover:bg-zinc-800/70'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-1">
                       <span className="text-base font-bold font-mono-tabular text-white">
                         ฿{tier.amountThb.toLocaleString()}
                       </span>
-                      <span className="text-[10px] text-[#ff8300] font-medium">
-                        {tier.bonusText}
+                      <span className="text-[10px] text-[#ff9f38] font-semibold text-right">
+                        {label}
                       </span>
                     </div>
 
@@ -563,6 +723,11 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                       <div className="text-xs font-bold font-mono-tabular text-amber-400">
                         +{tier.credits.toLocaleString()} Credits
                       </div>
+                      {tier.baseCredits && tier.baseCredits < tier.credits ? (
+                        <div className="text-[10px] font-mono-tabular text-zinc-500 line-through">
+                          +{tier.baseCredits.toLocaleString()} Cr
+                        </div>
+                      ) : null}
                       <div className="text-[11px] font-mono-tabular text-emerald-400">
                         +{tier.wCoinC.toLocaleString()} WCoinC
                       </div>
@@ -935,66 +1100,77 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {packages.map((pkg) => (
-              <div
-                key={pkg.code}
-                className="p-5 rounded border border-zinc-800 bg-zinc-900/85 flex flex-col justify-between gap-4 hover:border-[#0070ba] transition-colors"
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-mono-tabular text-zinc-400">
-                      {pkg.code}
-                    </span>
-                    <span className="text-amber-400 font-semibold">
-                      {pkg.bonusTag}
-                    </span>
-                  </div>
-                  <h3 className="text-base font-bold text-white">
-                    {lang === 'Thai' ? pkg.nameTh : pkg.name}
-                  </h3>
-
-                  <div className="pt-3 border-t border-zinc-800 space-y-1">
-                    <div className="text-xl font-bold font-mono-tabular text-amber-400">
-                      +{pkg.credits.toLocaleString()}{' '}
-                      <span className="text-xs font-normal text-zinc-400">
-                        Credits
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {packages.map((pkg) => {
+              const badge =
+                lang === 'Thai'
+                  ? pkg.bonusTagTh || pkg.bonusTag
+                  : pkg.bonusTag;
+              return (
+                <div
+                  key={pkg.code}
+                  className="p-5 rounded border border-zinc-800 bg-zinc-900/85 flex flex-col justify-between gap-4 hover:border-[#0070ba] transition-colors"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono-tabular text-zinc-400">
+                        {pkg.code}
+                      </span>
+                      <span className="text-amber-400 font-semibold">
+                        {badge}
                       </span>
                     </div>
-                    <div className="text-xs font-mono-tabular text-emerald-400 font-semibold">
-                      +{pkg.wCoinC.toLocaleString()} WCoinC
+                    <h3 className="text-base font-bold text-white">
+                      {lang === 'Thai' ? pkg.nameTh : pkg.name}
+                    </h3>
+
+                    <div className="pt-3 border-t border-zinc-800 space-y-1">
+                      <div className="text-xl font-bold font-mono-tabular text-amber-400">
+                        +{pkg.credits.toLocaleString()}{' '}
+                        <span className="text-xs font-normal text-zinc-400">
+                          Credits
+                        </span>
+                      </div>
+                      {pkg.baseCredits && pkg.baseCredits < pkg.credits ? (
+                        <div className="text-[11px] font-mono-tabular text-zinc-500 line-through">
+                          +{pkg.baseCredits.toLocaleString()} Credits
+                        </div>
+                      ) : null}
+                      <div className="text-xs font-mono-tabular text-emerald-400 font-semibold">
+                        +{pkg.wCoinC.toLocaleString()} WCoinC
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="space-y-2.5 pt-2 border-t border-zinc-800/80">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-lg font-bold font-mono-tabular text-white">
-                      ${pkg.priceUsd.toFixed(2)} USD
-                    </span>
-                    <span className="text-xs font-mono-tabular text-zinc-400">
-                      ≈ ฿{pkg.priceThb.toLocaleString()}
-                    </span>
+                  <div className="space-y-2.5 pt-2 border-t border-zinc-800/80">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-lg font-bold font-mono-tabular text-white">
+                        ${pkg.priceUsd.toFixed(2)} USD
+                      </span>
+                      <span className="text-xs font-mono-tabular text-zinc-400">
+                        เทียบเท่า ฿{pkg.priceThb.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleStartPayPalCheckout(pkg)}
+                      className="w-full py-2.5 px-4 rounded font-semibold text-xs bg-[#0070ba] hover:bg-[#005ea6] text-white transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      {L(lang, {
+                        en: 'Pay with PayPal',
+                        th: 'ชำระด้วย PayPal',
+                        pt: 'Pagar com PayPal',
+                        ru: 'Оплатить через PayPal',
+                        es: 'Pagar con PayPal',
+                        bg: 'Плати с PayPal',
+                      })}
+                    </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleStartPayPalCheckout(pkg)}
-                    className="w-full py-2.5 px-4 rounded font-semibold text-xs bg-[#0070ba] hover:bg-[#005ea6] text-white transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    {L(lang, {
-                      en: 'Pay with PayPal',
-                      th: 'ชำระด้วย PayPal',
-                      pt: 'Pagar com PayPal',
-                      ru: 'Оплатить через PayPal',
-                      es: 'Pagar con PayPal',
-                      bg: 'Плати с PayPal',
-                    })}
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

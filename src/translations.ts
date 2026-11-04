@@ -17,6 +17,7 @@ export type TranslationKey =
   | 'nav_topup'
   | 'nav_vip'
   | 'nav_admin_roles'
+  | 'nav_admin_promos'
   | 'nav_admin_im'
   | 'nav_admin_group'
   | 'nav_admin_credits'
@@ -93,6 +94,7 @@ export const TRANSLATIONS: Record<LanguageCode, Dict> = {
     nav_topup: 'Donate / Top Up',
     nav_vip: 'Buy VIP (800Cr/Mo)',
     nav_admin_roles: 'Admin Roles (RBAC)',
+    nav_admin_promos: 'Top-Up Promotions',
     nav_admin_im: 'Item Manager',
     nav_admin_group: 'IGroup Manage',
     nav_admin_credits: 'Manage Credits',
@@ -163,6 +165,7 @@ export const TRANSLATIONS: Record<LanguageCode, Dict> = {
     nav_topup: 'บริจาค / เติมเครดิต',
     nav_vip: 'ซื้อ VIP (800Cr/ด.)',
     nav_admin_roles: 'จัดการสิทธิ์แอดมิน (RBAC)',
+    nav_admin_promos: 'จัดการโปรโมชั่นเติมเงิน',
     nav_admin_im: 'จัดการไอเทม (Item Manager)',
     nav_admin_group: 'จัดการเซ็ตเกราะ (IGroup)',
     nav_admin_credits: 'เสก/ลดเครดิตผู้เล่น',
@@ -233,6 +236,7 @@ export const TRANSLATIONS: Record<LanguageCode, Dict> = {
     nav_topup: 'Doar / Recarregar',
     nav_vip: 'Comprar VIP (800Cr/mês)',
     nav_admin_roles: 'Cargos de Admin (RBAC)',
+    nav_admin_promos: 'Promoções de Recarga',
     nav_admin_im: 'Gerenciador de Itens',
     nav_admin_group: 'Gerenciar Sets (IGroup)',
     nav_admin_credits: 'Gerenciar Créditos',
@@ -303,6 +307,7 @@ export const TRANSLATIONS: Record<LanguageCode, Dict> = {
     nav_topup: 'Пополнить / Donate',
     nav_vip: 'Купить VIP (800Cr/мес)',
     nav_admin_roles: 'Управление админами (RBAC)',
+    nav_admin_promos: 'Акции пополнения',
     nav_admin_im: 'Менеджер предметов',
     nav_admin_group: 'Менеджер сетов (IGroup)',
     nav_admin_credits: 'Управление кредитами',
@@ -373,6 +378,7 @@ export const TRANSLATIONS: Record<LanguageCode, Dict> = {
     nav_topup: 'Donar / Recargar',
     nav_vip: 'Comprar VIP (800Cr/mes)',
     nav_admin_roles: 'Roles de Admin (RBAC)',
+    nav_admin_promos: 'Promociones de Recarga',
     nav_admin_im: 'Administrador de Ítems',
     nav_admin_group: 'Gestor de Sets (IGroup)',
     nav_admin_credits: 'Administrar Créditos',
@@ -443,6 +449,7 @@ export const TRANSLATIONS: Record<LanguageCode, Dict> = {
     nav_topup: 'Дарение / Зареждане',
     nav_vip: 'Купи VIP (800Cr/мес)',
     nav_admin_roles: 'Админ Роли (RBAC)',
+    nav_admin_promos: 'Промоции за Зареждане',
     nav_admin_im: 'Мениджър на Предмети',
     nav_admin_group: 'Мениджър на Сетове (IGroup)',
     nav_admin_credits: 'Управление на Кредити',

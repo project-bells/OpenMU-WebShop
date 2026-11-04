@@ -63,6 +63,7 @@ import {
   UserVaultsViewerModule,
 } from './components/AdminModules';
 import { TopUpAndOpenMuModule } from './components/TopUpAndOpenMuModule';
+import { PromotionManagerModule } from './components/PromotionManagerModule';
 import { VipModule } from './components/VipModule';
 import { ModernLoginPage } from './components/ModernLoginPage';
 import {
@@ -81,6 +82,7 @@ import {
   RefreshCw,
   ShieldAlert,
   ShieldBan,
+  Sparkles,
   Trash2,
   Trophy,
   UserCheck,
@@ -91,6 +93,7 @@ import {
 const STORAGE_KEY = 'egis_mu_webshop_prod_v2';
 
 const ADMIN_MODULE_IDS: ModuleId[] = [
+  'admin_promos',
   'im',
   'groupmngr',
   'u_credits',
@@ -1619,6 +1622,11 @@ export default function App() {
     icon: React.ReactNode;
   }[] = [
     {
+      id: 'admin_promos',
+      translationKey: 'nav_admin_promos',
+      icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />,
+    },
+    {
       id: 'im',
       translationKey: 'nav_admin_im',
       icon: <Wrench className="w-3.5 h-3.5" />,
@@ -2399,6 +2407,9 @@ export default function App() {
                   wCoinCByAccount[currentAccount.username.toLowerCase()] ?? 0
                 }
                 lang={lang}
+                onManagePromotions={
+                  isAdminUser ? () => setActiveModule('admin_promos') : undefined
+                }
                 onCreditsGranted={(creditsAdded, wCoinCAdded, logDetail) => {
                   updateCurrentAccount((acc) => ({
                     ...acc,
@@ -2441,6 +2452,24 @@ export default function App() {
             ))}
 
           {/* --- ADMIN MODULES (Strictly rendered ONLY when isAdminUser === true) --- */}
+          {isAdminUser && currentAccount && activeModule === 'admin_promos' && (
+            <PromotionManagerModule
+              adminUsername={currentAccount.username}
+              lang={lang}
+              onPreviewPlayerTopUp={() => setActiveModule('howto')}
+              onConfigSaved={(_saved, summaryLog) => {
+                appendShopLog(summaryLog, undefined, {
+                  action: 'ADMIN_PROMOTION_UPDATE',
+                });
+                showToast(
+                  L(lang, {
+                    en: 'Top-up promotions saved and published!',
+                    th: 'บันทึกการตั้งค่าโปรโมชั่นเติมเงินเรียบร้อยแล้ว!',
+                  })
+                );
+              }}
+            />
+          )}
           {isAdminUser && currentAccount && activeModule === 'im' && (
             <ItemManagerModule
               catalog={catalog}

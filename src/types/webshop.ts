@@ -19,6 +19,7 @@ export type ModuleId =
   | 'howto'
   // Admin modules
   | 'admin_roles'
+  | 'admin_promos'
   | 'im'
   | 'groupmngr'
   | 'u_credits'
@@ -182,6 +183,45 @@ export interface WebShopConfig {
     whshow: boolean;
     addshow: boolean;
   };
+}
+
+export interface TrueMoneyPromoTier {
+  amountThb: number;
+  bonusPercent: number;
+  credits: number;
+  wCoinC: number;
+  bonusText: string;
+  bonusTextEn?: string;
+  enabled: boolean;
+}
+
+export interface PayPalPromoPackage {
+  code: string;
+  name: string;
+  nameTh: string;
+  priceUsd: number;
+  priceThb: number;
+  bonusPercent: number;
+  credits: number;
+  wCoinC: number;
+  bonusTag: string;
+  bonusTagTh?: string;
+  enabled: boolean;
+}
+
+export interface PromotionConfig {
+  campaignActive: boolean;
+  campaignTitleTh: string;
+  campaignTitleEn: string;
+  extraBonusPercent: number;
+  baseCreditsPerThb: number;
+  baseWCoinCPerThb: number;
+  usdToThbRate: number;
+  merchantPhone: string;
+  trueMoneyTiers: TrueMoneyPromoTier[];
+  payPalPackages: PayPalPromoPackage[];
+  updatedAt: string;
+  updatedBy?: string;
 }
 
 export type { WebShopItem };

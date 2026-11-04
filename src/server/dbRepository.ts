@@ -7,6 +7,9 @@ import {
 import { INITIAL_WEBSHOP_ITEMS, WebShopItem } from '../data/webshopItems';
 import {
   ItemGroup,
+  PayPalPromoPackage,
+  PromotionConfig,
+  TrueMoneyPromoTier,
   UserRole,
   VaultItemInstance,
   WebShopConfig,
@@ -284,7 +287,27 @@ async function bootstrapPostgresSchema(client: pg.PoolClient): Promise<void> {
       ON webshop_audit_logs (LOWER(account_id), created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_serial
       ON webshop_audit_logs (item_serial) WHERE item_serial IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS webshop_promotions_config (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      config_json JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
+
+  const defaultPromo = buildDefaultPromotionConfig();
+  await client.query(
+    `INSERT INTO webshop_promotions_config (id, config_json, updated_at)
+     VALUES (1, $1::jsonb, NOW())
+     ON CONFLICT (id) DO NOTHING`,
+    [JSON.stringify(defaultPromo)]
+  );
+  const promoRes = await client.query<{ config_json: PromotionConfig }>(
+    `SELECT config_json FROM webshop_promotions_config WHERE id = 1 LIMIT 1`
+  );
+  if (promoRes.rows[0]?.config_json) {
+    memoryPromotionConfig = sanitizePromotionConfig(promoRes.rows[0].config_json);
+  }
 
   // Seed only Master Admin account from environment if not yet present
   const envAdmin = (process.env.ADMIN_USERNAME || 'admin').trim();
@@ -405,6 +428,7 @@ let serverCatalog: WebShopItem[] = structuredClone(INITIAL_WEBSHOP_ITEMS);
 let serverGroups: ItemGroup[] = structuredClone(INITIAL_GROUPS);
 let serverConfig: WebShopConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
 let catalogVersion = 1;
+let memoryPromotionConfig: PromotionConfig = buildDefaultPromotionConfig();
 
 function seedMemoryStore(): void {
   const envAdmin = (process.env.ADMIN_USERNAME || 'admin').trim();
@@ -586,6 +610,324 @@ export async function deleteCatalogGroup(id: number): Promise<boolean> {
     return true;
   }
   return false;
+}
+
+// ============================================================================
+// Unified Top-Up & Donation Promotion Configuration (TrueMoney & PayPal Parity)
+// ============================================================================
+const PROMO_CACHE_KEY = 'webshop:promotions:v1';
+
+export function buildDefaultPromotionConfig(): PromotionConfig {
+  const baseCreditsPerThb = 10;
+  const baseWCoinCPerThb = 2;
+  const usdToThbRate = 35;
+
+  const unifiedLadder: Array<{
+    amountThb: number;
+    bonusPercent: number;
+    code: string;
+    name: string;
+    nameTh: string;
+    bonusTextTh: string;
+    bonusTextEn: string;
+  }> = [
+    {
+      amountThb: 50,
+      bonusPercent: 0,
+      code: 'PKG_50',
+      name: 'Egis Explorer Pack',
+      nameTh: 'แพ็กเกจนักผจญภัย Egis',
+      bonusTextTh: 'เรทมาตรฐาน',
+      bonusTextEn: 'Standard Rate',
+    },
+    {
+      amountThb: 100,
+      bonusPercent: 5,
+      code: 'PKG_100',
+      name: 'Egis Starter Pack',
+      nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
+      bonusTextTh: 'โบนัส +5%',
+      bonusTextEn: '+5% Bonus',
+    },
+    {
+      amountThb: 150,
+      bonusPercent: 10,
+      code: 'PKG_150',
+      name: 'Lorencia Vanguard Pack',
+      nameTh: 'แพ็กเกจแนวหน้า Lorencia',
+      bonusTextTh: 'โบนัส +10%',
+      bonusTextEn: '+10% Bonus',
+    },
+    {
+      amountThb: 300,
+      bonusPercent: 15,
+      code: 'PKG_300',
+      name: 'Blade Knight Treasury',
+      nameTh: 'แพ็กเกจขุนพล Blade Knight',
+      bonusTextTh: 'โบนัส +15%',
+      bonusTextEn: '+15% Bonus',
+    },
+    {
+      amountThb: 500,
+      bonusPercent: 20,
+      code: 'PKG_500',
+      name: 'Icarus Sky Sovereign',
+      nameTh: 'แพ็กเกจเจ้าเวหา Icarus',
+      bonusTextTh: 'ยอดนิยม · โบนัส +20%',
+      bonusTextEn: 'Popular · +20% Bonus',
+    },
+    {
+      amountThb: 1000,
+      bonusPercent: 30,
+      code: 'PKG_1000',
+      name: 'Kundun Conqueror Chest',
+      nameTh: 'แพ็กเกจผู้พิชิต Kundun',
+      bonusTextTh: 'คุ้มค่าสูงสุด · โบนัส +30%',
+      bonusTextEn: 'Best Value · +30% Bonus',
+    },
+  ];
+
+  const trueMoneyTiers: TrueMoneyPromoTier[] = unifiedLadder.map((row) => ({
+    amountThb: row.amountThb,
+    bonusPercent: row.bonusPercent,
+    credits: Math.round(row.amountThb * baseCreditsPerThb * (1 + row.bonusPercent / 100)),
+    wCoinC: Math.round(row.amountThb * baseWCoinCPerThb * (1 + row.bonusPercent / 100)),
+    bonusText: row.bonusTextTh,
+    bonusTextEn: row.bonusTextEn,
+    enabled: true,
+  }));
+
+  const payPalPackages: PayPalPromoPackage[] = unifiedLadder.map((row) => ({
+    code: row.code,
+    name: row.name,
+    nameTh: row.nameTh,
+    priceThb: row.amountThb,
+    priceUsd: Number((row.amountThb / usdToThbRate).toFixed(2)),
+    bonusPercent: row.bonusPercent,
+    credits: Math.round(row.amountThb * baseCreditsPerThb * (1 + row.bonusPercent / 100)),
+    wCoinC: Math.round(row.amountThb * baseWCoinCPerThb * (1 + row.bonusPercent / 100)),
+    bonusTag: row.bonusTextEn,
+    bonusTagTh: row.bonusTextTh,
+    enabled: true,
+  }));
+
+  return {
+    campaignActive: false,
+    campaignTitleTh: 'โปรโมชั่นเติมเงินพิเศษ รับโบนัสเพิ่มทุกช่องทาง (TrueMoney & PayPal)',
+    campaignTitleEn: 'Special Top-Up Event: Extra Bonus Across TrueMoney & PayPal',
+    extraBonusPercent: 0,
+    baseCreditsPerThb,
+    baseWCoinCPerThb,
+    usdToThbRate,
+    merchantPhone: process.env.TRUEMONEY_MERCHANT_PHONE || '',
+    trueMoneyTiers,
+    payPalPackages,
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'system',
+  };
+}
+
+function sanitizePromotionConfig(
+  raw: Partial<PromotionConfig>,
+  updatedBy?: string
+): PromotionConfig {
+  const defaults = buildDefaultPromotionConfig();
+  const baseCreditsPerThb = Math.max(
+    1,
+    Math.min(1000, Number(raw.baseCreditsPerThb) || defaults.baseCreditsPerThb)
+  );
+  const baseWCoinCPerThb = Math.max(
+    0,
+    Math.min(1000, Number(raw.baseWCoinCPerThb ?? defaults.baseWCoinCPerThb))
+  );
+  const usdToThbRate = Math.max(
+    1,
+    Math.min(200, Number(raw.usdToThbRate) || defaults.usdToThbRate)
+  );
+  const extraBonusPercent = Math.max(
+    0,
+    Math.min(300, Math.round(Number(raw.extraBonusPercent) || 0))
+  );
+
+  const trueMoneyTiers: TrueMoneyPromoTier[] =
+    Array.isArray(raw.trueMoneyTiers) && raw.trueMoneyTiers.length > 0
+      ? raw.trueMoneyTiers
+          .map((t) => {
+            const amountThb = Math.max(1, Math.round(Number(t.amountThb) || 50));
+            const bonusPercent = Math.max(
+              0,
+              Math.min(500, Math.round(Number(t.bonusPercent) || 0))
+            );
+            const credits = Math.max(1, Math.round(Number(t.credits) || amountThb * baseCreditsPerThb));
+            const wCoinC = Math.max(0, Math.round(Number(t.wCoinC) || 0));
+            return {
+              amountThb,
+              bonusPercent,
+              credits,
+              wCoinC,
+              bonusText:
+                String(t.bonusText || '').trim() ||
+                (bonusPercent > 0 ? `โบนัส +${bonusPercent}%` : 'เรทมาตรฐาน'),
+              bonusTextEn:
+                String(t.bonusTextEn || '').trim() ||
+                (bonusPercent > 0 ? `+${bonusPercent}% Bonus` : 'Standard Rate'),
+              enabled: t.enabled !== false,
+            };
+          })
+          .sort((a, b) => a.amountThb - b.amountThb)
+      : defaults.trueMoneyTiers;
+
+  const payPalPackages: PayPalPromoPackage[] =
+    Array.isArray(raw.payPalPackages) && raw.payPalPackages.length > 0
+      ? raw.payPalPackages.map((p, idx) => {
+          const priceThb = Math.max(1, Math.round(Number(p.priceThb) || 100));
+          const priceUsd = Math.max(
+            0.5,
+            Number((Number(p.priceUsd) || priceThb / usdToThbRate).toFixed(2))
+          );
+          const bonusPercent = Math.max(
+            0,
+            Math.min(500, Math.round(Number(p.bonusPercent) || 0))
+          );
+          const credits = Math.max(
+            1,
+            Math.round(Number(p.credits) || priceThb * baseCreditsPerThb)
+          );
+          const wCoinC = Math.max(0, Math.round(Number(p.wCoinC) || 0));
+          const cleanCode =
+            String(p.code || `PKG_${priceThb}_${idx + 1}`)
+              .trim()
+              .replace(/[^a-zA-Z0-9_-]/g, '_')
+              .toUpperCase() || `PKG_${idx + 1}`;
+          return {
+            code: cleanCode,
+            name: String(p.name || `Egis Pack ${priceThb} THB`).trim(),
+            nameTh: String(p.nameTh || `แพ็กเกจ Egis ${priceThb} บาท`).trim(),
+            priceUsd,
+            priceThb,
+            bonusPercent,
+            credits,
+            wCoinC,
+            bonusTag:
+              String(p.bonusTag || '').trim() ||
+              (bonusPercent > 0 ? `+${bonusPercent}% Bonus` : 'Standard Rate'),
+            bonusTagTh:
+              String(p.bonusTagTh || '').trim() ||
+              (bonusPercent > 0 ? `โบนัส +${bonusPercent}%` : 'เรทมาตรฐาน'),
+            enabled: p.enabled !== false,
+          };
+        })
+      : defaults.payPalPackages;
+
+  return {
+    campaignActive: Boolean(raw.campaignActive),
+    campaignTitleTh:
+      String(raw.campaignTitleTh || '').trim() || defaults.campaignTitleTh,
+    campaignTitleEn:
+      String(raw.campaignTitleEn || '').trim() || defaults.campaignTitleEn,
+    extraBonusPercent,
+    baseCreditsPerThb,
+    baseWCoinCPerThb,
+    usdToThbRate,
+    merchantPhone: String(raw.merchantPhone ?? defaults.merchantPhone).trim(),
+    trueMoneyTiers,
+    payPalPackages,
+    updatedAt: new Date().toISOString(),
+    updatedBy: updatedBy || raw.updatedBy || 'admin',
+  };
+}
+
+export function getPromotionConfig(): PromotionConfig {
+  return structuredClone(memoryPromotionConfig);
+}
+
+export function getEffectivePromotions(): {
+  config: PromotionConfig;
+  effectiveTrueMoneyTiers: Array<
+    TrueMoneyPromoTier & { baseCredits: number; baseWCoinC: number }
+  >;
+  effectivePayPalPackages: Array<
+    PayPalPromoPackage & { baseCredits: number; baseWCoinC: number }
+  >;
+} {
+  const cfg = getPromotionConfig();
+  const mult =
+    cfg.campaignActive && cfg.extraBonusPercent > 0
+      ? 1 + cfg.extraBonusPercent / 100
+      : 1;
+
+  const effectiveTrueMoneyTiers = cfg.trueMoneyTiers
+    .filter((t) => t.enabled !== false)
+    .map((t) => ({
+      ...t,
+      baseCredits: t.credits,
+      baseWCoinC: t.wCoinC,
+      credits: Math.round(t.credits * mult),
+      wCoinC: Math.round(t.wCoinC * mult),
+    }));
+
+  const effectivePayPalPackages = cfg.payPalPackages
+    .filter((p) => p.enabled !== false)
+    .map((p) => ({
+      ...p,
+      baseCredits: p.credits,
+      baseWCoinC: p.wCoinC,
+      credits: Math.round(p.credits * mult),
+      wCoinC: Math.round(p.wCoinC * mult),
+    }));
+
+  return {
+    config: cfg,
+    effectiveTrueMoneyTiers,
+    effectivePayPalPackages,
+  };
+}
+
+export async function updatePromotionConfig(
+  patch: Partial<PromotionConfig>,
+  updatedBy = 'admin'
+): Promise<PromotionConfig> {
+  const merged = sanitizePromotionConfig(
+    {
+      ...memoryPromotionConfig,
+      ...patch,
+    },
+    updatedBy
+  );
+  memoryPromotionConfig = merged;
+
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `INSERT INTO webshop_promotions_config (id, config_json, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id)
+       DO UPDATE SET config_json = EXCLUDED.config_json, updated_at = NOW()`,
+      [JSON.stringify(merged)]
+    );
+  }
+
+  await cacheDeleteKeys([PROMO_CACHE_KEY]);
+  return structuredClone(memoryPromotionConfig);
+}
+
+export async function resetPromotionConfigToDefault(
+  updatedBy = 'admin'
+): Promise<PromotionConfig> {
+  const reset = sanitizePromotionConfig(buildDefaultPromotionConfig(), updatedBy);
+  memoryPromotionConfig = reset;
+
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `INSERT INTO webshop_promotions_config (id, config_json, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id)
+       DO UPDATE SET config_json = EXCLUDED.config_json, updated_at = NOW()`,
+      [JSON.stringify(reset)]
+    );
+  }
+
+  await cacheDeleteKeys([PROMO_CACHE_KEY]);
+  return structuredClone(memoryPromotionConfig);
 }
 
 // ============================================================================

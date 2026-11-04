@@ -7,6 +7,7 @@ import { getRecentAuditLogs, recordAuditLog } from './src/server/auditLogger';
 import {
   CashShopCoinType,
   TransactionDomainError,
+  buildDefaultPromotionConfig,
   deleteCatalogGroup,
   deleteCatalogItem,
   executePaymentGrantTx,
@@ -15,76 +16,36 @@ import {
   executeRefundVaultItemTx,
   getCatalogBundleCached,
   getDatabaseHealth,
+  getEffectivePromotions,
   getMemoryAccount,
   getPgPool,
+  getPromotionConfig,
   getRecentCoinGrants,
   initializeDatabaseLayer,
   invalidateCatalogCache,
   queryMembStatOnlineStatus,
   registerAccountRecord,
+  resetPromotionConfigToDefault,
   setMembStatConnectionState,
+  updatePromotionConfig,
   upsertCatalogGroup,
   upsertCatalogItem,
   verifyAccountPassword,
 } from './src/server/dbRepository';
 import { createDistributedRateLimiter, extractClientIp } from './src/server/rateLimiter';
 import { closeRedisConnection, getCacheBackendStatus } from './src/server/redisCache';
-import type { ItemGroup, VaultItemInstance, WebShopItem } from './src/types/webshop';
+import type {
+  ItemGroup,
+  PromotionConfig,
+  VaultItemInstance,
+  WebShopItem,
+} from './src/types/webshop';
 
 dotenv.config();
 
-// Payment Packages matching OpenMU-Origins WebShopOptions.Packages + TrueMoney Tiers
-export const PAYPAL_PACKAGES = [
-  {
-    code: 'PKG_STARTER',
-    name: 'Lorencia Starter Pack',
-    nameTh: 'แพ็กเกจผู้เริ่มต้น Lorencia',
-    priceUsd: 4.99,
-    priceThb: 179,
-    credits: 1200,
-    wCoinC: 250,
-    bonusTag: '+5% Bonus',
-  },
-  {
-    code: 'PKG_KNIGHT',
-    name: 'Blade Knight Treasury',
-    nameTh: 'แพ็กเกจขุนพล Blade Knight',
-    priceUsd: 9.99,
-    priceThb: 349,
-    credits: 2600,
-    wCoinC: 550,
-    bonusTag: '+15% Bonus',
-  },
-  {
-    code: 'PKG_ICARUS',
-    name: 'Icarus Sky Sovereign',
-    nameTh: 'แพ็กเกจเจ้าเวหา Icarus',
-    priceUsd: 24.99,
-    priceThb: 879,
-    credits: 7000,
-    wCoinC: 1500,
-    bonusTag: 'Most Popular · +25% Bonus',
-  },
-  {
-    code: 'PKG_KUNDUN',
-    name: 'Kundun Conqueror Chest',
-    nameTh: 'แพ็กเกจผู้พิชิต Kundun',
-    priceUsd: 49.99,
-    priceThb: 1750,
-    credits: 15500,
-    wCoinC: 3500,
-    bonusTag: 'Best Value · +40% Bonus',
-  },
-];
-
-export const TRUEMONEY_TIERS = [
-  { amountThb: 50, credits: 500, wCoinC: 100, bonusText: 'ปกติ' },
-  { amountThb: 90, credits: 950, wCoinC: 200, bonusText: '+5% โบนัสเครดิต' },
-  { amountThb: 150, credits: 1650, wCoinC: 350, bonusText: '+10% โบนัสเครดิต' },
-  { amountThb: 300, credits: 3450, wCoinC: 750, bonusText: '+15% โบนัสเครดิต' },
-  { amountThb: 500, credits: 6000, wCoinC: 1350, bonusText: '+20% โบนัสเครดิต' },
-  { amountThb: 1000, credits: 13000, wCoinC: 3000, bonusText: '+30% โบนัสสูงสุด' },
-];
+const DEFAULT_PROMO_SNAPSHOT = buildDefaultPromotionConfig();
+export const PAYPAL_PACKAGES = DEFAULT_PROMO_SNAPSHOT.payPalPackages;
+export const TRUEMONEY_TIERS = DEFAULT_PROMO_SNAPSHOT.trueMoneyTiers;
 
 async function forwardGrantToExternalOpenMu(
   loginName: string,
@@ -757,6 +718,11 @@ async function startServer() {
     );
     const dbHealth = getDatabaseHealth();
     const cacheHealth = getCacheBackendStatus();
+    const {
+      config: promoConfig,
+      effectiveTrueMoneyTiers,
+      effectivePayPalPackages,
+    } = getEffectivePromotions();
 
     res.json({
       connectedMode: hasExternalApi
@@ -765,14 +731,30 @@ async function startServer() {
         ? 'PostgreSQL SERIALIZABLE ACID + Redis Cache'
         : 'OpenMU-Origins Embedded ACID Bridge',
       openMuApiUrl: process.env.OPENMU_API_URL || 'http://localhost:5000',
-      merchantPhone: process.env.TRUEMONEY_MERCHANT_PHONE || '',
+      merchantPhone:
+        promoConfig.merchantPhone || process.env.TRUEMONEY_MERCHANT_PHONE || '',
       payPalSandbox: process.env.PAYPAL_USE_SANDBOX !== 'false',
       hasLivePayPalCredentials: hasPayPalKeys,
       database: dbHealth,
       cache: cacheHealth,
-      packages: PAYPAL_PACKAGES,
-      trueMoneyTiers: TRUEMONEY_TIERS,
+      promotionConfig: promoConfig,
+      packages: effectivePayPalPackages,
+      trueMoneyTiers: effectiveTrueMoneyTiers,
       recentGrants: getRecentCoinGrants(25),
+    });
+  });
+
+  app.get('/api/payments/promotions', (_req, res) => {
+    const {
+      config: promoConfig,
+      effectiveTrueMoneyTiers,
+      effectivePayPalPackages,
+    } = getEffectivePromotions();
+    res.json({
+      ok: true,
+      promotionConfig: promoConfig,
+      trueMoneyTiers: effectiveTrueMoneyTiers,
+      packages: effectivePayPalPackages,
     });
   });
 
@@ -1131,22 +1113,34 @@ async function startServer() {
         voucherCode = rawInput || `QR${Date.now()}`;
       }
 
-      const tier =
-        TRUEMONEY_TIERS.find((t) => t.amountThb === Number(selectedTierThb)) ||
-        TRUEMONEY_TIERS[1];
+      const { config: promoCfg, effectiveTrueMoneyTiers } = getEffectivePromotions();
+      const tier = effectiveTrueMoneyTiers.find(
+        (t) => t.amountThb === Number(selectedTierThb)
+      );
+      if (!tier) {
+        res.status(400).json({
+          ok: false,
+          message: 'ไม่พบแพ็กเกจราคา TrueMoney ที่เลือก หรือแพ็กเกจถูกปิดใช้งานชั่วคราว',
+        });
+        return;
+      }
 
       const reference = `truemoney:${voucherCode}`;
       const idemKey =
         typeof headerIdem === 'string' && headerIdem.trim()
           ? headerIdem.trim()
           : reference;
+      const promoNote =
+        promoCfg.campaignActive && promoCfg.extraBonusPercent > 0
+          ? ` [Event +${promoCfg.extraBonusPercent}%]`
+          : '';
       const reason = `TrueMoney ${
         method === 'angpao'
           ? 'Angpao Voucher'
           : method === 'cashcard'
           ? 'Cash Card 14-Pin'
           : 'QR PromptPay'
-      } (${tier.amountThb} THB)`;
+      } (${tier.amountThb} THB · +${tier.bonusPercent}%${promoNote})`;
 
       const txResult = await executePaymentGrantTx({
         idempotencyKey: idemKey,
@@ -1182,7 +1176,7 @@ async function startServer() {
       res.status(201).json({
         ok: true,
         status: txResult.status,
-        message: `เติมเงิน TrueMoney ${tier.amountThb} บาท สำเร็จ! ได้รับ +${tier.credits.toLocaleString()} WebShop Credits และ +${tier.wCoinC.toLocaleString()} WCoinC เข้าสู่บัญชี ${loginName}`,
+        message: `เติมเงิน TrueMoney ${tier.amountThb.toLocaleString()} บาท สำเร็จ! ได้รับ +${tier.credits.toLocaleString()} WebShop Credits และ +${tier.wCoinC.toLocaleString()} WCoinC เข้าสู่บัญชี ${loginName}`,
         creditsAdded: tier.credits,
         wCoinCAdded: tier.wCoinC,
         grant: txResult.grant,
@@ -1203,7 +1197,8 @@ async function startServer() {
       packageCode?: string;
     };
 
-    const pkg = PAYPAL_PACKAGES.find((p) => p.code === packageCode);
+    const { effectivePayPalPackages } = getEffectivePromotions();
+    const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
     if (!pkg || !loginName) {
       res.status(400).json({ ok: false, message: 'Invalid package or account' });
       return;
@@ -1236,11 +1231,12 @@ async function startServer() {
         payerEmail?: string;
       };
 
-      const pkg = PAYPAL_PACKAGES.find((p) => p.code === packageCode);
+      const { config: promoCfg, effectivePayPalPackages } = getEffectivePromotions();
+      const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
       if (!pkg || !loginName || !orderToken) {
         res.status(400).json({
           ok: false,
-          message: 'ข้อมูลคำสั่งซื้อ PayPal ไม่ครบถ้วน',
+          message: 'ข้อมูลคำสั่งซื้อ PayPal ไม่ครบถ้วน หรือแพ็กเกจถูกปิดใช้งาน',
         });
         return;
       }
@@ -1250,7 +1246,13 @@ async function startServer() {
         typeof headerIdem === 'string' && headerIdem.trim()
           ? headerIdem.trim()
           : reference;
-      const reason = `PayPal purchase ${pkg.code} ($${pkg.priceUsd.toFixed(2)})${
+      const promoNote =
+        promoCfg.campaignActive && promoCfg.extraBonusPercent > 0
+          ? ` [Event +${promoCfg.extraBonusPercent}%]`
+          : '';
+      const reason = `PayPal purchase ${pkg.code} ($${pkg.priceUsd.toFixed(
+        2
+      )} / ${pkg.priceThb} THB · +${pkg.bonusPercent}%${promoNote})${
         payerEmail ? ` by ${payerEmail}` : ''
       }`;
 
@@ -1282,7 +1284,7 @@ async function startServer() {
         idempotentReplay: txResult.idempotentReplay,
         message: `ชำระเงินผ่าน PayPal ($${pkg.priceUsd.toFixed(
           2
-        )}) สำเร็จ! ได้รับ +${pkg.credits.toLocaleString()} WebShop Credits และ +${pkg.wCoinC.toLocaleString()} WCoinC`,
+        )} / ฿${pkg.priceThb.toLocaleString()}) สำเร็จ! ได้รับ +${pkg.credits.toLocaleString()} WebShop Credits และ +${pkg.wCoinC.toLocaleString()} WCoinC`,
         creditsAdded: txResult.status === 'Created' ? pkg.credits : 0,
         wCoinCAdded: txResult.status === 'Created' ? pkg.wCoinC : 0,
         grant: txResult.grant,
@@ -1404,6 +1406,97 @@ async function startServer() {
     try {
       await invalidateCatalogCache();
       res.json({ ok: true, message: 'Catalog Redis cache invalidated.' });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ==========================================================================
+  // 8. Admin Top-Up & Donation Promotion Management Endpoints (RBAC Protected)
+  // ==========================================================================
+  app.get('/api/admin/promotions', requireAdmin, (_req, res) => {
+    const config = getPromotionConfig();
+    const { effectiveTrueMoneyTiers, effectivePayPalPackages } =
+      getEffectivePromotions();
+    res.json({
+      ok: true,
+      promotionConfig: config,
+      effectiveTrueMoneyTiers,
+      effectivePayPalPackages,
+    });
+  });
+
+  app.put('/api/admin/promotions', requireAdmin, async (req, res, next) => {
+    try {
+      const adminAcc = getRequesterAccount(req);
+      const patch = (req.body?.promotionConfig || req.body) as Partial<PromotionConfig>;
+      if (!patch || typeof patch !== 'object') {
+        res
+          .status(400)
+          .json({ ok: false, message: 'Valid promotionConfig payload is required.' });
+        return;
+      }
+
+      const saved = await updatePromotionConfig(
+        patch,
+        adminAcc?.loginName || 'admin'
+      );
+      const { effectiveTrueMoneyTiers, effectivePayPalPackages } =
+        getEffectivePromotions();
+
+      await recordAuditLog(
+        {
+          accountId: adminAcc?.loginName || 'admin',
+          ipAddress: extractClientIp(req),
+          action: 'ADMIN_PROMOTION_UPDATE',
+          status: 'COMMITTED',
+          details: `Updated Top-Up Promotions (${saved.trueMoneyTiers.length} TrueMoney tiers, ${saved.payPalPackages.length} PayPal packages, Campaign=${
+            saved.campaignActive ? `ON (+${saved.extraBonusPercent}%)` : 'OFF'
+          }, Base=${saved.baseCreditsPerThb} Cr/THB & ${saved.baseWCoinCPerThb} WCoinC/THB)`,
+        },
+        getPgPool()
+      );
+
+      res.json({
+        ok: true,
+        message: 'บันทึกการตั้งค่าโปรโมชั่น TrueMoney & PayPal สำเร็จ',
+        promotionConfig: saved,
+        effectiveTrueMoneyTiers,
+        effectivePayPalPackages,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/admin/promotions/reset', requireAdmin, async (req, res, next) => {
+    try {
+      const adminAcc = getRequesterAccount(req);
+      const reset = await resetPromotionConfigToDefault(
+        adminAcc?.loginName || 'admin'
+      );
+      const { effectiveTrueMoneyTiers, effectivePayPalPackages } =
+        getEffectivePromotions();
+
+      await recordAuditLog(
+        {
+          accountId: adminAcc?.loginName || 'admin',
+          ipAddress: extractClientIp(req),
+          action: 'ADMIN_PROMOTION_RESET',
+          status: 'COMMITTED',
+          details:
+            'Reset TrueMoney & PayPal promotion tiers to harmonized Egis-MU defaults',
+        },
+        getPgPool()
+      );
+
+      res.json({
+        ok: true,
+        message: 'รีเซ็ตโปรโมชั่นกลับเป็นค่ามาตรฐานที่สอดคล้องกันทั้ง TrueMoney & PayPal สำเร็จ',
+        promotionConfig: reset,
+        effectiveTrueMoneyTiers,
+        effectivePayPalPackages,
+      });
     } catch (err) {
       next(err);
     }
