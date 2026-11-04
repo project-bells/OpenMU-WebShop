@@ -333,7 +333,6 @@ async function startServer() {
   app.disable('x-powered-by');
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-XSS-Protection', '0');
     next();
@@ -647,10 +646,14 @@ async function startServer() {
         loginName: acc.loginName,
         email: acc.email,
         state: acc.state,
+        role: acc.role,
         wCoinC: acc.wCoinC,
         wCoinP: acc.wCoinP,
         goblinPoints: acc.goblinPoints,
-        isAdmin: acc.state === 'GameMaster',
+        isAdmin:
+          acc.state === 'GameMaster' ||
+          acc.role === 'ADMIN' ||
+          acc.role === 'SUPER_ADMIN',
       },
     });
   });
@@ -721,6 +724,8 @@ async function startServer() {
       passwordHash: makeSimulatedBcrypt(password),
       email: email || `${cleanName}@openmu.local`,
       state: 'Normal',
+      role: 'USER',
+      isMasterAdmin: false,
       registrationDate: new Date().toISOString(),
       wCoinC: 100,
       wCoinP: 0,
@@ -736,6 +741,7 @@ async function startServer() {
         loginName: newAcc.loginName,
         email: newAcc.email,
         state: newAcc.state,
+        role: newAcc.role,
         wCoinC: newAcc.wCoinC,
         wCoinP: newAcc.wCoinP,
         goblinPoints: newAcc.goblinPoints,
