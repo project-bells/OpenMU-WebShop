@@ -1,0 +1,52 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Cinzel', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Authentic MU Online Vault Grid & Classic Savoy WebShop Styles */
+.vault-cell {
+  width: 34px;
+  height: 34px;
+  border-right: 1px solid #18181b;
+  border-bottom: 1px solid #18181b;
+  border-left: 1px solid #52525b;
+  border-top: 1px solid #52525b;
+  background-color: #27272a;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  background-size: 8px 8px;
+}
+
+.classic-theme .vault-cell {
+  border-right: 1px solid #222222;
+  border-bottom: 1px solid #222222;
+  border-left: 1px solid #BBBBBB;
+  border-top: 1px solid #BBBBBB;
+  background-color: #88888a;
+  background-image: none;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}

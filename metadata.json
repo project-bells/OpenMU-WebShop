@@ -1,0 +1,8 @@
+{
+  "name": "Open-Webshop — MU Online Advanced WebShop",
+  "description": "React conversion of Open-Webshop (MU Online Advanced WebShop v0.9) featuring complete item forge, 8x15 vault grid, character services, guild mark editor, casinos, and admin management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
