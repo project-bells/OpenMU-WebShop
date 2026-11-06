@@ -21,6 +21,7 @@ import {
 import { LanguageCode } from '../types/webshop';
 import { EGIS_MU_LOGO_URL } from '../data/initialState';
 import { L } from '../translations';
+import { apiFetch, setCsrfToken } from '../utils/apiClient';
 
 declare global {
   interface Window {
@@ -338,7 +339,7 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
       mode === 'login' ? '/api/openmu/login' : '/api/openmu/register';
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -391,6 +392,8 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
         setIsSubmitting(false);
         return;
       }
+
+      setCsrfToken(data.csrfToken);
 
       setStatusMessage({
         type: 'success',

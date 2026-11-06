@@ -191,3 +191,8 @@ npm start
 ### ปัญหาที่ 4: การแสดงผลภาษาไทยหรือภาษาต่างประเทศไม่ถูกต้อง
 * **สาเหตุ**: การตั้งค่าฟอนต์หรือ Encode ไม่เป็น UTF-8
 * **วิธีแก้ไข**: เว็บช็อปรองรับ UTF-8 อย่างสมบูรณ์ ตรวจสอบว่าไฟล์และฐานข้อมูลกำหนด Character Encoding เป็น `UTF8`
+# Security notice (current deployment path)
+
+The original instructions below describe the upstream prototype and may contain obsolete demo defaults. Do not use default accounts, embedded storage, simulated payments, direct inventory writes, or the bundled PostgreSQL example.
+
+For the secured branch, follow `README.md`, `.env.example`, `SECURITY.md`, and `work.md`. The webshop must connect to the existing OpenMU PostgreSQL database and OpenMU CashShop API. Keep `PAYMENTS_ENABLED=false`, `TRUEMONEY_ENABLED=false`, `CARDS_ENABLED=false`, and PayPal sandbox mode enabled until all activation gates pass.

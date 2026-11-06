@@ -7,6 +7,7 @@ import { getRecentAuditLogs, recordAuditLog } from './src/server/auditLogger';
 import {
   CashShopCoinType,
   TransactionDomainError,
+  authenticateOpenMuAccount,
   buildDefaultPromotionConfig,
   deleteCatalogGroup,
   deleteCatalogItem,
@@ -17,6 +18,7 @@ import {
   getCatalogBundleCached,
   getDatabaseHealth,
   getEffectivePromotions,
+  getOpenMuAccountSummary,
   getMemoryAccount,
   getPgPool,
   getPromotionConfig,
@@ -24,6 +26,8 @@ import {
   initializeDatabaseLayer,
   invalidateCatalogCache,
   queryMembStatOnlineStatus,
+  reserveCreditExchange,
+  completeCreditExchange,
   registerAccountRecord,
   resetPromotionConfigToDefault,
   setMembStatConnectionState,
@@ -32,8 +36,19 @@ import {
   upsertCatalogItem,
   verifyAccountPassword,
 } from './src/server/dbRepository';
+import {
+  clearSessionCookie,
+  createSession,
+  type AuthenticatedRequest,
+  readSession,
+  requireAdminSession,
+  requireCsrf,
+  requireSession,
+  validateProductionConfiguration,
+} from './src/server/security';
 import { createDistributedRateLimiter, extractClientIp } from './src/server/rateLimiter';
 import { closeRedisConnection, getCacheBackendStatus } from './src/server/redisCache';
+import { capturePayPalOrder, createPayPalOrder, verifyPayPalWebhook } from './src/server/paypal';
 import type {
   ItemGroup,
   PromotionConfig,
@@ -56,7 +71,7 @@ async function forwardGrantToExternalOpenMu(
 ): Promise<boolean> {
   const apiUrl = process.env.OPENMU_API_URL;
   const apiKey = process.env.OPENMU_API_KEY;
-  if (!apiUrl || !apiKey || apiUrl.includes('localhost:5000')) {
+  if (!apiUrl || !apiKey) {
     return false;
   }
   try {
@@ -90,8 +105,7 @@ function verifyWebhookHmacSignature(
   secret: string | undefined
 ): boolean {
   if (!secret || !secret.trim()) {
-    // If no secret configured in dev/sandbox, allow request through
-    return true;
+    return false;
   }
   if (!rawBodyBuf || !signatureHeader) {
     return false;
@@ -112,12 +126,13 @@ interface RawBodyRequest extends express.Request {
 }
 
 async function startServer() {
+  validateProductionConfiguration();
   await initializeDatabaseLayer();
 
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.set('trust proxy', 1);
+  app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
   app.disable('x-powered-by');
 
   // Zero-Trust Security Headers (compatible with iframe preview environments)
@@ -125,6 +140,9 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-XSS-Protection', '0');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api-m.sandbox.paypal.com https://api-m.paypal.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
     next();
   });
 
@@ -176,6 +194,35 @@ async function startServer() {
   });
 
   app.use('/api', apiGeneralLimiter);
+  app.use((req, res, next) => {
+    if (req.path.includes('legacy-disabled') || req.path.startsWith('/api/openmu/memb-stat')) {
+      res.status(404).json({ ok: false, message: 'Not found.' });
+      return;
+    }
+    next();
+  });
+
+  app.use('/api/shop', (req, res, next) => req.method === 'GET' && req.path === '/catalog' ? next() : requireSession(req as AuthenticatedRequest, res, next));
+  app.use('/api/accounts', requireSession);
+  app.use('/api/accounts/:loginName/cash-shop', (_req, res) => {
+    res.status(410).json({ ok: false, message: 'Use the authoritative OpenMU CashShop API.' });
+  });
+  app.use('/api/accounts/:loginName', (req: AuthenticatedRequest, res, next) => {
+    if (!req.session?.admin && req.params.loginName.toLowerCase() !== req.session?.loginName.toLowerCase()) {
+      res.status(403).json({ ok: false, message: 'Account access denied.' });
+      return;
+    }
+    next();
+  });
+  app.use('/api/payments', requireSession);
+  app.use('/api/admin', requireSession, requireAdminSession);
+  app.use('/api/shop', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
+  app.use('/api/accounts', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
+  app.use('/api/payments', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
+  app.use('/api/admin', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
+  app.use(['/api/shop/purchase', '/api/shop/purchase-group', '/api/shop/refund'], (_req, res) => {
+    res.status(503).json({ ok: false, message: 'Direct item delivery is disabled until an authoritative OpenMU inventory API is configured.' });
+  });
 
   // ==========================================================================
   // Authentication & RBAC Middlewares
@@ -221,20 +268,8 @@ async function startServer() {
   }
 
   function getRequesterAccount(req: express.Request) {
-    const adminUserHeader = req.headers['x-admin-user'] || req.headers['x-username'];
-    const queryUser = req.query.adminUser || req.query.requester;
-    const bodyUser = req.body && (req.body.adminUser || req.body.requester);
-    const candidate =
-      typeof adminUserHeader === 'string'
-        ? adminUserHeader
-        : typeof queryUser === 'string'
-        ? queryUser
-        : typeof bodyUser === 'string'
-        ? bodyUser
-        : undefined;
-
-    if (!candidate) return null;
-    return getMemoryAccount(candidate.trim());
+    const session = (req as AuthenticatedRequest).session ?? readSession(req);
+    return session ? { loginName: session.loginName } : null;
   }
 
   function requireAdmin(
@@ -242,29 +277,7 @@ async function startServer() {
     res: express.Response,
     next: express.NextFunction
   ) {
-    const requester = getRequesterAccount(req);
-    if (!requester) {
-      res.status(401).json({
-        ok: false,
-        message: 'จำเป็นต้องระบุตัวตนแอดมิน (Missing X-Admin-User header or credential)',
-      });
-      return;
-    }
-
-    const isAuthorized =
-      requester.role === 'ADMIN' ||
-      requester.role === 'SUPER_ADMIN' ||
-      requester.state === 'GameMaster';
-
-    if (!isAuthorized) {
-      res.status(403).json({
-        ok: false,
-        message: 'ปฏิเสธการเข้าถึง: สิทธิ์ไม่เพียงพอ เฉพาะแอดมินเท่านั้น (403 Forbidden)',
-      });
-      return;
-    }
-
-    next();
+    requireAdminSession(req as AuthenticatedRequest, res, next);
   }
 
   async function verifyCloudflareTurnstile(
@@ -279,14 +292,14 @@ async function startServer() {
       };
     }
 
-    const secretKey =
-      process.env.CF_TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
+    const secretKey = process.env.CF_TURNSTILE_SECRET_KEY;
+    if (!secretKey) return { ok: false, reason: 'Cloudflare Turnstile is not configured.' };
 
-    if (
+    if (process.env.NODE_ENV !== 'production' && (
       token.startsWith('TEST_TOKEN_') ||
       token === 'mock_turnstile_pass' ||
       token === '1x00000000000000000000AA'
-    ) {
+    )) {
       return { ok: true };
     }
 
@@ -310,9 +323,6 @@ async function startServer() {
       );
 
       if (!cfRes.ok) {
-        if (secretKey.startsWith('1x000')) {
-          return { ok: true };
-        }
         return {
           ok: false,
           reason: `Cloudflare Turnstile API HTTP Error (${cfRes.status})`,
@@ -334,9 +344,6 @@ async function startServer() {
 
       return { ok: true };
     } catch {
-      if (secretKey.startsWith('1x000')) {
-        return { ok: true };
-      }
       return {
         ok: false,
         reason: 'ไม่สามารถติดต่อเซิร์ฟเวอร์ Cloudflare Turnstile ได้ กรุณาลองใหม่อีกครั้ง',
@@ -347,11 +354,19 @@ async function startServer() {
   // ==========================================================================
   // 0. Healthcheck & Infrastructure Probe (OCI Ampere A1 / Docker Readiness)
   // ==========================================================================
+  app.get('/health/live', (_req, res) => res.json({ status: 'ok' }));
+
+  app.get('/health/ready', (_req, res) => {
+    const db = getDatabaseHealth();
+    const ready = db.postgresConnected && Boolean(process.env.OPENMU_API_URL && process.env.OPENMU_API_KEY);
+    res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'unavailable', database: db.mode });
+  });
+
   app.get('/api/health', (_req, res) => {
     const db = getDatabaseHealth();
     const cache = getCacheBackendStatus();
-    res.json({
-      ok: true,
+    res.status(db.postgresConnected ? 200 : 503).json({
+      ok: db.postgresConnected,
       arch: process.arch,
       platform: process.platform,
       uptimeSeconds: Math.floor(process.uptime()),
@@ -568,7 +583,35 @@ async function startServer() {
   // ==========================================================================
   // 4. Payment Gateway Webhook Endpoint with Mandatory Idempotency-Key Guard
   // ==========================================================================
-  app.post('/api/webhooks/payment', paymentLimiter, async (req: RawBodyRequest, res, next) => {
+  app.post('/api/webhooks/paypal', paymentLimiter, async (req: RawBodyRequest, res) => {
+    try {
+      const headers = Object.fromEntries(Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]));
+      if (!await verifyPayPalWebhook(headers, req.body)) { res.status(401).json({ ok: false }); return; }
+      const event = req.body as any;
+      if (event.event_type !== 'PAYMENT.CAPTURE.COMPLETED') { res.status(204).end(); return; }
+      const resource = event.resource;
+      const [loginName, packageCode] = String(resource?.custom_id ?? '').split('|');
+      const pkg = getEffectivePromotions().effectivePayPalPackages.find((candidate) => candidate.code === packageCode);
+      if (!pkg || resource?.status !== 'COMPLETED' || resource?.amount?.currency_code !== 'THB' || String(resource?.amount?.value) !== pkg.priceThb.toFixed(2) || !resource?.id || !loginName) {
+        res.status(400).json({ ok: false }); return;
+      }
+      const reference = `paypal:${resource.id}`;
+      const reason = `PayPal ${pkg.code}`;
+      const granted = pkg.wCoinC === 0 || await forwardGrantToExternalOpenMu(loginName, 'WCoinC', pkg.wCoinC, reason, reference);
+      if (!granted) { res.status(503).json({ ok: false }); return; }
+      await executePaymentGrantTx({ idempotencyKey: reference, loginName, ipAddress: extractClientIp(req), coinType: 'WCoinC', coinAmount: pkg.wCoinC, creditsAdded: pkg.credits, reason, reference, clientName: 'PayPal' });
+      res.status(204).end();
+    } catch (error) {
+      console.error('[PayPal webhook]', error instanceof Error ? error.message : error);
+      res.status(503).json({ ok: false });
+    }
+  });
+
+  app.post('/api/webhooks/payment', (_req, res) => {
+    res.status(410).json({ ok: false, message: 'Generic payment webhooks are disabled. Use a verified provider-specific endpoint.' });
+  });
+
+  app.post('/api/webhooks/payment-legacy-disabled', paymentLimiter, async (req: RawBodyRequest, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
@@ -740,7 +783,11 @@ async function startServer() {
       promotionConfig: promoConfig,
       packages: effectivePayPalPackages,
       trueMoneyTiers: effectiveTrueMoneyTiers,
-      recentGrants: getRecentCoinGrants(25),
+      paymentProviders: {
+        trueMoney: process.env.PAYMENTS_ENABLED === 'true' && process.env.TRUEMONEY_ENABLED === 'true' ? 'configured' : 'disabled',
+        payPal: process.env.PAYMENTS_ENABLED === 'true' && Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) ? 'configured' : 'disabled',
+        cards: process.env.PAYMENTS_ENABLED === 'true' && process.env.CARDS_ENABLED === 'true' ? 'configured' : 'disabled',
+      },
     });
   });
 
@@ -756,6 +803,28 @@ async function startServer() {
       trueMoneyTiers: effectiveTrueMoneyTiers,
       packages: effectivePayPalPackages,
     });
+  });
+
+  app.post('/api/payments/credits/exchange', paymentLimiter, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      if (!req.session) { res.status(401).json({ ok: false }); return; }
+      const credits = Math.trunc(Number(req.body?.credits));
+      const idempotencyKey = String(req.headers['idempotency-key'] ?? '').trim();
+      if (!/^[a-zA-Z0-9:_-]{16,128}$/.test(idempotencyKey)) {
+        res.status(400).json({ ok: false, message: 'A valid Idempotency-Key header is required.' }); return;
+      }
+      if (credits < 100 || credits > 50_000 || credits % 5 !== 0) {
+        res.status(400).json({ ok: false, message: 'Exchange 100-50,000 credits in multiples of 5.' }); return;
+      }
+      const wCoinC = credits / 5;
+      const status = await reserveCreditExchange(req.session.loginName, credits, wCoinC, idempotencyKey);
+      if (status === 'completed') { res.json({ ok: true, idempotentReplay: true, creditsSpent: credits, wCoinC }); return; }
+      const reference = `credit-exchange:${idempotencyKey}`;
+      const granted = await forwardGrantToExternalOpenMu(req.session.loginName, 'WCoinC', wCoinC, 'WebShop credit exchange', reference);
+      if (!granted) { res.status(503).json({ ok: false, pending: true, message: 'Exchange is reserved and awaiting the OpenMU server. Retry with the same Idempotency-Key.' }); return; }
+      await completeCreditExchange(idempotencyKey);
+      res.status(201).json({ ok: true, creditsSpent: credits, wCoinC });
+    } catch (error) { next(error); }
   });
 
   app.post('/api/openmu/login', authLimiter, async (req, res, next) => {
@@ -794,16 +863,8 @@ async function startServer() {
       }
 
       const cleanName = loginName.trim();
-      const acc = getMemoryAccount(cleanName);
-
-      if (
-        !acc ||
-        !verifyAccountPassword(
-          acc.passwordPlainOrSimulatedBcrypt,
-          acc.passwordHash,
-          password
-        )
-      ) {
+      const acc = await authenticateOpenMuAccount(cleanName, password);
+      if (!acc) {
         await recordAuditLog(
           {
             accountId: cleanName,
@@ -821,15 +882,16 @@ async function startServer() {
         return;
       }
 
-      if (acc.state === 'Banned' || acc.state === 'TemporarilyBanned') {
+      if (acc.state !== 0) {
         res.status(403).json({
           ok: false,
-          message: `บัญชี ${acc.loginName} ถูกระงับการใช้งาน (AccountState = ${acc.state})`,
+          message: `บัญชี ${acc.loginName} ไม่สามารถเข้า WebShop ได้ในขณะนี้`,
         });
         return;
       }
 
-      const membStat = await queryMembStatOnlineStatus(acc.loginName);
+      const isAdmin = new Set((process.env.ADMIN_ACCOUNTS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)).has(acc.loginName.toLowerCase());
+      const session = createSession(acc.loginName, isAdmin);
 
       await recordAuditLog(
         {
@@ -837,34 +899,30 @@ async function startServer() {
           ipAddress: clientIp,
           action: 'AUTH_LOGIN_SUCCESS',
           status: 'COMMITTED',
-          details: `Authenticated session established (ConnectStat=${membStat.ConnectStat})`,
+          details: 'Authenticated session established',
         },
         getPgPool()
       );
 
+      res.setHeader('Set-Cookie', session.cookie);
       res.json({
         ok: true,
-        sessionCookieName: '.EgisMU.WebShop',
+        csrfToken: session.csrfToken,
         account: {
           id: acc.id,
           loginName: acc.loginName,
           email: acc.email,
-          characterDeleteCode: acc.securityCode,
           state: acc.state,
-          role: acc.role,
-          isMasterAdmin: acc.isMasterAdmin,
+          role: isAdmin ? 'ADMIN' : 'USER',
+          isMasterAdmin: isAdmin,
           credits: acc.credits,
-          vaultMoney: acc.vaultMoney,
-          vipUntil: acc.vipUntil,
-          vaultItems: acc.vaultItems,
+          vaultMoney: 0,
+          vipUntil: null,
+          vaultItems: [],
           wCoinC: acc.wCoinC,
           wCoinP: acc.wCoinP,
           goblinPoints: acc.goblinPoints,
-          connectStat: membStat.ConnectStat,
-          isAdmin:
-            acc.state === 'GameMaster' ||
-            acc.role === 'ADMIN' ||
-            acc.role === 'SUPER_ADMIN',
+          isAdmin,
         },
       });
     } catch (err) {
@@ -872,7 +930,30 @@ async function startServer() {
     }
   });
 
-  app.post('/api/openmu/register', authLimiter, async (req, res, next) => {
+  app.post('/api/openmu/logout', requireSession, requireCsrf, (req, res) => {
+    res.setHeader('Set-Cookie', clearSessionCookie());
+    res.json({ ok: true });
+  });
+
+  app.get('/api/openmu/session', async (req, res) => {
+    const session = readSession(req);
+    if (!session) { res.status(401).json({ ok: false }); return; }
+    const account = await getOpenMuAccountSummary(session.loginName);
+    if (!account) { res.setHeader('Set-Cookie', clearSessionCookie()); res.status(401).json({ ok: false }); return; }
+    res.json({ ok: true, csrfToken: session.csrf, account: {
+      id: account.id, loginName: account.loginName, email: account.email, state: account.state,
+      role: session.admin ? 'ADMIN' : 'USER', isAdmin: session.admin, isMasterAdmin: session.admin,
+      credits: account.credits, vaultMoney: 0, vipUntil: null, vaultItems: [],
+      wCoinC: account.wCoinC, wCoinP: account.wCoinP, goblinPoints: account.goblinPoints,
+    } });
+  });
+
+  app.post('/api/openmu/register', authLimiter, async (_req, res) => {
+    res.status(410).json({ ok: false, message: 'Registration is handled by the main player website.' });
+  });
+
+  /* Legacy registration implementation retained below but unreachable until removed after migration. */
+  app.post('/api/openmu/register-legacy-disabled', authLimiter, async (req, res, next) => {
     try {
       const {
         loginName,
@@ -1064,7 +1145,11 @@ async function startServer() {
   // ==========================================================================
   // 6. TrueMoney & PayPal Payment Routes (Idempotent + Audited)
   // ==========================================================================
-  app.post('/api/payments/truemoney/redeem', paymentLimiter, async (req, res, next) => {
+  app.post('/api/payments/truemoney/redeem', (_req, res) => {
+    res.status(503).json({ ok: false, message: 'TrueMoney is not connected. No credit has been granted.' });
+  });
+
+  app.post('/api/payments/truemoney/redeem-legacy-disabled', paymentLimiter, async (req, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers['idempotency-key'];
@@ -1191,7 +1276,21 @@ async function startServer() {
     }
   });
 
-  app.post('/api/payments/paypal/create-order', paymentLimiter, async (req, res) => {
+  app.post('/api/payments/paypal/create-order', paymentLimiter, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      if (process.env.PAYMENTS_ENABLED !== 'true' || !process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
+        res.status(503).json({ ok: false, message: 'PayPal checkout is not configured.' });
+        return;
+      }
+      const { packageCode } = req.body as { packageCode?: string };
+      const pkg = getEffectivePromotions().effectivePayPalPackages.find((candidate) => candidate.code === packageCode);
+      if (!pkg || !req.session) { res.status(400).json({ ok: false, message: 'Invalid package.' }); return; }
+      const order = await createPayPalOrder(pkg, req.session.loginName);
+      res.status(201).json({ ok: true, orderToken: order.orderId, approvalUrl: order.approvalUrl, package: pkg });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/payments/paypal/create-order-legacy-disabled', paymentLimiter, async (req, res) => {
     const { loginName, packageCode } = req.body as {
       loginName?: string;
       packageCode?: string;
@@ -1220,7 +1319,36 @@ async function startServer() {
     });
   });
 
-  app.post('/api/payments/paypal/capture-order', paymentLimiter, async (req, res, next) => {
+  app.post('/api/payments/paypal/capture-order', (_req, res) => {
+    res.status(503).json({ ok: false, message: 'PayPal capture is disabled. No credit has been granted.' });
+  });
+
+  app.get('/api/payments/paypal/complete', async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.session) { res.redirect('/?payment=login-required'); return; }
+      const orderId = typeof req.query.token === 'string' ? req.query.token : '';
+      const requestedPackage = typeof req.query.packageCode === 'string' ? req.query.packageCode : '';
+      const capture = await capturePayPalOrder(orderId);
+      const pkg = getEffectivePromotions().effectivePayPalPackages.find((candidate) => candidate.code === capture.packageCode);
+      if (!pkg || pkg.code !== requestedPackage || capture.loginName.toLowerCase() !== req.session.loginName.toLowerCase() || capture.currency !== 'THB' || capture.amount !== pkg.priceThb.toFixed(2)) {
+        res.redirect('/?payment=invalid'); return;
+      }
+      const reference = `paypal:${capture.captureId}`;
+      const reason = `PayPal ${pkg.code}`;
+      const granted = pkg.wCoinC === 0 || await forwardGrantToExternalOpenMu(capture.loginName, 'WCoinC', pkg.wCoinC, reason, reference);
+      if (!granted) { res.redirect('/?payment=grant-pending'); return; }
+      await executePaymentGrantTx({
+        idempotencyKey: reference, loginName: capture.loginName, ipAddress: extractClientIp(req), coinType: 'WCoinC',
+        coinAmount: pkg.wCoinC, creditsAdded: pkg.credits, reason, reference, clientName: 'PayPal',
+      });
+      res.redirect('/?payment=approved');
+    } catch (error) {
+      console.error('[PayPal completion]', error instanceof Error ? error.message : error);
+      res.redirect('/?payment=invalid');
+    }
+  });
+
+  app.post('/api/payments/paypal/capture-order-legacy-disabled', paymentLimiter, async (req, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers['idempotency-key'];

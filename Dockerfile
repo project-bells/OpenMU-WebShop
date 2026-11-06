@@ -11,8 +11,8 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Native ARM64 musl compatibility — zero node-gyp toolchain needed
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 # ------------------------------------------------------------------------------
 # Stage 2: Compile Vite SPA + Bundle Express/PostgreSQL/Redis Server via esbuild
@@ -24,8 +24,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NODE_ENV=production
-RUN npm run build && \
-    npm run build:server && \
+RUN npm run check && \
     npm prune --omit=dev && \
     npm cache clean --force
 
@@ -56,7 +55,7 @@ USER node
 EXPOSE 3000
 
 HEALTHCHECK --interval=20s --timeout=4s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist-server/server.mjs"]

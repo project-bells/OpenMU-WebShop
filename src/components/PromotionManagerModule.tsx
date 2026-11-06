@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { apiFetch } from '../utils/apiClient';
 import {
   PayPalPromoPackage,
   PromotionConfig,
@@ -195,11 +196,7 @@ export const PromotionManagerModule: React.FC<PromotionManagerModuleProps> = ({
   const loadConfig = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/admin/promotions', {
-        headers: {
-          'X-Admin-User': adminUsername,
-        },
-      });
+      const res = await apiFetch('/api/admin/promotions');
       if (res.ok) {
         const data = await res.json();
         if (data.promotionConfig) {
@@ -374,11 +371,10 @@ export const PromotionManagerModule: React.FC<PromotionManagerModuleProps> = ({
     setStatusBanner(null);
     setConfirmReset(false);
     try {
-      const res = await fetch('/api/admin/promotions', {
+      const res = await apiFetch('/api/admin/promotions', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-Admin-User': adminUsername,
         },
         body: JSON.stringify({ promotionConfig: draft }),
       });
@@ -434,11 +430,10 @@ export const PromotionManagerModule: React.FC<PromotionManagerModuleProps> = ({
     setIsSaving(true);
     setStatusBanner(null);
     try {
-      const res = await fetch('/api/admin/promotions/reset', {
+      const res = await apiFetch('/api/admin/promotions/reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Admin-User': adminUsername,
         },
       });
       const data = await res.json();

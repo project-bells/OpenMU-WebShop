@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import pg from 'pg';
 import {
   DEFAULT_WEBSHOP_CONFIG,
@@ -153,10 +154,7 @@ let pgHealthy = false;
 
 export async function initializeDatabaseLayer(): Promise<void> {
   if (!DB_URL) {
-    console.info(
-      '[Database] No OPENMU_DATABASE_URL set — running Embedded ACID Transaction Store.'
-    );
-    return;
+    throw new Error('OPENMU_DATABASE_URL is required. Embedded account and payment storage is disabled.');
   }
 
   try {
@@ -185,12 +183,9 @@ export async function initializeDatabaseLayer(): Promise<void> {
       client.release();
     }
   } catch (err) {
-    console.warn(
-      `[Database] PostgreSQL unavailable (${
-        err instanceof Error ? err.message : err
-      }) — falling back to Embedded ACID Transaction Store.`
-    );
+    console.error(`[Database] PostgreSQL unavailable (${err instanceof Error ? err.message : err}).`);
     pgHealthy = false;
+    throw err;
   }
 }
 
@@ -268,6 +263,16 @@ async function bootstrapPostgresSchema(client: pg.PoolClient): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS webshop_credit_exchanges (
+      idempotency_key VARCHAR(128) PRIMARY KEY,
+      account_login VARCHAR(20) NOT NULL,
+      credits_spent INTEGER NOT NULL CHECK (credits_spent > 0),
+      wcoinc_granted INTEGER NOT NULL CHECK (wcoinc_granted > 0),
+      status VARCHAR(16) NOT NULL CHECK (status IN ('pending', 'completed')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    );
+
     CREATE TABLE IF NOT EXISTS webshop_audit_logs (
       id UUID PRIMARY KEY,
       account_id VARCHAR(32) NOT NULL,
@@ -309,73 +314,6 @@ async function bootstrapPostgresSchema(client: pg.PoolClient): Promise<void> {
     memoryPromotionConfig = sanitizePromotionConfig(promoRes.rows[0].config_json);
   }
 
-  // Seed only Master Admin account from environment if not yet present
-  const envAdmin = (process.env.ADMIN_USERNAME || 'admin').trim();
-  const envPass = process.env.ADMIN_PASSWORD || 'admin';
-  const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || '')
-    ? String(process.env.ADMIN_DELETE_CODE)
-    : '0000000';
-
-  const seedAccounts: Array<{
-    loginName: string;
-    password: string;
-    securityCode: string;
-    state: 'Normal' | 'GameMaster';
-    role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
-    isMasterAdmin: boolean;
-  }> = [
-    {
-      loginName: envAdmin,
-      password: envPass,
-      securityCode: envDeleteCode,
-      state: 'GameMaster',
-      role: 'SUPER_ADMIN',
-      isMasterAdmin: true,
-    },
-    {
-      loginName: 'user01',
-      password: '123456',
-      securityCode: '123456',
-      state: 'Normal',
-      role: 'USER',
-      isMasterAdmin: false,
-    },
-    {
-      loginName: 'admin01',
-      password: '123456',
-      securityCode: '123456',
-      state: 'GameMaster',
-      role: 'ADMIN',
-      isMasterAdmin: false,
-    },
-  ];
-
-  for (const acc of seedAccounts) {
-    await client.query(
-      `INSERT INTO webshop_accounts (
-        id, login_name, password_hash, security_code, email, state, role, is_master_admin,
-        credits, vault_money, wcoinc, wcoinp, goblin_points
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, 0, 0, 0)
-      ON CONFLICT (login_name) DO NOTHING`,
-      [
-        crypto.randomUUID(),
-        acc.loginName,
-        hashSimulatedBcrypt(acc.password),
-        acc.securityCode,
-        `${acc.loginName}@egis-mu.com`,
-        acc.state,
-        acc.role,
-        acc.isMasterAdmin,
-      ]
-    );
-
-    await client.query(
-      `INSERT INTO "MEMB_STAT" ("memb___id", "ConnectStat", "ServerName", "IP")
-       VALUES ($1, 0, 'Continent-of-Egis-MU-1', '127.0.0.1')
-       ON CONFLICT ("memb___id") DO NOTHING`,
-      [acc.loginName]
-    );
-  }
 }
 
 export function getDatabaseHealth(): {
@@ -390,6 +328,143 @@ export function getDatabaseHealth(): {
 
 export function getPgPool(): pg.Pool | null {
   return pgPool && pgHealthy ? pgPool : null;
+}
+
+export interface AuthenticatedOpenMuAccount {
+  id: string;
+  loginName: string;
+  email: string;
+  state: number;
+  credits: number;
+  wCoinC: number;
+  wCoinP: number;
+  goblinPoints: number;
+}
+
+/** Authenticates against the authoritative OpenMU account table and creates only a webshop wallet row. */
+export async function authenticateOpenMuAccount(
+  loginName: string,
+  password: string
+): Promise<AuthenticatedOpenMuAccount | null> {
+  if (!pgPool || !pgHealthy) {
+    throw new Error('OpenMU database is unavailable.');
+  }
+
+  const result = await pgPool.query<{
+    Id: string;
+    LoginName: string;
+    PasswordHash: string;
+    EMail: string;
+    State: number;
+    WCoinC: number;
+    WCoinP: number;
+    GoblinPoints: number;
+  }>(
+    `SELECT "Id", "LoginName", "PasswordHash", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
+       FROM data."Account"
+      WHERE LOWER("LoginName") = LOWER($1)
+      LIMIT 1`,
+    [loginName]
+  );
+  const account = result.rows[0];
+  if (!account || !(await bcrypt.compare(password, account.PasswordHash))) {
+    return null;
+  }
+
+  const adminAccounts = new Set(
+    (process.env.ADMIN_ACCOUNTS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
+  );
+  await pgPool.query(
+    `INSERT INTO webshop_accounts (
+       id, login_name, password_hash, security_code, email, state, role, is_master_admin,
+       credits, vault_money, wcoinc, wcoinp, goblin_points
+     ) VALUES ($1, $2, '', '', $3, $4, $5, $6, 0, 0, $7, $8, $9)
+     ON CONFLICT (login_name) DO UPDATE SET
+       email = EXCLUDED.email,
+       state = EXCLUDED.state,
+       role = EXCLUDED.role,
+       is_master_admin = EXCLUDED.is_master_admin,
+       wcoinc = EXCLUDED.wcoinc,
+       wcoinp = EXCLUDED.wcoinp,
+       goblin_points = EXCLUDED.goblin_points,
+       updated_at = NOW()`,
+    [
+      account.Id,
+      account.LoginName,
+      account.EMail,
+      String(account.State),
+      adminAccounts.has(account.LoginName.toLowerCase()) ? 'ADMIN' : 'USER',
+      adminAccounts.has(account.LoginName.toLowerCase()),
+      account.WCoinC,
+      account.WCoinP,
+      account.GoblinPoints,
+    ]
+  );
+  const wallet = await pgPool.query<{ credits: number }>(
+    'SELECT credits FROM webshop_accounts WHERE LOWER(login_name) = LOWER($1) LIMIT 1',
+    [account.LoginName]
+  );
+  return {
+    id: account.Id,
+    loginName: account.LoginName,
+    email: account.EMail,
+    state: account.State,
+    credits: wallet.rows[0]?.credits ?? 0,
+    wCoinC: account.WCoinC,
+    wCoinP: account.WCoinP,
+    goblinPoints: account.GoblinPoints,
+  };
+}
+
+export async function getOpenMuAccountSummary(loginName: string): Promise<AuthenticatedOpenMuAccount | null> {
+  if (!pgPool || !pgHealthy) throw new Error('OpenMU database is unavailable.');
+  const result = await pgPool.query<{
+    Id: string; LoginName: string; EMail: string; State: number; WCoinC: number; WCoinP: number; GoblinPoints: number; credits: number;
+  }>(
+    `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints", COALESCE(w.credits, 0)::int AS credits
+       FROM data."Account" a
+       LEFT JOIN webshop_accounts w ON LOWER(w.login_name) = LOWER(a."LoginName")
+      WHERE LOWER(a."LoginName") = LOWER($1) LIMIT 1`, [loginName]
+  );
+  const account = result.rows[0];
+  return account ? {
+    id: account.Id, loginName: account.LoginName, email: account.EMail, state: account.State,
+    credits: account.credits, wCoinC: account.WCoinC, wCoinP: account.WCoinP, goblinPoints: account.GoblinPoints,
+  } : null;
+}
+
+export async function reserveCreditExchange(loginName: string, credits: number, wCoinC: number, idempotencyKey: string): Promise<'pending' | 'completed'> {
+  if (!pgPool || !pgHealthy) throw new Error('OpenMU database is unavailable.');
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query<{ status: 'pending' | 'completed'; account_login: string; credits_spent: number; wcoinc_granted: number }>(
+      'SELECT status, account_login, credits_spent, wcoinc_granted FROM webshop_credit_exchanges WHERE idempotency_key = $1 FOR UPDATE', [idempotencyKey]
+    );
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      if (row.account_login.toLowerCase() !== loginName.toLowerCase() || row.credits_spent !== credits || row.wcoinc_granted !== wCoinC) throw new Error('Idempotency key was already used for a different exchange.');
+      await client.query('COMMIT');
+      return row.status;
+    }
+    const wallet = await client.query(
+      `UPDATE webshop_accounts SET credits = credits - $1, updated_at = NOW()
+        WHERE LOWER(login_name) = LOWER($2) AND credits >= $1 RETURNING login_name`, [credits, loginName]
+    );
+    if (wallet.rowCount !== 1) throw new TransactionDomainError('INSUFFICIENT_CREDITS', 409, 'Not enough webshop credits.');
+    await client.query(
+      `INSERT INTO webshop_credit_exchanges (idempotency_key, account_login, credits_spent, wcoinc_granted, status)
+       VALUES ($1, $2, $3, $4, 'pending')`, [idempotencyKey, loginName, credits, wCoinC]
+    );
+    await client.query('COMMIT');
+    return 'pending';
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
+}
+
+export async function completeCreditExchange(idempotencyKey: string): Promise<void> {
+  if (!pgPool || !pgHealthy) throw new Error('OpenMU database is unavailable.');
+  await pgPool.query(`UPDATE webshop_credit_exchanges SET status = 'completed', completed_at = NOW() WHERE idempotency_key = $1`, [idempotencyKey]);
 }
 
 // ============================================================================
@@ -505,7 +580,7 @@ function seedMemoryStore(): void {
   }
 }
 
-seedMemoryStore();
+// Production authentication always uses OpenMU's BCrypt account record.
 
 // ============================================================================
 // Redis-Cached Shop Catalog, Categories & Pricing Service
@@ -619,7 +694,9 @@ const PROMO_CACHE_KEY = 'webshop:promotions:v1';
 
 export function buildDefaultPromotionConfig(): PromotionConfig {
   const baseCreditsPerThb = 10;
-  const baseWCoinCPerThb = 2;
+  // Credits are the single paid entitlement. Players may exchange 5 Credits for 1 WCoinC.
+  // Avoid granting both currencies for one payment, which would double the advertised value.
+  const baseWCoinCPerThb = 0;
   const usdToThbRate = 35;
 
   const unifiedLadder: Array<{
@@ -642,48 +719,48 @@ export function buildDefaultPromotionConfig(): PromotionConfig {
     },
     {
       amountThb: 100,
-      bonusPercent: 5,
+      bonusPercent: 3,
       code: 'PKG_100',
       name: 'Egis Starter Pack',
       nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
+      bonusTextTh: 'โบนัส +3%',
+      bonusTextEn: '+3% Bonus',
+    },
+    {
+      amountThb: 150,
+      bonusPercent: 5,
+      code: 'PKG_150',
+      name: 'Lorencia Vanguard Pack',
+      nameTh: 'แพ็กเกจแนวหน้า Lorencia',
       bonusTextTh: 'โบนัส +5%',
       bonusTextEn: '+5% Bonus',
     },
     {
-      amountThb: 150,
-      bonusPercent: 10,
-      code: 'PKG_150',
-      name: 'Lorencia Vanguard Pack',
-      nameTh: 'แพ็กเกจแนวหน้า Lorencia',
-      bonusTextTh: 'โบนัส +10%',
-      bonusTextEn: '+10% Bonus',
-    },
-    {
       amountThb: 300,
-      bonusPercent: 15,
+      bonusPercent: 8,
       code: 'PKG_300',
       name: 'Blade Knight Treasury',
       nameTh: 'แพ็กเกจขุนพล Blade Knight',
-      bonusTextTh: 'โบนัส +15%',
-      bonusTextEn: '+15% Bonus',
+      bonusTextTh: 'โบนัส +8%',
+      bonusTextEn: '+8% Bonus',
     },
     {
       amountThb: 500,
-      bonusPercent: 20,
+      bonusPercent: 10,
       code: 'PKG_500',
       name: 'Icarus Sky Sovereign',
       nameTh: 'แพ็กเกจเจ้าเวหา Icarus',
-      bonusTextTh: 'ยอดนิยม · โบนัส +20%',
-      bonusTextEn: 'Popular · +20% Bonus',
+      bonusTextTh: 'ยอดนิยม · โบนัส +10%',
+      bonusTextEn: 'Popular · +10% Bonus',
     },
     {
       amountThb: 1000,
-      bonusPercent: 30,
+      bonusPercent: 15,
       code: 'PKG_1000',
       name: 'Kundun Conqueror Chest',
       nameTh: 'แพ็กเกจผู้พิชิต Kundun',
-      bonusTextTh: 'คุ้มค่าสูงสุด · โบนัส +30%',
-      bonusTextEn: 'Best Value · +30% Bonus',
+      bonusTextTh: 'คุ้มค่าสูงสุด · โบนัส +15%',
+      bonusTextEn: 'Best Value · +15% Bonus',
     },
   ];
 

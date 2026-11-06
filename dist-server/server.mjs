@@ -1,5 +1,5 @@
 // server.ts
-import crypto5 from "crypto";
+import crypto7 from "crypto";
 import dotenv from "dotenv";
 import express from "express";
 import path2 from "path";
@@ -13710,290 +13710,17 @@ var DEFAULT_WEBSHOP_CONFIG = {
   },
   misc: {
     title: "Welcome to The Egis-MU WEBSHOP",
-    admins: "netsplit,admin",
+    admins: "admin,admin01",
     servername: "Continent of Egis-MU S6E3",
     serverlink: "#",
     topcredits: 20,
     s3classes: true,
-    solidbans: "duper99,perma_pk",
+    solidbans: "",
     bannedcode: 1,
     whshow: true,
     addshow: true
   }
 };
-function findItemByName(name) {
-  return INITIAL_WEBSHOP_ITEMS.find(
-    (it) => it.name.toLowerCase() === name.toLowerCase()
-  ) || INITIAL_WEBSHOP_ITEMS[0];
-}
-function createInitialVaultItem(name, slotIndex, serial, level, option, luck, skill, exlOptions, paidCredits, fenrirVariant = 0) {
-  const item = findItemByName(name);
-  return {
-    instanceId: `init_${serial}`,
-    serial,
-    slotIndex,
-    itemUid: item.uid,
-    itemId: item.id,
-    itemType: item.type,
-    name: item.name,
-    X: item.X,
-    Y: item.Y,
-    level,
-    option,
-    luck,
-    skill,
-    exlOptions,
-    ancientStamina: 0,
-    fenrirVariant,
-    durability: 255,
-    paidCredits,
-    canSellBack: item.cansellitem === 1,
-    purchasedAt: Math.floor(Date.now() / 1e3) - 3600
-  };
-}
-var INITIAL_ACCOUNTS = [
-  {
-    username: "admin",
-    characterDeleteCode: "1234567",
-    credits: 25e3,
-    vaultMoney: 4e8,
-    onlineMinutes: 480,
-    exchangedOnlineHours: 24,
-    vipUntil: null,
-    isAdmin: true,
-    role: "SUPER_ADMIN",
-    isMasterAdmin: true,
-    isOnline: false,
-    vaultItems: [
-      createInitialVaultItem(
-        "Bone Blade",
-        0,
-        "00A90001",
-        13,
-        7,
-        true,
-        true,
-        [false, true, true, false, true, true],
-        322
-      ),
-      createInitialVaultItem(
-        "Wings Of Storm",
-        2,
-        "00A90002",
-        13,
-        7,
-        true,
-        false,
-        [true, true, true, false, true, false],
-        412
-      )
-    ]
-  },
-  {
-    username: "netsplit",
-    characterDeleteCode: "1234567",
-    credits: 14850,
-    vaultMoney: 35e7,
-    // 350M in Vault (Buying +500M = 850M <= 900M limit)
-    onlineMinutes: 385,
-    // 6 hours 25 minutes ready to exchange (6 hrs * 5 = +30 Credits)
-    exchangedOnlineHours: 18,
-    vipUntil: null,
-    isAdmin: true,
-    role: "SUPER_ADMIN",
-    isMasterAdmin: true,
-    isOnline: false,
-    vaultItems: [
-      createInitialVaultItem(
-        "Bone Blade",
-        0,
-        // col 0, row 0 (1x4)
-        "00A84F21",
-        13,
-        7,
-        true,
-        true,
-        [false, true, true, false, true, true],
-        322
-      ),
-      createInitialVaultItem(
-        "Knight Blade",
-        1,
-        // col 1, row 0 (1x4)
-        "00A84F22",
-        13,
-        7,
-        true,
-        true,
-        [true, false, true, false, true, true],
-        315
-      ),
-      createInitialVaultItem(
-        "Wings Of Storm",
-        2,
-        // col 2..5, row 0..2 (4x3)
-        "00B91E04",
-        13,
-        7,
-        true,
-        false,
-        [true, true, true, false, true, false],
-        412
-      ),
-      createInitialVaultItem(
-        "Dragon Shield",
-        6,
-        // col 6..7, row 0..2 (2x3)
-        "00C73D90",
-        13,
-        7,
-        true,
-        true,
-        [false, true, true, true, false, true],
-        215
-      ),
-      createInitialVaultItem(
-        "Grand Soul Staff",
-        32,
-        // col 0..1, row 4..7 (2x4)
-        "00D14A88",
-        13,
-        7,
-        true,
-        false,
-        [true, false, true, true, false, true],
-        280
-      ),
-      createInitialVaultItem(
-        "Black Dragon Armor",
-        34,
-        // col 2..3, row 4..6 (2x3)
-        "00E52C11",
-        13,
-        7,
-        true,
-        false,
-        [false, true, true, true, false, true],
-        245
-      ),
-      createInitialVaultItem(
-        "Black Dragon Helm",
-        36,
-        // col 4..5, row 4..5 (2x2)
-        "00E52C12",
-        13,
-        7,
-        true,
-        false,
-        [false, true, true, true, false, true],
-        210
-      ),
-      createInitialVaultItem(
-        "Horn of Fenrir",
-        38,
-        // col 6..7, row 4..5 (2x2)
-        "00F77B01",
-        0,
-        0,
-        false,
-        true,
-        [true, false, false, false, false, false],
-        260,
-        1
-      ),
-      createInitialVaultItem(
-        "Ring of Ice",
-        52,
-        // col 4, row 6 (1x1)
-        "00991A01",
-        13,
-        4,
-        false,
-        false,
-        [false, true, true, true, false, true],
-        195
-      ),
-      createInitialVaultItem(
-        "Pendant of Lighting",
-        53,
-        // col 5, row 6 (1x1)
-        "00991A02",
-        13,
-        4,
-        false,
-        false,
-        [true, false, true, true, false, true],
-        195
-      ),
-      createInitialVaultItem(
-        "Box Of Kundun +5",
-        54,
-        // col 6, row 6 (1x1)
-        "00772C05",
-        0,
-        0,
-        false,
-        false,
-        [false, false, false, false, false, false],
-        20
-      ),
-      createInitialVaultItem(
-        "Jewel Of Bless Bundle +3",
-        55,
-        // col 7, row 6 (1x1)
-        "00772C09",
-        0,
-        0,
-        false,
-        false,
-        [false, false, false, false, false, false],
-        75
-      )
-    ]
-  },
-  {
-    username: "darkknight",
-    characterDeleteCode: "1234567",
-    credits: 4200,
-    vaultMoney: 185e6,
-    onlineMinutes: 195,
-    // 3 hours 15 mins
-    exchangedOnlineHours: 6,
-    vipUntil: null,
-    isAdmin: false,
-    role: "USER",
-    isMasterAdmin: false,
-    isOnline: false,
-    vaultItems: [
-      createInitialVaultItem(
-        "Sword of Destruction",
-        0,
-        "00334D01",
-        11,
-        4,
-        true,
-        true,
-        [false, false, true, false, true, true],
-        219
-      )
-    ]
-  },
-  {
-    username: "soulmaster",
-    characterDeleteCode: "1234567",
-    credits: 2950,
-    vaultMoney: 92e6,
-    onlineMinutes: 130,
-    // 2 hours 10 mins
-    exchangedOnlineHours: 4,
-    vipUntil: null,
-    isAdmin: false,
-    role: "USER",
-    isMasterAdmin: false,
-    isOnline: false,
-    vaultItems: []
-  }
-];
 function buildInitialGroups() {
   const bdNames = [
     "Black Dragon Helm",
@@ -14060,34 +13787,7 @@ function buildInitialGroups() {
   ];
 }
 var INITIAL_GROUPS = buildInitialGroups();
-var INITIAL_LOGS = [
-  {
-    id: 1,
-    accountId: "netsplit",
-    details: "Bought Excellent Bone Blade +13 (Serial: 00A84F21) for 322 credits",
-    dateline: Math.floor(Date.now() / 1e3) - 7200,
-    itemSerial: "00A84F21"
-  },
-  {
-    id: 2,
-    accountId: "netsplit",
-    details: "Bought Wings Of Storm +13 (Serial: 00B91E04) for 412 credits",
-    dateline: Math.floor(Date.now() / 1e3) - 5400,
-    itemSerial: "00B91E04"
-  },
-  {
-    id: 3,
-    accountId: "darkknight",
-    details: "Reset Points on AegisBK (Received 2,295 LevelUpPoints) for 200 credits",
-    dateline: Math.floor(Date.now() / 1e3) - 3600
-  },
-  {
-    id: 4,
-    accountId: "netsplit",
-    details: "Redeemed 4 Online Hours for +20 credits",
-    dateline: Math.floor(Date.now() / 1e3) - 1800
-  }
-];
+var INITIAL_LOGS = [];
 
 // src/server/auditLogger.ts
 var AUDIT_LOG_FILE = process.env.AUDIT_LOG_PATH || path.join(process.cwd(), "logs", "audit.ndjson");
@@ -14194,6 +13894,7 @@ function getRecentAuditLogs(limit = 200, accountFilter) {
 
 // src/server/dbRepository.ts
 import crypto4 from "crypto";
+import bcrypt from "bcryptjs";
 import pg from "pg";
 
 // src/utils/muItemLogic.ts
@@ -14620,11 +14321,6 @@ function generateUniqueItemSerial() {
   }
   throw new Error("SERIAL_GENERATION_EXHAUSTED");
 }
-function registerExistingSerial(serial) {
-  if (serial && serial.length === 8) {
-    issuedSerials.add(serial.toUpperCase());
-  }
-}
 function encodeSeason6ItemHex(item) {
   const buf = Buffer.alloc(S6_ITEM_BYTE_LENGTH, 0);
   const safeId = Math.max(0, Math.min(511, item.itemId));
@@ -15041,26 +14737,12 @@ function hashSimulatedBcrypt(password) {
   const digest = crypto4.createHash("sha256").update(`openmu_salt_${password}`).digest("base64").replace(/[^a-zA-Z0-9./]/g, "A").slice(0, 53);
   return `$2a$11$${digest}`;
 }
-function verifyAccountPassword(storedPlainOrHash, storedHash, candidatePassword) {
-  const candidateHash = hashSimulatedBcrypt(candidatePassword);
-  const a = Buffer.from(storedHash);
-  const b = Buffer.from(candidateHash);
-  if (a.length === b.length && crypto4.timingSafeEqual(a, b)) {
-    return true;
-  }
-  const pA = Buffer.from(storedPlainOrHash);
-  const pB = Buffer.from(candidatePassword);
-  return pA.length === pB.length && crypto4.timingSafeEqual(pA, pB);
-}
 var DB_URL = (process.env.OPENMU_DATABASE_URL || process.env.DATABASE_URL || "").trim();
 var pgPool = null;
 var pgHealthy = false;
 async function initializeDatabaseLayer() {
   if (!DB_URL) {
-    console.info(
-      "[Database] No OPENMU_DATABASE_URL set \u2014 running Embedded ACID Transaction Store."
-    );
-    return;
+    throw new Error("OPENMU_DATABASE_URL is required. Embedded account and payment storage is disabled.");
   }
   try {
     pgPool = new Pool({
@@ -15083,10 +14765,9 @@ async function initializeDatabaseLayer() {
       client.release();
     }
   } catch (err) {
-    console.warn(
-      `[Database] PostgreSQL unavailable (${err instanceof Error ? err.message : err}) \u2014 falling back to Embedded ACID Transaction Store.`
-    );
+    console.error(`[Database] PostgreSQL unavailable (${err instanceof Error ? err.message : err}).`);
     pgHealthy = false;
+    throw err;
   }
 }
 async function bootstrapPostgresSchema(client) {
@@ -15096,7 +14777,7 @@ async function bootstrapPostgresSchema(client) {
     CREATE TABLE IF NOT EXISTS "MEMB_STAT" (
       "memb___id" VARCHAR(20) PRIMARY KEY,
       "ConnectStat" SMALLINT NOT NULL DEFAULT 0 CHECK ("ConnectStat" IN (0, 1)),
-      "ServerName" VARCHAR(50) NOT NULL DEFAULT 'SubServer-1',
+      "ServerName" VARCHAR(50) NOT NULL DEFAULT 'Continent-of-Egis-MU-1',
       "IP" VARCHAR(64) NOT NULL DEFAULT '0.0.0.0',
       "ConnectTM" TIMESTAMPTZ,
       "DisConnectTM" TIMESTAMPTZ
@@ -15106,7 +14787,7 @@ async function bootstrapPostgresSchema(client) {
       id UUID PRIMARY KEY,
       login_name VARCHAR(20) UNIQUE NOT NULL,
       password_hash VARCHAR(128) NOT NULL,
-      security_code VARCHAR(16) NOT NULL DEFAULT '1234567',
+      security_code VARCHAR(16) NOT NULL DEFAULT '0000000',
       email VARCHAR(128) NOT NULL,
       state VARCHAR(32) NOT NULL DEFAULT 'Normal',
       role VARCHAR(20) NOT NULL DEFAULT 'USER',
@@ -15122,7 +14803,7 @@ async function bootstrapPostgresSchema(client) {
     );
 
     ALTER TABLE webshop_accounts
-      ADD COLUMN IF NOT EXISTS security_code VARCHAR(16) NOT NULL DEFAULT '1234567';
+      ADD COLUMN IF NOT EXISTS security_code VARCHAR(16) NOT NULL DEFAULT '0000000';
 
     CREATE TABLE IF NOT EXISTS webshop_warehouse_items (
       instance_id VARCHAR(64) PRIMARY KEY,
@@ -15163,6 +14844,16 @@ async function bootstrapPostgresSchema(client) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS webshop_credit_exchanges (
+      idempotency_key VARCHAR(128) PRIMARY KEY,
+      account_login VARCHAR(20) NOT NULL,
+      credits_spent INTEGER NOT NULL CHECK (credits_spent > 0),
+      wcoinc_granted INTEGER NOT NULL CHECK (wcoinc_granted > 0),
+      status VARCHAR(16) NOT NULL CHECK (status IN ('pending', 'completed')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    );
+
     CREATE TABLE IF NOT EXISTS webshop_audit_logs (
       id UUID PRIMARY KEY,
       account_id VARCHAR(32) NOT NULL,
@@ -15182,40 +14873,25 @@ async function bootstrapPostgresSchema(client) {
       ON webshop_audit_logs (LOWER(account_id), created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_serial
       ON webshop_audit_logs (item_serial) WHERE item_serial IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS webshop_promotions_config (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      config_json JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
-  for (const seed of INITIAL_ACCOUNTS) {
-    const pwd = seed.username === "admin" ? process.env.ADMIN_PASSWORD || "admin" : seed.username === "netsplit" ? process.env.ADMIN_PASSWORD || "netsplit" : "123456";
-    const wCoinC = seed.username === "admin" ? 5e3 : seed.username === "netsplit" ? 2450 : seed.username === "darkknight" ? 500 : 300;
-    const wCoinP = seed.username === "admin" ? 1e3 : seed.username === "netsplit" ? 600 : seed.username === "darkknight" ? 100 : 50;
-    const gp = seed.username === "admin" ? 2500 : seed.username === "netsplit" ? 1280 : seed.username === "darkknight" ? 340 : 210;
-    await client.query(
-      `INSERT INTO webshop_accounts (
-        id, login_name, password_hash, security_code, email, state, role, is_master_admin,
-        credits, vault_money, wcoinc, wcoinp, goblin_points
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      ON CONFLICT (login_name) DO NOTHING`,
-      [
-        crypto4.randomUUID(),
-        seed.username,
-        hashSimulatedBcrypt(pwd),
-        seed.characterDeleteCode || "1234567",
-        `${seed.username}@lorencia.mu`,
-        seed.isAdmin ? "GameMaster" : "Normal",
-        seed.role || (seed.isAdmin ? "SUPER_ADMIN" : "USER"),
-        Boolean(seed.isMasterAdmin),
-        seed.credits,
-        seed.vaultMoney,
-        wCoinC,
-        wCoinP,
-        gp
-      ]
-    );
-    await client.query(
-      `INSERT INTO "MEMB_STAT" ("memb___id", "ConnectStat", "ServerName", "IP")
-       VALUES ($1, $2, 'SubServer-1', '127.0.0.1')
-       ON CONFLICT ("memb___id") DO NOTHING`,
-      [seed.username, seed.isOnline ? 1 : 0]
-    );
+  const defaultPromo = buildDefaultPromotionConfig();
+  await client.query(
+    `INSERT INTO webshop_promotions_config (id, config_json, updated_at)
+     VALUES (1, $1::jsonb, NOW())
+     ON CONFLICT (id) DO NOTHING`,
+    [JSON.stringify(defaultPromo)]
+  );
+  const promoRes = await client.query(
+    `SELECT config_json FROM webshop_promotions_config WHERE id = 1 LIMIT 1`
+  );
+  if (promoRes.rows[0]?.config_json) {
+    memoryPromotionConfig = sanitizePromotionConfig(promoRes.rows[0].config_json);
   }
 }
 function getDatabaseHealth() {
@@ -15226,6 +14902,125 @@ function getDatabaseHealth() {
 }
 function getPgPool() {
   return pgPool && pgHealthy ? pgPool : null;
+}
+async function authenticateOpenMuAccount(loginName, password) {
+  if (!pgPool || !pgHealthy) {
+    throw new Error("OpenMU database is unavailable.");
+  }
+  const result = await pgPool.query(
+    `SELECT "Id", "LoginName", "PasswordHash", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
+       FROM data."Account"
+      WHERE LOWER("LoginName") = LOWER($1)
+      LIMIT 1`,
+    [loginName]
+  );
+  const account = result.rows[0];
+  if (!account || !await bcrypt.compare(password, account.PasswordHash)) {
+    return null;
+  }
+  const adminAccounts = new Set(
+    (process.env.ADMIN_ACCOUNTS ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)
+  );
+  await pgPool.query(
+    `INSERT INTO webshop_accounts (
+       id, login_name, password_hash, security_code, email, state, role, is_master_admin,
+       credits, vault_money, wcoinc, wcoinp, goblin_points
+     ) VALUES ($1, $2, '', '', $3, $4, $5, $6, 0, 0, $7, $8, $9)
+     ON CONFLICT (login_name) DO UPDATE SET
+       email = EXCLUDED.email,
+       state = EXCLUDED.state,
+       role = EXCLUDED.role,
+       is_master_admin = EXCLUDED.is_master_admin,
+       wcoinc = EXCLUDED.wcoinc,
+       wcoinp = EXCLUDED.wcoinp,
+       goblin_points = EXCLUDED.goblin_points,
+       updated_at = NOW()`,
+    [
+      account.Id,
+      account.LoginName,
+      account.EMail,
+      String(account.State),
+      adminAccounts.has(account.LoginName.toLowerCase()) ? "ADMIN" : "USER",
+      adminAccounts.has(account.LoginName.toLowerCase()),
+      account.WCoinC,
+      account.WCoinP,
+      account.GoblinPoints
+    ]
+  );
+  const wallet = await pgPool.query(
+    "SELECT credits FROM webshop_accounts WHERE LOWER(login_name) = LOWER($1) LIMIT 1",
+    [account.LoginName]
+  );
+  return {
+    id: account.Id,
+    loginName: account.LoginName,
+    email: account.EMail,
+    state: account.State,
+    credits: wallet.rows[0]?.credits ?? 0,
+    wCoinC: account.WCoinC,
+    wCoinP: account.WCoinP,
+    goblinPoints: account.GoblinPoints
+  };
+}
+async function getOpenMuAccountSummary(loginName) {
+  if (!pgPool || !pgHealthy) throw new Error("OpenMU database is unavailable.");
+  const result = await pgPool.query(
+    `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints", COALESCE(w.credits, 0)::int AS credits
+       FROM data."Account" a
+       LEFT JOIN webshop_accounts w ON LOWER(w.login_name) = LOWER(a."LoginName")
+      WHERE LOWER(a."LoginName") = LOWER($1) LIMIT 1`,
+    [loginName]
+  );
+  const account = result.rows[0];
+  return account ? {
+    id: account.Id,
+    loginName: account.LoginName,
+    email: account.EMail,
+    state: account.State,
+    credits: account.credits,
+    wCoinC: account.WCoinC,
+    wCoinP: account.WCoinP,
+    goblinPoints: account.GoblinPoints
+  } : null;
+}
+async function reserveCreditExchange(loginName, credits, wCoinC, idempotencyKey) {
+  if (!pgPool || !pgHealthy) throw new Error("OpenMU database is unavailable.");
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query(
+      "SELECT status, account_login, credits_spent, wcoinc_granted FROM webshop_credit_exchanges WHERE idempotency_key = $1 FOR UPDATE",
+      [idempotencyKey]
+    );
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      if (row.account_login.toLowerCase() !== loginName.toLowerCase() || row.credits_spent !== credits || row.wcoinc_granted !== wCoinC) throw new Error("Idempotency key was already used for a different exchange.");
+      await client.query("COMMIT");
+      return row.status;
+    }
+    const wallet = await client.query(
+      `UPDATE webshop_accounts SET credits = credits - $1, updated_at = NOW()
+        WHERE LOWER(login_name) = LOWER($2) AND credits >= $1 RETURNING login_name`,
+      [credits, loginName]
+    );
+    if (wallet.rowCount !== 1) throw new TransactionDomainError("INSUFFICIENT_CREDITS", 409, "Not enough webshop credits.");
+    await client.query(
+      `INSERT INTO webshop_credit_exchanges (idempotency_key, account_login, credits_spent, wcoinc_granted, status)
+       VALUES ($1, $2, $3, $4, 'pending')`,
+      [idempotencyKey, loginName, credits, wCoinC]
+    );
+    await client.query("COMMIT");
+    return "pending";
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+async function completeCreditExchange(idempotencyKey) {
+  if (!pgPool || !pgHealthy) throw new Error("OpenMU database is unavailable.");
+  await pgPool.query(`UPDATE webshop_credit_exchanges SET status = 'completed', completed_at = NOW() WHERE idempotency_key = $1`, [idempotencyKey]);
 }
 var accountLocks = /* @__PURE__ */ new Map();
 async function withAccountMutex(accountKey, task) {
@@ -15256,119 +15051,7 @@ var serverCatalog = structuredClone(INITIAL_WEBSHOP_ITEMS);
 var serverGroups = structuredClone(INITIAL_GROUPS);
 var serverConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
 var catalogVersion = 1;
-function seedMemoryStore() {
-  for (const initAcc of INITIAL_ACCOUNTS) {
-    const key = initAcc.username.toLowerCase();
-    const pwd = key === "admin" ? process.env.ADMIN_PASSWORD || "admin" : key === "netsplit" ? process.env.ADMIN_PASSWORD || "netsplit" : "123456";
-    const itemsWithHex = initAcc.vaultItems.map((it) => {
-      registerExistingSerial(it.serial);
-      return {
-        ...structuredClone(it),
-        itemHex: encodeSeason6ItemHex(it)
-      };
-    });
-    memoryAccounts.set(key, {
-      id: crypto4.randomUUID(),
-      loginName: initAcc.username,
-      passwordPlainOrSimulatedBcrypt: pwd,
-      passwordHash: hashSimulatedBcrypt(pwd),
-      securityCode: initAcc.characterDeleteCode || "1234567",
-      email: `${initAcc.username}@lorencia.mu`,
-      state: initAcc.isAdmin ? "GameMaster" : "Normal",
-      role: initAcc.role || (initAcc.isAdmin ? "SUPER_ADMIN" : "USER"),
-      isMasterAdmin: Boolean(initAcc.isMasterAdmin),
-      registrationDate: "2026-01-15T08:00:00Z",
-      credits: initAcc.credits,
-      vaultMoney: initAcc.vaultMoney,
-      wCoinC: key === "admin" ? 5e3 : key === "netsplit" ? 2450 : key === "darkknight" ? 500 : 300,
-      wCoinP: key === "admin" ? 1e3 : key === "netsplit" ? 600 : key === "darkknight" ? 100 : 50,
-      goblinPoints: key === "admin" ? 2500 : key === "netsplit" ? 1280 : key === "darkknight" ? 340 : 210,
-      vipUntil: initAcc.vipUntil || null,
-      vaultItems: itemsWithHex
-    });
-    memoryMembStat.set(key, {
-      memb___id: initAcc.username,
-      ConnectStat: initAcc.isOnline ? 1 : 0,
-      ServerName: "Continent-of-Lorencia-1",
-      IP: "127.0.0.1",
-      ConnectTM: null,
-      DisConnectTM: (/* @__PURE__ */ new Date()).toISOString()
-    });
-  }
-  const envAdmin = (process.env.ADMIN_USERNAME || "admin").trim();
-  const envPass = process.env.ADMIN_PASSWORD || (envAdmin.toLowerCase() === "admin" ? "admin" : "netsplit");
-  const envKey = envAdmin.toLowerCase();
-  const existingAdmin = memoryAccounts.get(envKey);
-  if (existingAdmin) {
-    existingAdmin.role = "SUPER_ADMIN";
-    existingAdmin.state = "GameMaster";
-    existingAdmin.isMasterAdmin = true;
-    existingAdmin.passwordPlainOrSimulatedBcrypt = envPass;
-    existingAdmin.passwordHash = hashSimulatedBcrypt(envPass);
-  } else {
-    memoryAccounts.set(envKey, {
-      id: crypto4.randomUUID(),
-      loginName: envAdmin,
-      passwordPlainOrSimulatedBcrypt: envPass,
-      passwordHash: hashSimulatedBcrypt(envPass),
-      securityCode: "1234567",
-      email: `${envAdmin}@lorencia.mu`,
-      state: "GameMaster",
-      role: "SUPER_ADMIN",
-      isMasterAdmin: true,
-      registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
-      credits: 5e4,
-      vaultMoney: 35e7,
-      wCoinC: 5e4,
-      wCoinP: 1e4,
-      goblinPoints: 2e4,
-      vipUntil: null,
-      vaultItems: []
-    });
-    memoryMembStat.set(envKey, {
-      memb___id: envAdmin,
-      ConnectStat: 0,
-      ServerName: "Continent-of-Lorencia-1",
-      IP: "127.0.0.1",
-      ConnectTM: null,
-      DisConnectTM: (/* @__PURE__ */ new Date()).toISOString()
-    });
-  }
-  const seedGrants = [
-    {
-      id: "grant-init-1001",
-      accountLoginName: "netsplit",
-      coinType: "WCoinC",
-      amount: 1e3,
-      creditsAdded: 5750,
-      reason: "TrueMoney Angpao 500 THB (TMN-500)",
-      reference: "truemoney:v098a7c12e4f",
-      idempotencyKey: "idem-seed-tm-1001",
-      clientName: "TrueMoneyWallet",
-      createdAt: new Date(Date.now() - 7200 * 1e3).toISOString(),
-      status: "Created"
-    },
-    {
-      id: "grant-init-1002",
-      accountLoginName: "netsplit",
-      coinType: "WCoinC",
-      amount: 1450,
-      creditsAdded: 6e3,
-      reason: "PayPal purchase PKG_SOVEREIGN ($24.99)",
-      reference: "paypal:8XJ94812KL091",
-      idempotencyKey: "idem-seed-pp-1002",
-      clientName: "PayPal",
-      createdAt: new Date(Date.now() - 3600 * 1e3).toISOString(),
-      status: "Created"
-    }
-  ];
-  for (const g of seedGrants) {
-    memoryGrantsList.push(g);
-    memoryGrantsByReference.set(g.reference, g);
-    memoryGrantsByIdempotency.set(g.idempotencyKey, g);
-  }
-}
-seedMemoryStore();
+var memoryPromotionConfig = buildDefaultPromotionConfig();
 async function getCatalogBundleCached() {
   const cached = await cacheGetJson(CATALOG_CACHE_KEY);
   if (cached) {
@@ -15457,6 +15140,247 @@ async function deleteCatalogGroup(id) {
     return true;
   }
   return false;
+}
+var PROMO_CACHE_KEY = "webshop:promotions:v1";
+function buildDefaultPromotionConfig() {
+  const baseCreditsPerThb = 10;
+  const baseWCoinCPerThb = 0;
+  const usdToThbRate = 35;
+  const unifiedLadder = [
+    {
+      amountThb: 50,
+      bonusPercent: 0,
+      code: "PKG_50",
+      name: "Egis Explorer Pack",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E19\u0E31\u0E01\u0E1C\u0E08\u0E0D\u0E20\u0E31\u0E22 Egis",
+      bonusTextTh: "\u0E40\u0E23\u0E17\u0E21\u0E32\u0E15\u0E23\u0E10\u0E32\u0E19",
+      bonusTextEn: "Standard Rate"
+    },
+    {
+      amountThb: 100,
+      bonusPercent: 3,
+      code: "PKG_100",
+      name: "Egis Starter Pack",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E1C\u0E39\u0E49\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 Egis",
+      bonusTextTh: "\u0E42\u0E1A\u0E19\u0E31\u0E2A +3%",
+      bonusTextEn: "+3% Bonus"
+    },
+    {
+      amountThb: 150,
+      bonusPercent: 5,
+      code: "PKG_150",
+      name: "Lorencia Vanguard Pack",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E41\u0E19\u0E27\u0E2B\u0E19\u0E49\u0E32 Lorencia",
+      bonusTextTh: "\u0E42\u0E1A\u0E19\u0E31\u0E2A +5%",
+      bonusTextEn: "+5% Bonus"
+    },
+    {
+      amountThb: 300,
+      bonusPercent: 8,
+      code: "PKG_300",
+      name: "Blade Knight Treasury",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E02\u0E38\u0E19\u0E1E\u0E25 Blade Knight",
+      bonusTextTh: "\u0E42\u0E1A\u0E19\u0E31\u0E2A +8%",
+      bonusTextEn: "+8% Bonus"
+    },
+    {
+      amountThb: 500,
+      bonusPercent: 10,
+      code: "PKG_500",
+      name: "Icarus Sky Sovereign",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E40\u0E08\u0E49\u0E32\u0E40\u0E27\u0E2B\u0E32 Icarus",
+      bonusTextTh: "\u0E22\u0E2D\u0E14\u0E19\u0E34\u0E22\u0E21 \xB7 \u0E42\u0E1A\u0E19\u0E31\u0E2A +10%",
+      bonusTextEn: "Popular \xB7 +10% Bonus"
+    },
+    {
+      amountThb: 1e3,
+      bonusPercent: 15,
+      code: "PKG_1000",
+      name: "Kundun Conqueror Chest",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E1C\u0E39\u0E49\u0E1E\u0E34\u0E0A\u0E34\u0E15 Kundun",
+      bonusTextTh: "\u0E04\u0E38\u0E49\u0E21\u0E04\u0E48\u0E32\u0E2A\u0E39\u0E07\u0E2A\u0E38\u0E14 \xB7 \u0E42\u0E1A\u0E19\u0E31\u0E2A +15%",
+      bonusTextEn: "Best Value \xB7 +15% Bonus"
+    }
+  ];
+  const trueMoneyTiers = unifiedLadder.map((row) => ({
+    amountThb: row.amountThb,
+    bonusPercent: row.bonusPercent,
+    credits: Math.round(row.amountThb * baseCreditsPerThb * (1 + row.bonusPercent / 100)),
+    wCoinC: Math.round(row.amountThb * baseWCoinCPerThb * (1 + row.bonusPercent / 100)),
+    bonusText: row.bonusTextTh,
+    bonusTextEn: row.bonusTextEn,
+    enabled: true
+  }));
+  const payPalPackages = unifiedLadder.map((row) => ({
+    code: row.code,
+    name: row.name,
+    nameTh: row.nameTh,
+    priceThb: row.amountThb,
+    priceUsd: Number((row.amountThb / usdToThbRate).toFixed(2)),
+    bonusPercent: row.bonusPercent,
+    credits: Math.round(row.amountThb * baseCreditsPerThb * (1 + row.bonusPercent / 100)),
+    wCoinC: Math.round(row.amountThb * baseWCoinCPerThb * (1 + row.bonusPercent / 100)),
+    bonusTag: row.bonusTextEn,
+    bonusTagTh: row.bonusTextTh,
+    enabled: true
+  }));
+  return {
+    campaignActive: false,
+    campaignTitleTh: "\u0E42\u0E1B\u0E23\u0E42\u0E21\u0E0A\u0E31\u0E48\u0E19\u0E40\u0E15\u0E34\u0E21\u0E40\u0E07\u0E34\u0E19\u0E1E\u0E34\u0E40\u0E28\u0E29 \u0E23\u0E31\u0E1A\u0E42\u0E1A\u0E19\u0E31\u0E2A\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E17\u0E38\u0E01\u0E0A\u0E48\u0E2D\u0E07\u0E17\u0E32\u0E07 (TrueMoney & PayPal)",
+    campaignTitleEn: "Special Top-Up Event: Extra Bonus Across TrueMoney & PayPal",
+    extraBonusPercent: 0,
+    baseCreditsPerThb,
+    baseWCoinCPerThb,
+    usdToThbRate,
+    merchantPhone: process.env.TRUEMONEY_MERCHANT_PHONE || "",
+    trueMoneyTiers,
+    payPalPackages,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    updatedBy: "system"
+  };
+}
+function sanitizePromotionConfig(raw, updatedBy) {
+  const defaults = buildDefaultPromotionConfig();
+  const baseCreditsPerThb = Math.max(
+    1,
+    Math.min(1e3, Number(raw.baseCreditsPerThb) || defaults.baseCreditsPerThb)
+  );
+  const baseWCoinCPerThb = Math.max(
+    0,
+    Math.min(1e3, Number(raw.baseWCoinCPerThb ?? defaults.baseWCoinCPerThb))
+  );
+  const usdToThbRate = Math.max(
+    1,
+    Math.min(200, Number(raw.usdToThbRate) || defaults.usdToThbRate)
+  );
+  const extraBonusPercent = Math.max(
+    0,
+    Math.min(300, Math.round(Number(raw.extraBonusPercent) || 0))
+  );
+  const trueMoneyTiers = Array.isArray(raw.trueMoneyTiers) && raw.trueMoneyTiers.length > 0 ? raw.trueMoneyTiers.map((t) => {
+    const amountThb = Math.max(1, Math.round(Number(t.amountThb) || 50));
+    const bonusPercent = Math.max(
+      0,
+      Math.min(500, Math.round(Number(t.bonusPercent) || 0))
+    );
+    const credits = Math.max(1, Math.round(Number(t.credits) || amountThb * baseCreditsPerThb));
+    const wCoinC = Math.max(0, Math.round(Number(t.wCoinC) || 0));
+    return {
+      amountThb,
+      bonusPercent,
+      credits,
+      wCoinC,
+      bonusText: String(t.bonusText || "").trim() || (bonusPercent > 0 ? `\u0E42\u0E1A\u0E19\u0E31\u0E2A +${bonusPercent}%` : "\u0E40\u0E23\u0E17\u0E21\u0E32\u0E15\u0E23\u0E10\u0E32\u0E19"),
+      bonusTextEn: String(t.bonusTextEn || "").trim() || (bonusPercent > 0 ? `+${bonusPercent}% Bonus` : "Standard Rate"),
+      enabled: t.enabled !== false
+    };
+  }).sort((a, b) => a.amountThb - b.amountThb) : defaults.trueMoneyTiers;
+  const payPalPackages = Array.isArray(raw.payPalPackages) && raw.payPalPackages.length > 0 ? raw.payPalPackages.map((p, idx) => {
+    const priceThb = Math.max(1, Math.round(Number(p.priceThb) || 100));
+    const priceUsd = Math.max(
+      0.5,
+      Number((Number(p.priceUsd) || priceThb / usdToThbRate).toFixed(2))
+    );
+    const bonusPercent = Math.max(
+      0,
+      Math.min(500, Math.round(Number(p.bonusPercent) || 0))
+    );
+    const credits = Math.max(
+      1,
+      Math.round(Number(p.credits) || priceThb * baseCreditsPerThb)
+    );
+    const wCoinC = Math.max(0, Math.round(Number(p.wCoinC) || 0));
+    const cleanCode = String(p.code || `PKG_${priceThb}_${idx + 1}`).trim().replace(/[^a-zA-Z0-9_-]/g, "_").toUpperCase() || `PKG_${idx + 1}`;
+    return {
+      code: cleanCode,
+      name: String(p.name || `Egis Pack ${priceThb} THB`).trim(),
+      nameTh: String(p.nameTh || `\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08 Egis ${priceThb} \u0E1A\u0E32\u0E17`).trim(),
+      priceUsd,
+      priceThb,
+      bonusPercent,
+      credits,
+      wCoinC,
+      bonusTag: String(p.bonusTag || "").trim() || (bonusPercent > 0 ? `+${bonusPercent}% Bonus` : "Standard Rate"),
+      bonusTagTh: String(p.bonusTagTh || "").trim() || (bonusPercent > 0 ? `\u0E42\u0E1A\u0E19\u0E31\u0E2A +${bonusPercent}%` : "\u0E40\u0E23\u0E17\u0E21\u0E32\u0E15\u0E23\u0E10\u0E32\u0E19"),
+      enabled: p.enabled !== false
+    };
+  }) : defaults.payPalPackages;
+  return {
+    campaignActive: Boolean(raw.campaignActive),
+    campaignTitleTh: String(raw.campaignTitleTh || "").trim() || defaults.campaignTitleTh,
+    campaignTitleEn: String(raw.campaignTitleEn || "").trim() || defaults.campaignTitleEn,
+    extraBonusPercent,
+    baseCreditsPerThb,
+    baseWCoinCPerThb,
+    usdToThbRate,
+    merchantPhone: String(raw.merchantPhone ?? defaults.merchantPhone).trim(),
+    trueMoneyTiers,
+    payPalPackages,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    updatedBy: updatedBy || raw.updatedBy || "admin"
+  };
+}
+function getPromotionConfig() {
+  return structuredClone(memoryPromotionConfig);
+}
+function getEffectivePromotions() {
+  const cfg = getPromotionConfig();
+  const mult = cfg.campaignActive && cfg.extraBonusPercent > 0 ? 1 + cfg.extraBonusPercent / 100 : 1;
+  const effectiveTrueMoneyTiers = cfg.trueMoneyTiers.filter((t) => t.enabled !== false).map((t) => ({
+    ...t,
+    baseCredits: t.credits,
+    baseWCoinC: t.wCoinC,
+    credits: Math.round(t.credits * mult),
+    wCoinC: Math.round(t.wCoinC * mult)
+  }));
+  const effectivePayPalPackages = cfg.payPalPackages.filter((p) => p.enabled !== false).map((p) => ({
+    ...p,
+    baseCredits: p.credits,
+    baseWCoinC: p.wCoinC,
+    credits: Math.round(p.credits * mult),
+    wCoinC: Math.round(p.wCoinC * mult)
+  }));
+  return {
+    config: cfg,
+    effectiveTrueMoneyTiers,
+    effectivePayPalPackages
+  };
+}
+async function updatePromotionConfig(patch, updatedBy = "admin") {
+  const merged = sanitizePromotionConfig(
+    {
+      ...memoryPromotionConfig,
+      ...patch
+    },
+    updatedBy
+  );
+  memoryPromotionConfig = merged;
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `INSERT INTO webshop_promotions_config (id, config_json, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id)
+       DO UPDATE SET config_json = EXCLUDED.config_json, updated_at = NOW()`,
+      [JSON.stringify(merged)]
+    );
+  }
+  await cacheDeleteKeys([PROMO_CACHE_KEY]);
+  return structuredClone(memoryPromotionConfig);
+}
+async function resetPromotionConfigToDefault(updatedBy = "admin") {
+  const reset = sanitizePromotionConfig(buildDefaultPromotionConfig(), updatedBy);
+  memoryPromotionConfig = reset;
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `INSERT INTO webshop_promotions_config (id, config_json, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id)
+       DO UPDATE SET config_json = EXCLUDED.config_json, updated_at = NOW()`,
+      [JSON.stringify(reset)]
+    );
+  }
+  await cacheDeleteKeys([PROMO_CACHE_KEY]);
+  return structuredClone(memoryPromotionConfig);
 }
 async function queryMembStatOnlineStatus(loginName) {
   const key = loginName.trim().toLowerCase();
@@ -15549,16 +15473,16 @@ async function registerAccountRecord(loginName, password, email, characterDelete
     passwordPlainOrSimulatedBcrypt: password,
     passwordHash,
     securityCode: cleanDeleteCode,
-    email: email || `${cleanName}@openmu.local`,
+    email: email || `${cleanName}@egis-mu.com`,
     state: "Normal",
     role: "USER",
     isMasterAdmin: false,
     registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
-    credits: 1500,
-    vaultMoney: 1e8,
-    wCoinC: 100,
+    credits: 0,
+    vaultMoney: 0,
+    wCoinC: 0,
     wCoinP: 0,
-    goblinPoints: 50,
+    goblinPoints: 0,
     vipUntil: null,
     vaultItems: []
   };
@@ -15570,7 +15494,7 @@ async function registerAccountRecord(loginName, password, email, characterDelete
         `INSERT INTO webshop_accounts (
           id, login_name, password_hash, security_code, email, state, role, is_master_admin,
           credits, vault_money, wcoinc, wcoinp, goblin_points
-        ) VALUES ($1, $2, $3, $4, $5, 'Normal', 'USER', FALSE, 1500, 100000000, 100, 0, 50)`,
+        ) VALUES ($1, $2, $3, $4, $5, 'Normal', 'USER', FALSE, 0, 0, 0, 0, 0)`,
         [newAcc.id, cleanName, passwordHash, cleanDeleteCode, newAcc.email]
       );
       await client.query(
@@ -15893,35 +15817,19 @@ async function executePurchaseSingleItemTx(req) {
     }
     return await withAccountMutex(cleanAccount, async () => {
       const key = cleanAccount.toLowerCase();
-      let memAcc = memoryAccounts.get(key);
+      const memAcc = memoryAccounts.get(key);
       if (!memAcc) {
-        memAcc = {
-          id: crypto4.randomUUID(),
-          loginName: cleanAccount,
-          passwordPlainOrSimulatedBcrypt: "123456",
-          passwordHash: hashSimulatedBcrypt("123456"),
-          securityCode: "1234567",
-          email: `${cleanAccount}@lorencia.mu`,
-          state: "Normal",
-          role: "USER",
-          isMasterAdmin: false,
-          registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
-          credits: Math.max(0, Number(req.clientCurrentCredits) || 1500),
-          vaultMoney: 1e8,
-          wCoinC: 0,
-          wCoinP: 0,
-          goblinPoints: 0,
-          vipUntil: null,
-          vaultItems: Array.isArray(req.clientVaultItems) ? structuredClone(req.clientVaultItems) : []
-        };
-        memoryAccounts.set(key, memAcc);
-      } else {
-        if (typeof req.clientCurrentCredits === "number" && Number.isFinite(req.clientCurrentCredits) && req.clientCurrentCredits >= 0) {
-          memAcc.credits = Math.trunc(req.clientCurrentCredits);
-        }
-        if (Array.isArray(req.clientVaultItems)) {
-          memAcc.vaultItems = structuredClone(req.clientVaultItems);
-        }
+        throw new TransactionDomainError(
+          "ACCOUNT_NOT_FOUND",
+          404,
+          "Account not found. Please sign in first."
+        );
+      }
+      if (typeof req.clientCurrentCredits === "number" && Number.isFinite(req.clientCurrentCredits) && req.clientCurrentCredits >= 0) {
+        memAcc.credits = Math.trunc(req.clientCurrentCredits);
+      }
+      if (Array.isArray(req.clientVaultItems)) {
+        memAcc.vaultItems = structuredClone(req.clientVaultItems);
       }
       const snapshot = structuredClone(memAcc);
       try {
@@ -16318,35 +16226,19 @@ async function executePurchaseGroupSetTx(req) {
     }
     return await withAccountMutex(cleanAccount, async () => {
       const key = cleanAccount.toLowerCase();
-      let memAcc = memoryAccounts.get(key);
+      const memAcc = memoryAccounts.get(key);
       if (!memAcc) {
-        memAcc = {
-          id: crypto4.randomUUID(),
-          loginName: cleanAccount,
-          passwordPlainOrSimulatedBcrypt: "123456",
-          passwordHash: hashSimulatedBcrypt("123456"),
-          securityCode: "1234567",
-          email: `${cleanAccount}@lorencia.mu`,
-          state: "Normal",
-          role: "USER",
-          isMasterAdmin: false,
-          registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
-          credits: Math.max(0, Number(req.clientCurrentCredits) || 1500),
-          vaultMoney: 1e8,
-          wCoinC: 0,
-          wCoinP: 0,
-          goblinPoints: 0,
-          vipUntil: null,
-          vaultItems: Array.isArray(req.clientVaultItems) ? structuredClone(req.clientVaultItems) : []
-        };
-        memoryAccounts.set(key, memAcc);
-      } else {
-        if (typeof req.clientCurrentCredits === "number" && Number.isFinite(req.clientCurrentCredits) && req.clientCurrentCredits >= 0) {
-          memAcc.credits = Math.trunc(req.clientCurrentCredits);
-        }
-        if (Array.isArray(req.clientVaultItems)) {
-          memAcc.vaultItems = structuredClone(req.clientVaultItems);
-        }
+        throw new TransactionDomainError(
+          "ACCOUNT_NOT_FOUND",
+          404,
+          "Account not found. Please sign in first."
+        );
+      }
+      if (typeof req.clientCurrentCredits === "number" && Number.isFinite(req.clientCurrentCredits) && req.clientCurrentCredits >= 0) {
+        memAcc.credits = Math.trunc(req.clientCurrentCredits);
+      }
+      if (Array.isArray(req.clientVaultItems)) {
+        memAcc.vaultItems = structuredClone(req.clientVaultItems);
       }
       const snapshot = structuredClone(memAcc);
       try {
@@ -16695,18 +16587,6 @@ async function executePaymentGrantTx(input) {
           await finalizeIdempotencyKey("payment_webhook", cleanIdem, replayResult, 86400);
           return replayResult;
         }
-        await client.query(
-          `INSERT INTO webshop_accounts (
-            id, login_name, password_hash, email, state, role
-          ) VALUES ($1, $2, $3, $4, 'Normal', 'USER')
-          ON CONFLICT (login_name) DO NOTHING`,
-          [
-            crypto4.randomUUID(),
-            input.loginName.trim(),
-            hashSimulatedBcrypt("123456"),
-            `${input.loginName.trim()}@openmu.local`
-          ]
-        );
         const colMap = {
           WCoinC: "wcoinc",
           WCoinP: "wcoinp",
@@ -16723,6 +16603,13 @@ async function executePaymentGrantTx(input) {
           [input.creditsAdded, input.coinAmount, input.loginName.trim()]
         );
         const accRow = updRes.rows[0];
+        if (!accRow) {
+          throw new TransactionDomainError(
+            "ACCOUNT_NOT_FOUND",
+            404,
+            `Account "${input.loginName.trim()}" does not exist.`
+          );
+        }
         const grant = {
           id: `grant-${crypto4.randomUUID().slice(0, 8)}`,
           accountLoginName: accRow.login_name,
@@ -16792,28 +16679,13 @@ async function executePaymentGrantTx(input) {
     return await withAccountMutex(input.loginName, async () => {
       const existingGrant = memoryGrantsByIdempotency.get(cleanIdem) || memoryGrantsByReference.get(input.reference);
       const key = input.loginName.trim().toLowerCase();
-      let acc = memoryAccounts.get(key);
+      const acc = memoryAccounts.get(key);
       if (!acc) {
-        acc = {
-          id: crypto4.randomUUID(),
-          loginName: input.loginName.trim(),
-          passwordPlainOrSimulatedBcrypt: "123456",
-          passwordHash: hashSimulatedBcrypt("123456"),
-          securityCode: "1234567",
-          email: `${input.loginName.trim()}@openmu.local`,
-          state: "Normal",
-          role: "USER",
-          isMasterAdmin: false,
-          registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
-          credits: 0,
-          vaultMoney: 1e8,
-          wCoinC: 0,
-          wCoinP: 0,
-          goblinPoints: 0,
-          vipUntil: null,
-          vaultItems: []
-        };
-        memoryAccounts.set(key, acc);
+        throw new TransactionDomainError(
+          "ACCOUNT_NOT_FOUND",
+          404,
+          `Account "${input.loginName.trim()}" does not exist.`
+        );
       }
       if (existingGrant) {
         const replayPayload = {
@@ -16901,16 +16773,106 @@ async function executePaymentGrantTx(input) {
   }
 }
 
+// src/server/security.ts
+import crypto5 from "crypto";
+var SESSION_COOKIE = "__Host-openmu_shop";
+var SESSION_LIFETIME_SECONDS = 60 * 60;
+function secret() {
+  const value = process.env.SESSION_SECRET ?? "";
+  if (value.length < 64) throw new Error("SESSION_SECRET must contain at least 64 characters.");
+  return value;
+}
+function signature(payload) {
+  return crypto5.createHmac("sha256", secret()).update(payload).digest("base64url");
+}
+function createSession(loginName, admin) {
+  const session = {
+    loginName,
+    admin,
+    csrf: crypto5.randomBytes(24).toString("base64url"),
+    expiresAt: Math.floor(Date.now() / 1e3) + SESSION_LIFETIME_SECONDS
+  };
+  const payload = Buffer.from(JSON.stringify(session)).toString("base64url");
+  return {
+    cookie: `${SESSION_COOKIE}=${payload}.${signature(payload)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_LIFETIME_SECONDS}`,
+    csrfToken: session.csrf
+  };
+}
+function clearSessionCookie() {
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
+function readSession(request) {
+  const cookie = request.headers.cookie?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`));
+  if (!cookie) return null;
+  const token = cookie.slice(SESSION_COOKIE.length + 1);
+  const [payload, providedSignature] = token.split(".");
+  if (!payload || !providedSignature) return null;
+  const expected = signature(payload);
+  const a = Buffer.from(providedSignature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto5.timingSafeEqual(a, b)) return null;
+  try {
+    const value = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!value.loginName || !value.csrf || value.expiresAt <= Math.floor(Date.now() / 1e3)) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+function requireSession(request, response, next) {
+  const session = readSession(request);
+  if (!session) {
+    response.status(401).json({ ok: false, message: "Authentication required." });
+    return;
+  }
+  request.session = session;
+  next();
+}
+function requireCsrf(request, response, next) {
+  const expectedOrigin = process.env.PUBLIC_ORIGIN;
+  if (!expectedOrigin || request.headers.origin !== expectedOrigin) {
+    response.status(403).json({ ok: false, message: "Invalid request origin." });
+    return;
+  }
+  const token = request.headers["x-csrf-token"];
+  if (!request.session || typeof token !== "string") {
+    response.status(403).json({ ok: false, message: "CSRF verification failed." });
+    return;
+  }
+  const a = Buffer.from(token);
+  const b = Buffer.from(request.session.csrf);
+  if (a.length !== b.length || !crypto5.timingSafeEqual(a, b)) {
+    response.status(403).json({ ok: false, message: "CSRF verification failed." });
+    return;
+  }
+  next();
+}
+function requireAdminSession(request, response, next) {
+  if (!request.session?.admin) {
+    response.status(403).json({ ok: false, message: "Administrator access required." });
+    return;
+  }
+  next();
+}
+function validateProductionConfiguration() {
+  const required = ["OPENMU_DATABASE_URL", "OPENMU_API_URL", "OPENMU_API_KEY", "PUBLIC_ORIGIN", "SESSION_SECRET"];
+  const missing = required.filter((name) => !(process.env[name] ?? "").trim());
+  if (missing.length) throw new Error(`Missing required settings: ${missing.join(", ")}`);
+  secret();
+  if ((process.env.OPENMU_API_KEY ?? "").length < 32) throw new Error("OPENMU_API_KEY must contain at least 32 characters.");
+  new URL(process.env.OPENMU_API_URL);
+  new URL(process.env.OPENMU_DATABASE_URL);
+  const origin = new URL(process.env.PUBLIC_ORIGIN);
+  if (process.env.NODE_ENV === "production" && origin.protocol !== "https:") throw new Error("PUBLIC_ORIGIN must use HTTPS in production.");
+  if (process.env.PAYMENTS_ENABLED === "true" && !process.env.CF_TURNSTILE_SECRET_KEY) throw new Error("CF_TURNSTILE_SECRET_KEY is required when payments are enabled.");
+  if (process.env.PAYMENTS_ENABLED === "true" && process.env.PAYPAL_CLIENT_ID && !process.env.PAYPAL_WEBHOOK_ID) throw new Error("PAYPAL_WEBHOOK_ID is required when PayPal is enabled.");
+  if (process.env.PAYPAL_USE_SANDBOX === "false" && process.env.PAYPAL_LIVE_ENABLED !== "true") throw new Error("Set PAYPAL_LIVE_ENABLED=true only after completing the sandbox activation gates.");
+  if (process.env.TRUEMONEY_ENABLED === "true") throw new Error("TrueMoney must remain disabled until an authenticated provider adapter is implemented.");
+  if (process.env.CARDS_ENABLED === "true") throw new Error("Cards must remain disabled until a PCI-compliant hosted-fields adapter is implemented.");
+}
+
 // src/server/rateLimiter.ts
 function extractClientIp(req) {
-  const cfIp = req.headers["cf-connecting-ip"];
-  if (typeof cfIp === "string" && cfIp.trim()) {
-    return cfIp.trim();
-  }
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    return forwarded.split(",")[0].trim();
-  }
   return (req.ip || req.socket.remoteAddress || "0.0.0.0").replace(/^::ffff:/, "");
 }
 function createDistributedRateLimiter(config) {
@@ -16918,14 +16880,6 @@ function createDistributedRateLimiter(config) {
     try {
       const ip = extractClientIp(req);
       let compositeSuffix = ip;
-      if (config.includeAccountKey) {
-        const bodyUser = req.body && typeof req.body === "object" ? req.body.accountId || req.body.loginName || req.body.username || "" : "";
-        const headerUser = req.headers["x-username"] || "";
-        const acct = String(bodyUser || headerUser || "").trim().toLowerCase().slice(0, 20);
-        if (acct) {
-          compositeSuffix = `${ip}:${acct}`;
-        }
-      }
       const { count, resetAtMs } = await incrementRateWindow(
         `${config.prefix}:${compositeSuffix}`,
         config.windowMs
@@ -16954,62 +16908,109 @@ function createDistributedRateLimiter(config) {
   };
 }
 
+// src/server/paypal.ts
+import crypto6 from "crypto";
+function apiBase() {
+  return process.env.PAYPAL_USE_SANDBOX === "false" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
+}
+function credentials() {
+  const clientId = process.env.PAYPAL_CLIENT_ID ?? "";
+  const clientSecret = process.env.PAYPAL_CLIENT_SECRET ?? "";
+  if (!clientId || !clientSecret) throw new Error("PayPal credentials are not configured.");
+  return { clientId, clientSecret };
+}
+async function accessToken() {
+  const { clientId, clientSecret } = credentials();
+  const response = await fetch(`${apiBase()}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: "grant_type=client_credentials"
+  });
+  if (!response.ok) throw new Error(`PayPal authentication failed (${response.status}).`);
+  const body = await response.json();
+  if (!body.access_token) throw new Error("PayPal did not return an access token.");
+  return body.access_token;
+}
+async function paypalRequest(path3, init) {
+  const token = await accessToken();
+  return fetch(`${apiBase()}${path3}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init.headers }
+  });
+}
+async function createPayPalOrder(pkg, loginName) {
+  const origin = process.env.PUBLIC_ORIGIN;
+  const response = await paypalRequest("/v2/checkout/orders", {
+    method: "POST",
+    headers: { "PayPal-Request-Id": crypto6.randomUUID() },
+    body: JSON.stringify({
+      intent: "CAPTURE",
+      purchase_units: [{
+        custom_id: `${loginName}|${pkg.code}`,
+        invoice_id: `openmu-${crypto6.randomUUID()}`,
+        description: `OpenMU credits ${pkg.code}`,
+        amount: { currency_code: "THB", value: pkg.priceThb.toFixed(2) }
+      }],
+      payment_source: { paypal: { experience_context: {
+        user_action: "PAY_NOW",
+        return_url: `${origin}/api/payments/paypal/complete?packageCode=${encodeURIComponent(pkg.code)}`,
+        cancel_url: `${origin}/?payment=cancelled`
+      } } }
+    })
+  });
+  const body = await response.json();
+  const approvalUrl = body.links?.find((link) => link.rel === "payer-action" || link.rel === "approve")?.href;
+  if (!response.ok || !body.id || !approvalUrl) throw new Error(`PayPal order creation failed (${response.status}).`);
+  return { orderId: body.id, approvalUrl };
+}
+async function capturePayPalOrder(orderId) {
+  if (!/^[A-Z0-9]{8,32}$/i.test(orderId)) throw new Error("Invalid PayPal order identifier.");
+  const response = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
+    method: "POST",
+    headers: { "PayPal-Request-Id": `capture-${orderId}` },
+    body: "{}"
+  });
+  const body = await response.json();
+  const unit = body.purchase_units?.[0];
+  const capture = unit?.payments?.captures?.[0];
+  const [loginName, packageCode] = String(unit?.custom_id ?? "").split("|");
+  if (!response.ok || body.status !== "COMPLETED" || capture?.status !== "COMPLETED" || !capture?.id || !loginName || !packageCode) {
+    throw new Error(`PayPal capture was not completed (${response.status}).`);
+  }
+  return { captureId: capture.id, loginName, packageCode, amount: String(capture.amount?.value ?? ""), currency: String(capture.amount?.currency_code ?? "") };
+}
+async function verifyPayPalWebhook(headers, event) {
+  const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+  if (!webhookId) return false;
+  const response = await paypalRequest("/v1/notifications/verify-webhook-signature", {
+    method: "POST",
+    body: JSON.stringify({
+      transmission_id: headers["paypal-transmission-id"],
+      transmission_time: headers["paypal-transmission-time"],
+      cert_url: headers["paypal-cert-url"],
+      auth_algo: headers["paypal-auth-algo"],
+      transmission_sig: headers["paypal-transmission-sig"],
+      webhook_id: webhookId,
+      webhook_event: event
+    })
+  });
+  if (!response.ok) return false;
+  const body = await response.json();
+  return body.verification_status === "SUCCESS";
+}
+
 // server.ts
 dotenv.config();
-var PAYPAL_PACKAGES = [
-  {
-    code: "PKG_STARTER",
-    name: "Lorencia Starter Pack",
-    nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E1C\u0E39\u0E49\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 Lorencia",
-    priceUsd: 4.99,
-    priceThb: 179,
-    credits: 1200,
-    wCoinC: 250,
-    bonusTag: "+5% Bonus"
-  },
-  {
-    code: "PKG_KNIGHT",
-    name: "Blade Knight Treasury",
-    nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E02\u0E38\u0E19\u0E1E\u0E25 Blade Knight",
-    priceUsd: 9.99,
-    priceThb: 349,
-    credits: 2600,
-    wCoinC: 550,
-    bonusTag: "+15% Bonus"
-  },
-  {
-    code: "PKG_ICARUS",
-    name: "Icarus Sky Sovereign",
-    nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E40\u0E08\u0E49\u0E32\u0E40\u0E27\u0E2B\u0E32 Icarus",
-    priceUsd: 24.99,
-    priceThb: 879,
-    credits: 7e3,
-    wCoinC: 1500,
-    bonusTag: "Most Popular \xB7 +25% Bonus"
-  },
-  {
-    code: "PKG_KUNDUN",
-    name: "Kundun Conqueror Chest",
-    nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E1C\u0E39\u0E49\u0E1E\u0E34\u0E0A\u0E34\u0E15 Kundun",
-    priceUsd: 49.99,
-    priceThb: 1750,
-    credits: 15500,
-    wCoinC: 3500,
-    bonusTag: "Best Value \xB7 +40% Bonus"
-  }
-];
-var TRUEMONEY_TIERS = [
-  { amountThb: 50, credits: 500, wCoinC: 100, bonusText: "\u0E1B\u0E01\u0E15\u0E34" },
-  { amountThb: 90, credits: 950, wCoinC: 200, bonusText: "+5% \u0E42\u0E1A\u0E19\u0E31\u0E2A\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15" },
-  { amountThb: 150, credits: 1650, wCoinC: 350, bonusText: "+10% \u0E42\u0E1A\u0E19\u0E31\u0E2A\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15" },
-  { amountThb: 300, credits: 3450, wCoinC: 750, bonusText: "+15% \u0E42\u0E1A\u0E19\u0E31\u0E2A\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15" },
-  { amountThb: 500, credits: 6e3, wCoinC: 1350, bonusText: "+20% \u0E42\u0E1A\u0E19\u0E31\u0E2A\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15" },
-  { amountThb: 1e3, credits: 13e3, wCoinC: 3e3, bonusText: "+30% \u0E42\u0E1A\u0E19\u0E31\u0E2A\u0E2A\u0E39\u0E07\u0E2A\u0E38\u0E14" }
-];
+var DEFAULT_PROMO_SNAPSHOT = buildDefaultPromotionConfig();
+var PAYPAL_PACKAGES = DEFAULT_PROMO_SNAPSHOT.payPalPackages;
+var TRUEMONEY_TIERS = DEFAULT_PROMO_SNAPSHOT.trueMoneyTiers;
 async function forwardGrantToExternalOpenMu(loginName, coinType, amount, reason, reference) {
   const apiUrl = process.env.OPENMU_API_URL;
   const apiKey = process.env.OPENMU_API_KEY;
-  if (!apiUrl || !apiKey || apiUrl.includes("localhost:5000")) {
+  if (!apiUrl || !apiKey) {
     return false;
   }
   try {
@@ -17036,29 +17037,33 @@ async function forwardGrantToExternalOpenMu(loginName, coinType, amount, reason,
     return false;
   }
 }
-function verifyWebhookHmacSignature(rawBodyBuf, signatureHeader, secret) {
-  if (!secret || !secret.trim()) {
-    return true;
+function verifyWebhookHmacSignature(rawBodyBuf, signatureHeader, secret2) {
+  if (!secret2 || !secret2.trim()) {
+    return false;
   }
   if (!rawBodyBuf || !signatureHeader) {
     return false;
   }
   const normalizedProvided = signatureHeader.replace(/^sha256=/i, "").trim();
-  const computedHex = crypto5.createHmac("sha256", secret.trim()).update(rawBodyBuf).digest("hex");
+  const computedHex = crypto7.createHmac("sha256", secret2.trim()).update(rawBodyBuf).digest("hex");
   const a = Buffer.from(normalizedProvided, "utf8");
   const b = Buffer.from(computedHex, "utf8");
-  return a.length === b.length && crypto5.timingSafeEqual(a, b);
+  return a.length === b.length && crypto7.timingSafeEqual(a, b);
 }
 async function startServer() {
+  validateProductionConfiguration();
   await initializeDatabaseLayer();
   const app = express();
   const PORT = Number(process.env.PORT) || 3e3;
-  app.set("trust proxy", 1);
+  app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
   app.disable("x-powered-by");
   app.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-XSS-Protection", "0");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api-m.sandbox.paypal.com https://api-m.paypal.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
     next();
   });
   app.use(
@@ -17099,6 +17104,34 @@ async function startServer() {
     message: "\u0E21\u0E35\u0E04\u0E33\u0E02\u0E2D\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E0A\u0E33\u0E23\u0E30\u0E40\u0E07\u0E34\u0E19\u0E16\u0E35\u0E48\u0E40\u0E01\u0E34\u0E19\u0E44\u0E1B \u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E04\u0E23\u0E39\u0E48 (429 Too Many Requests)"
   });
   app.use("/api", apiGeneralLimiter);
+  app.use((req, res, next) => {
+    if (req.path.includes("legacy-disabled") || req.path.startsWith("/api/openmu/memb-stat")) {
+      res.status(404).json({ ok: false, message: "Not found." });
+      return;
+    }
+    next();
+  });
+  app.use("/api/shop", (req, res, next) => req.method === "GET" && req.path === "/catalog" ? next() : requireSession(req, res, next));
+  app.use("/api/accounts", requireSession);
+  app.use("/api/accounts/:loginName/cash-shop", (_req, res) => {
+    res.status(410).json({ ok: false, message: "Use the authoritative OpenMU CashShop API." });
+  });
+  app.use("/api/accounts/:loginName", (req, res, next) => {
+    if (!req.session?.admin && req.params.loginName.toLowerCase() !== req.session?.loginName.toLowerCase()) {
+      res.status(403).json({ ok: false, message: "Account access denied." });
+      return;
+    }
+    next();
+  });
+  app.use("/api/payments", requireSession);
+  app.use("/api/admin", requireSession, requireAdminSession);
+  app.use("/api/shop", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
+  app.use("/api/accounts", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
+  app.use("/api/payments", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
+  app.use("/api/admin", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
+  app.use(["/api/shop/purchase", "/api/shop/purchase-group", "/api/shop/refund"], (_req, res) => {
+    res.status(503).json({ ok: false, message: "Direct item delivery is disabled until an authoritative OpenMU inventory API is configured." });
+  });
   function requireOpenMuApiKey(req, res, next) {
     const configuredKey = process.env.OPENMU_API_KEY;
     const rawHeader = req.headers["x-api-key"] || req.headers["authorization"];
@@ -17113,38 +17146,18 @@ async function startServer() {
     }
     const providedBuf = Buffer.from(providedKey);
     const expectedBuf = Buffer.from(configuredKey);
-    if (providedBuf.length !== expectedBuf.length || !crypto5.timingSafeEqual(providedBuf, expectedBuf)) {
+    if (providedBuf.length !== expectedBuf.length || !crypto7.timingSafeEqual(providedBuf, expectedBuf)) {
       res.status(403).json({ ok: false, message: "Invalid X-Api-Key credential." });
       return;
     }
     next();
   }
   function getRequesterAccount(req) {
-    const adminUserHeader = req.headers["x-admin-user"] || req.headers["x-username"];
-    const queryUser = req.query.adminUser || req.query.requester;
-    const bodyUser = req.body && (req.body.adminUser || req.body.requester);
-    const candidate = typeof adminUserHeader === "string" ? adminUserHeader : typeof queryUser === "string" ? queryUser : typeof bodyUser === "string" ? bodyUser : void 0;
-    if (!candidate) return null;
-    return getMemoryAccount(candidate.trim());
+    const session = req.session ?? readSession(req);
+    return session ? { loginName: session.loginName } : null;
   }
   function requireAdmin(req, res, next) {
-    const requester = getRequesterAccount(req);
-    if (!requester) {
-      res.status(401).json({
-        ok: false,
-        message: "\u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19\u0E15\u0E49\u0E2D\u0E07\u0E23\u0E30\u0E1A\u0E38\u0E15\u0E31\u0E27\u0E15\u0E19\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19 (Missing X-Admin-User header or credential)"
-      });
-      return;
-    }
-    const isAuthorized = requester.role === "ADMIN" || requester.role === "SUPER_ADMIN" || requester.state === "GameMaster";
-    if (!isAuthorized) {
-      res.status(403).json({
-        ok: false,
-        message: "\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18\u0E01\u0E32\u0E23\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07: \u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E44\u0E21\u0E48\u0E40\u0E1E\u0E35\u0E22\u0E07\u0E1E\u0E2D \u0E40\u0E09\u0E1E\u0E32\u0E30\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 (403 Forbidden)"
-      });
-      return;
-    }
-    next();
+    requireAdminSession(req, res, next);
   }
   async function verifyCloudflareTurnstile(token, remoteIp) {
     if (!token || !token.trim()) {
@@ -17153,8 +17166,9 @@ async function startServer() {
         reason: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E04\u0E27\u0E32\u0E21\u0E1B\u0E25\u0E2D\u0E14\u0E20\u0E31\u0E22 Cloudflare Turnstile \u0E01\u0E48\u0E2D\u0E19\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A (Turnstile verification required)"
       };
     }
-    const secretKey = process.env.CF_TURNSTILE_SECRET_KEY || "1x0000000000000000000000000000000AA";
-    if (token.startsWith("TEST_TOKEN_") || token === "mock_turnstile_pass" || token === "1x00000000000000000000AA") {
+    const secretKey = process.env.CF_TURNSTILE_SECRET_KEY;
+    if (!secretKey) return { ok: false, reason: "Cloudflare Turnstile is not configured." };
+    if (process.env.NODE_ENV !== "production" && (token.startsWith("TEST_TOKEN_") || token === "mock_turnstile_pass" || token === "1x00000000000000000000AA")) {
       return { ok: true };
     }
     try {
@@ -17175,9 +17189,6 @@ async function startServer() {
         }
       );
       if (!cfRes.ok) {
-        if (secretKey.startsWith("1x000")) {
-          return { ok: true };
-        }
         return {
           ok: false,
           reason: `Cloudflare Turnstile API HTTP Error (${cfRes.status})`
@@ -17193,20 +17204,23 @@ async function startServer() {
       }
       return { ok: true };
     } catch {
-      if (secretKey.startsWith("1x000")) {
-        return { ok: true };
-      }
       return {
         ok: false,
         reason: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D\u0E40\u0E0B\u0E34\u0E23\u0E4C\u0E1F\u0E40\u0E27\u0E2D\u0E23\u0E4C Cloudflare Turnstile \u0E44\u0E14\u0E49 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07"
       };
     }
   }
+  app.get("/health/live", (_req, res) => res.json({ status: "ok" }));
+  app.get("/health/ready", (_req, res) => {
+    const db = getDatabaseHealth();
+    const ready = db.postgresConnected && Boolean(process.env.OPENMU_API_URL && process.env.OPENMU_API_KEY);
+    res.status(ready ? 200 : 503).json({ status: ready ? "ready" : "unavailable", database: db.mode });
+  });
   app.get("/api/health", (_req, res) => {
     const db = getDatabaseHealth();
     const cache = getCacheBackendStatus();
-    res.json({
-      ok: true,
+    res.status(db.postgresConnected ? 200 : 503).json({
+      ok: db.postgresConnected,
       arch: process.arch,
       platform: process.platform,
       uptimeSeconds: Math.floor(process.uptime()),
@@ -17338,7 +17352,43 @@ async function startServer() {
       next(err);
     }
   });
-  app.post("/api/webhooks/payment", paymentLimiter, async (req, res, next) => {
+  app.post("/api/webhooks/paypal", paymentLimiter, async (req, res) => {
+    try {
+      const headers = Object.fromEntries(Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]));
+      if (!await verifyPayPalWebhook(headers, req.body)) {
+        res.status(401).json({ ok: false });
+        return;
+      }
+      const event = req.body;
+      if (event.event_type !== "PAYMENT.CAPTURE.COMPLETED") {
+        res.status(204).end();
+        return;
+      }
+      const resource = event.resource;
+      const [loginName, packageCode] = String(resource?.custom_id ?? "").split("|");
+      const pkg = getEffectivePromotions().effectivePayPalPackages.find((candidate) => candidate.code === packageCode);
+      if (!pkg || resource?.status !== "COMPLETED" || resource?.amount?.currency_code !== "THB" || String(resource?.amount?.value) !== pkg.priceThb.toFixed(2) || !resource?.id || !loginName) {
+        res.status(400).json({ ok: false });
+        return;
+      }
+      const reference = `paypal:${resource.id}`;
+      const reason = `PayPal ${pkg.code}`;
+      const granted = pkg.wCoinC === 0 || await forwardGrantToExternalOpenMu(loginName, "WCoinC", pkg.wCoinC, reason, reference);
+      if (!granted) {
+        res.status(503).json({ ok: false });
+        return;
+      }
+      await executePaymentGrantTx({ idempotencyKey: reference, loginName, ipAddress: extractClientIp(req), coinType: "WCoinC", coinAmount: pkg.wCoinC, creditsAdded: pkg.credits, reason, reference, clientName: "PayPal" });
+      res.status(204).end();
+    } catch (error) {
+      console.error("[PayPal webhook]", error instanceof Error ? error.message : error);
+      res.status(503).json({ ok: false });
+    }
+  });
+  app.post("/api/webhooks/payment", (_req, res) => {
+    res.status(410).json({ ok: false, message: "Generic payment webhooks are disabled. Use a verified provider-specific endpoint." });
+  });
+  app.post("/api/webhooks/payment-legacy-disabled", paymentLimiter, async (req, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers["idempotency-key"] || req.headers["x-idempotency-key"];
@@ -17451,18 +17501,75 @@ async function startServer() {
     );
     const dbHealth = getDatabaseHealth();
     const cacheHealth = getCacheBackendStatus();
+    const {
+      config: promoConfig,
+      effectiveTrueMoneyTiers,
+      effectivePayPalPackages
+    } = getEffectivePromotions();
     res.json({
       connectedMode: hasExternalApi ? "Live OpenMU-Origins Remote API" : dbHealth.postgresConnected ? "PostgreSQL SERIALIZABLE ACID + Redis Cache" : "OpenMU-Origins Embedded ACID Bridge",
       openMuApiUrl: process.env.OPENMU_API_URL || "http://localhost:5000",
-      merchantPhone: process.env.TRUEMONEY_MERCHANT_PHONE || "089-123-4567",
+      merchantPhone: promoConfig.merchantPhone || process.env.TRUEMONEY_MERCHANT_PHONE || "",
       payPalSandbox: process.env.PAYPAL_USE_SANDBOX !== "false",
       hasLivePayPalCredentials: hasPayPalKeys,
       database: dbHealth,
       cache: cacheHealth,
-      packages: PAYPAL_PACKAGES,
-      trueMoneyTiers: TRUEMONEY_TIERS,
-      recentGrants: getRecentCoinGrants(25)
+      promotionConfig: promoConfig,
+      packages: effectivePayPalPackages,
+      trueMoneyTiers: effectiveTrueMoneyTiers,
+      paymentProviders: {
+        trueMoney: process.env.PAYMENTS_ENABLED === "true" && process.env.TRUEMONEY_ENABLED === "true" ? "configured" : "disabled",
+        payPal: process.env.PAYMENTS_ENABLED === "true" && Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) ? "configured" : "disabled",
+        cards: process.env.PAYMENTS_ENABLED === "true" && process.env.CARDS_ENABLED === "true" ? "configured" : "disabled"
+      }
     });
+  });
+  app.get("/api/payments/promotions", (_req, res) => {
+    const {
+      config: promoConfig,
+      effectiveTrueMoneyTiers,
+      effectivePayPalPackages
+    } = getEffectivePromotions();
+    res.json({
+      ok: true,
+      promotionConfig: promoConfig,
+      trueMoneyTiers: effectiveTrueMoneyTiers,
+      packages: effectivePayPalPackages
+    });
+  });
+  app.post("/api/payments/credits/exchange", paymentLimiter, async (req, res, next) => {
+    try {
+      if (!req.session) {
+        res.status(401).json({ ok: false });
+        return;
+      }
+      const credits = Math.trunc(Number(req.body?.credits));
+      const idempotencyKey = String(req.headers["idempotency-key"] ?? "").trim();
+      if (!/^[a-zA-Z0-9:_-]{16,128}$/.test(idempotencyKey)) {
+        res.status(400).json({ ok: false, message: "A valid Idempotency-Key header is required." });
+        return;
+      }
+      if (credits < 100 || credits > 5e4 || credits % 5 !== 0) {
+        res.status(400).json({ ok: false, message: "Exchange 100-50,000 credits in multiples of 5." });
+        return;
+      }
+      const wCoinC = credits / 5;
+      const status = await reserveCreditExchange(req.session.loginName, credits, wCoinC, idempotencyKey);
+      if (status === "completed") {
+        res.json({ ok: true, idempotentReplay: true, creditsSpent: credits, wCoinC });
+        return;
+      }
+      const reference = `credit-exchange:${idempotencyKey}`;
+      const granted = await forwardGrantToExternalOpenMu(req.session.loginName, "WCoinC", wCoinC, "WebShop credit exchange", reference);
+      if (!granted) {
+        res.status(503).json({ ok: false, pending: true, message: "Exchange is reserved and awaiting the OpenMU server. Retry with the same Idempotency-Key." });
+        return;
+      }
+      await completeCreditExchange(idempotencyKey);
+      res.status(201).json({ ok: true, creditsSpent: credits, wCoinC });
+    } catch (error) {
+      next(error);
+    }
   });
   app.post("/api/openmu/login", authLimiter, async (req, res, next) => {
     try {
@@ -17491,12 +17598,8 @@ async function startServer() {
         return;
       }
       const cleanName = loginName.trim();
-      const acc = getMemoryAccount(cleanName);
-      if (!acc || !verifyAccountPassword(
-        acc.passwordPlainOrSimulatedBcrypt,
-        acc.passwordHash,
-        password
-      )) {
+      const acc = await authenticateOpenMuAccount(cleanName, password);
+      if (!acc) {
         await recordAuditLog(
           {
             accountId: cleanName,
@@ -17513,46 +17616,87 @@ async function startServer() {
         });
         return;
       }
-      if (acc.state === "Banned" || acc.state === "TemporarilyBanned") {
+      if (acc.state !== 0) {
         res.status(403).json({
           ok: false,
-          message: `\u0E1A\u0E31\u0E0D\u0E0A\u0E35 ${acc.loginName} \u0E16\u0E39\u0E01\u0E23\u0E30\u0E07\u0E31\u0E1A\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 (AccountState = ${acc.state})`
+          message: `\u0E1A\u0E31\u0E0D\u0E0A\u0E35 ${acc.loginName} \u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E40\u0E02\u0E49\u0E32 WebShop \u0E44\u0E14\u0E49\u0E43\u0E19\u0E02\u0E13\u0E30\u0E19\u0E35\u0E49`
         });
         return;
       }
-      const membStat = await queryMembStatOnlineStatus(acc.loginName);
+      const isAdmin = new Set((process.env.ADMIN_ACCOUNTS ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)).has(acc.loginName.toLowerCase());
+      const session = createSession(acc.loginName, isAdmin);
       await recordAuditLog(
         {
           accountId: acc.loginName,
           ipAddress: clientIp,
           action: "AUTH_LOGIN_SUCCESS",
           status: "COMMITTED",
-          details: `Authenticated session established (ConnectStat=${membStat.ConnectStat})`
+          details: "Authenticated session established"
         },
         getPgPool()
       );
+      res.setHeader("Set-Cookie", session.cookie);
       res.json({
         ok: true,
-        sessionCookieName: ".OpenMU.WebShop",
+        csrfToken: session.csrfToken,
         account: {
           id: acc.id,
           loginName: acc.loginName,
           email: acc.email,
-          characterDeleteCode: acc.securityCode,
           state: acc.state,
-          role: acc.role,
+          role: isAdmin ? "ADMIN" : "USER",
+          isMasterAdmin: isAdmin,
+          credits: acc.credits,
+          vaultMoney: 0,
+          vipUntil: null,
+          vaultItems: [],
           wCoinC: acc.wCoinC,
           wCoinP: acc.wCoinP,
           goblinPoints: acc.goblinPoints,
-          connectStat: membStat.ConnectStat,
-          isAdmin: acc.state === "GameMaster" || acc.role === "ADMIN" || acc.role === "SUPER_ADMIN"
+          isAdmin
         }
       });
     } catch (err) {
       next(err);
     }
   });
-  app.post("/api/openmu/register", authLimiter, async (req, res, next) => {
+  app.post("/api/openmu/logout", requireSession, requireCsrf, (req, res) => {
+    res.setHeader("Set-Cookie", clearSessionCookie());
+    res.json({ ok: true });
+  });
+  app.get("/api/openmu/session", async (req, res) => {
+    const session = readSession(req);
+    if (!session) {
+      res.status(401).json({ ok: false });
+      return;
+    }
+    const account = await getOpenMuAccountSummary(session.loginName);
+    if (!account) {
+      res.setHeader("Set-Cookie", clearSessionCookie());
+      res.status(401).json({ ok: false });
+      return;
+    }
+    res.json({ ok: true, csrfToken: session.csrf, account: {
+      id: account.id,
+      loginName: account.loginName,
+      email: account.email,
+      state: account.state,
+      role: session.admin ? "ADMIN" : "USER",
+      isAdmin: session.admin,
+      isMasterAdmin: session.admin,
+      credits: account.credits,
+      vaultMoney: 0,
+      vipUntil: null,
+      vaultItems: [],
+      wCoinC: account.wCoinC,
+      wCoinP: account.wCoinP,
+      goblinPoints: account.goblinPoints
+    } });
+  });
+  app.post("/api/openmu/register", authLimiter, async (_req, res) => {
+    res.status(410).json({ ok: false, message: "Registration is handled by the main player website." });
+  });
+  app.post("/api/openmu/register-legacy-disabled", authLimiter, async (req, res, next) => {
     try {
       const {
         loginName,
@@ -17603,7 +17747,7 @@ async function startServer() {
       );
       res.status(201).json({
         ok: true,
-        message: `\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E1A\u0E31\u0E0D\u0E0A\u0E35 OpenMU-Origins "${newAcc.loginName}" \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 (BCrypt hashed in data."Account")`,
+        message: `Account "${newAcc.loginName}" registered successfully.`,
         account: {
           id: newAcc.id,
           loginName: newAcc.loginName,
@@ -17611,6 +17755,11 @@ async function startServer() {
           characterDeleteCode: newAcc.securityCode,
           state: newAcc.state,
           role: newAcc.role,
+          isMasterAdmin: false,
+          credits: newAcc.credits,
+          vaultMoney: newAcc.vaultMoney,
+          vipUntil: newAcc.vipUntil,
+          vaultItems: newAcc.vaultItems,
           wCoinC: newAcc.wCoinC,
           wCoinP: newAcc.wCoinP,
           goblinPoints: newAcc.goblinPoints,
@@ -17661,7 +17810,7 @@ async function startServer() {
           });
           return;
         }
-        const ref = reference ? reference.trim() : `manual:${crypto5.randomUUID().slice(0, 10)}`;
+        const ref = reference ? reference.trim() : `manual:${crypto7.randomUUID().slice(0, 10)}`;
         const idemKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : ref;
         const creditsAdded = Math.max(0, amount * 4);
         const txResult = await executePaymentGrantTx({
@@ -17700,7 +17849,10 @@ async function startServer() {
       }
     }
   );
-  app.post("/api/payments/truemoney/redeem", paymentLimiter, async (req, res, next) => {
+  app.post("/api/payments/truemoney/redeem", (_req, res) => {
+    res.status(503).json({ ok: false, message: "TrueMoney is not connected. No credit has been granted." });
+  });
+  app.post("/api/payments/truemoney/redeem-legacy-disabled", paymentLimiter, async (req, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers["idempotency-key"];
@@ -17739,10 +17891,21 @@ async function startServer() {
       } else {
         voucherCode = rawInput || `QR${Date.now()}`;
       }
-      const tier = TRUEMONEY_TIERS.find((t) => t.amountThb === Number(selectedTierThb)) || TRUEMONEY_TIERS[1];
+      const { config: promoCfg, effectiveTrueMoneyTiers } = getEffectivePromotions();
+      const tier = effectiveTrueMoneyTiers.find(
+        (t) => t.amountThb === Number(selectedTierThb)
+      );
+      if (!tier) {
+        res.status(400).json({
+          ok: false,
+          message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E23\u0E32\u0E04\u0E32 TrueMoney \u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01 \u0E2B\u0E23\u0E37\u0E2D\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E16\u0E39\u0E01\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E0A\u0E31\u0E48\u0E27\u0E04\u0E23\u0E32\u0E27"
+        });
+        return;
+      }
       const reference = `truemoney:${voucherCode}`;
       const idemKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : reference;
-      const reason = `TrueMoney ${method === "angpao" ? "Angpao Voucher" : method === "cashcard" ? "Cash Card 14-Pin" : "QR PromptPay"} (${tier.amountThb} THB)`;
+      const promoNote = promoCfg.campaignActive && promoCfg.extraBonusPercent > 0 ? ` [Event +${promoCfg.extraBonusPercent}%]` : "";
+      const reason = `TrueMoney ${method === "angpao" ? "Angpao Voucher" : method === "cashcard" ? "Cash Card 14-Pin" : "QR PromptPay"} (${tier.amountThb} THB \xB7 +${tier.bonusPercent}%${promoNote})`;
       const txResult = await executePaymentGrantTx({
         idempotencyKey: idemKey,
         loginName,
@@ -17774,7 +17937,7 @@ async function startServer() {
       res.status(201).json({
         ok: true,
         status: txResult.status,
-        message: `\u0E40\u0E15\u0E34\u0E21\u0E40\u0E07\u0E34\u0E19 TrueMoney ${tier.amountThb} \u0E1A\u0E32\u0E17 \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08! \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A +${tier.credits.toLocaleString()} WebShop Credits \u0E41\u0E25\u0E30 +${tier.wCoinC.toLocaleString()} WCoinC \u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E1A\u0E31\u0E0D\u0E0A\u0E35 ${loginName}`,
+        message: `\u0E40\u0E15\u0E34\u0E21\u0E40\u0E07\u0E34\u0E19 TrueMoney ${tier.amountThb.toLocaleString()} \u0E1A\u0E32\u0E17 \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08! \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A +${tier.credits.toLocaleString()} WebShop Credits \u0E41\u0E25\u0E30 +${tier.wCoinC.toLocaleString()} WCoinC \u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E1A\u0E31\u0E0D\u0E0A\u0E35 ${loginName}`,
         creditsAdded: tier.credits,
         wCoinCAdded: tier.wCoinC,
         grant: txResult.grant,
@@ -17788,14 +17951,33 @@ async function startServer() {
       next(err);
     }
   });
-  app.post("/api/payments/paypal/create-order", paymentLimiter, async (req, res) => {
+  app.post("/api/payments/paypal/create-order", paymentLimiter, async (req, res, next) => {
+    try {
+      if (process.env.PAYMENTS_ENABLED !== "true" || !process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
+        res.status(503).json({ ok: false, message: "PayPal checkout is not configured." });
+        return;
+      }
+      const { packageCode } = req.body;
+      const pkg = getEffectivePromotions().effectivePayPalPackages.find((candidate) => candidate.code === packageCode);
+      if (!pkg || !req.session) {
+        res.status(400).json({ ok: false, message: "Invalid package." });
+        return;
+      }
+      const order = await createPayPalOrder(pkg, req.session.loginName);
+      res.status(201).json({ ok: true, orderToken: order.orderId, approvalUrl: order.approvalUrl, package: pkg });
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.post("/api/payments/paypal/create-order-legacy-disabled", paymentLimiter, async (req, res) => {
     const { loginName, packageCode } = req.body;
-    const pkg = PAYPAL_PACKAGES.find((p) => p.code === packageCode);
+    const { effectivePayPalPackages } = getEffectivePromotions();
+    const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
     if (!pkg || !loginName) {
       res.status(400).json({ ok: false, message: "Invalid package or account" });
       return;
     }
-    const orderToken = `PAYPAL_${crypto5.randomBytes(5).toString("hex").toUpperCase()}`;
+    const orderToken = `PAYPAL_${crypto7.randomBytes(5).toString("hex").toUpperCase()}`;
     res.json({
       ok: true,
       orderToken,
@@ -17803,22 +17985,67 @@ async function startServer() {
       mode: process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET ? "live_rest_api" : "sandbox_interactive"
     });
   });
-  app.post("/api/payments/paypal/capture-order", paymentLimiter, async (req, res, next) => {
+  app.post("/api/payments/paypal/capture-order", (_req, res) => {
+    res.status(503).json({ ok: false, message: "PayPal capture is disabled. No credit has been granted." });
+  });
+  app.get("/api/payments/paypal/complete", async (req, res) => {
+    try {
+      if (!req.session) {
+        res.redirect("/?payment=login-required");
+        return;
+      }
+      const orderId = typeof req.query.token === "string" ? req.query.token : "";
+      const requestedPackage = typeof req.query.packageCode === "string" ? req.query.packageCode : "";
+      const capture = await capturePayPalOrder(orderId);
+      const pkg = getEffectivePromotions().effectivePayPalPackages.find((candidate) => candidate.code === capture.packageCode);
+      if (!pkg || pkg.code !== requestedPackage || capture.loginName.toLowerCase() !== req.session.loginName.toLowerCase() || capture.currency !== "THB" || capture.amount !== pkg.priceThb.toFixed(2)) {
+        res.redirect("/?payment=invalid");
+        return;
+      }
+      const reference = `paypal:${capture.captureId}`;
+      const reason = `PayPal ${pkg.code}`;
+      const granted = pkg.wCoinC === 0 || await forwardGrantToExternalOpenMu(capture.loginName, "WCoinC", pkg.wCoinC, reason, reference);
+      if (!granted) {
+        res.redirect("/?payment=grant-pending");
+        return;
+      }
+      await executePaymentGrantTx({
+        idempotencyKey: reference,
+        loginName: capture.loginName,
+        ipAddress: extractClientIp(req),
+        coinType: "WCoinC",
+        coinAmount: pkg.wCoinC,
+        creditsAdded: pkg.credits,
+        reason,
+        reference,
+        clientName: "PayPal"
+      });
+      res.redirect("/?payment=approved");
+    } catch (error) {
+      console.error("[PayPal completion]", error instanceof Error ? error.message : error);
+      res.redirect("/?payment=invalid");
+    }
+  });
+  app.post("/api/payments/paypal/capture-order-legacy-disabled", paymentLimiter, async (req, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers["idempotency-key"];
       const { loginName, packageCode, orderToken, payerEmail } = req.body;
-      const pkg = PAYPAL_PACKAGES.find((p) => p.code === packageCode);
+      const { config: promoCfg, effectivePayPalPackages } = getEffectivePromotions();
+      const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
       if (!pkg || !loginName || !orderToken) {
         res.status(400).json({
           ok: false,
-          message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E04\u0E33\u0E2A\u0E31\u0E48\u0E07\u0E0B\u0E37\u0E49\u0E2D PayPal \u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A\u0E16\u0E49\u0E27\u0E19"
+          message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E04\u0E33\u0E2A\u0E31\u0E48\u0E07\u0E0B\u0E37\u0E49\u0E2D PayPal \u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A\u0E16\u0E49\u0E27\u0E19 \u0E2B\u0E23\u0E37\u0E2D\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E16\u0E39\u0E01\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19"
         });
         return;
       }
       const reference = `paypal:${orderToken}`;
       const idemKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : reference;
-      const reason = `PayPal purchase ${pkg.code} ($${pkg.priceUsd.toFixed(2)})${payerEmail ? ` by ${payerEmail}` : ""}`;
+      const promoNote = promoCfg.campaignActive && promoCfg.extraBonusPercent > 0 ? ` [Event +${promoCfg.extraBonusPercent}%]` : "";
+      const reason = `PayPal purchase ${pkg.code} ($${pkg.priceUsd.toFixed(
+        2
+      )} / ${pkg.priceThb} THB \xB7 +${pkg.bonusPercent}%${promoNote})${payerEmail ? ` by ${payerEmail}` : ""}`;
       const txResult = await executePaymentGrantTx({
         idempotencyKey: idemKey,
         loginName,
@@ -17845,7 +18072,7 @@ async function startServer() {
         idempotentReplay: txResult.idempotentReplay,
         message: `\u0E0A\u0E33\u0E23\u0E30\u0E40\u0E07\u0E34\u0E19\u0E1C\u0E48\u0E32\u0E19 PayPal ($${pkg.priceUsd.toFixed(
           2
-        )}) \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08! \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A +${pkg.credits.toLocaleString()} WebShop Credits \u0E41\u0E25\u0E30 +${pkg.wCoinC.toLocaleString()} WCoinC`,
+        )} / \u0E3F${pkg.priceThb.toLocaleString()}) \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08! \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A +${pkg.credits.toLocaleString()} WebShop Credits \u0E41\u0E25\u0E30 +${pkg.wCoinC.toLocaleString()} WCoinC`,
         creditsAdded: txResult.status === "Created" ? pkg.credits : 0,
         wCoinCAdded: txResult.status === "Created" ? pkg.wCoinC : 0,
         grant: txResult.grant,
@@ -17957,6 +18184,78 @@ async function startServer() {
     try {
       await invalidateCatalogCache();
       res.json({ ok: true, message: "Catalog Redis cache invalidated." });
+    } catch (err) {
+      next(err);
+    }
+  });
+  app.get("/api/admin/promotions", requireAdmin, (_req, res) => {
+    const config = getPromotionConfig();
+    const { effectiveTrueMoneyTiers, effectivePayPalPackages } = getEffectivePromotions();
+    res.json({
+      ok: true,
+      promotionConfig: config,
+      effectiveTrueMoneyTiers,
+      effectivePayPalPackages
+    });
+  });
+  app.put("/api/admin/promotions", requireAdmin, async (req, res, next) => {
+    try {
+      const adminAcc = getRequesterAccount(req);
+      const patch = req.body?.promotionConfig || req.body;
+      if (!patch || typeof patch !== "object") {
+        res.status(400).json({ ok: false, message: "Valid promotionConfig payload is required." });
+        return;
+      }
+      const saved = await updatePromotionConfig(
+        patch,
+        adminAcc?.loginName || "admin"
+      );
+      const { effectiveTrueMoneyTiers, effectivePayPalPackages } = getEffectivePromotions();
+      await recordAuditLog(
+        {
+          accountId: adminAcc?.loginName || "admin",
+          ipAddress: extractClientIp(req),
+          action: "ADMIN_PROMOTION_UPDATE",
+          status: "COMMITTED",
+          details: `Updated Top-Up Promotions (${saved.trueMoneyTiers.length} TrueMoney tiers, ${saved.payPalPackages.length} PayPal packages, Campaign=${saved.campaignActive ? `ON (+${saved.extraBonusPercent}%)` : "OFF"}, Base=${saved.baseCreditsPerThb} Cr/THB & ${saved.baseWCoinCPerThb} WCoinC/THB)`
+        },
+        getPgPool()
+      );
+      res.json({
+        ok: true,
+        message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E01\u0E32\u0E23\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32\u0E42\u0E1B\u0E23\u0E42\u0E21\u0E0A\u0E31\u0E48\u0E19 TrueMoney & PayPal \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08",
+        promotionConfig: saved,
+        effectiveTrueMoneyTiers,
+        effectivePayPalPackages
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+  app.post("/api/admin/promotions/reset", requireAdmin, async (req, res, next) => {
+    try {
+      const adminAcc = getRequesterAccount(req);
+      const reset = await resetPromotionConfigToDefault(
+        adminAcc?.loginName || "admin"
+      );
+      const { effectiveTrueMoneyTiers, effectivePayPalPackages } = getEffectivePromotions();
+      await recordAuditLog(
+        {
+          accountId: adminAcc?.loginName || "admin",
+          ipAddress: extractClientIp(req),
+          action: "ADMIN_PROMOTION_RESET",
+          status: "COMMITTED",
+          details: "Reset TrueMoney & PayPal promotion tiers to harmonized Egis-MU defaults"
+        },
+        getPgPool()
+      );
+      res.json({
+        ok: true,
+        message: "\u0E23\u0E35\u0E40\u0E0B\u0E47\u0E15\u0E42\u0E1B\u0E23\u0E42\u0E21\u0E0A\u0E31\u0E48\u0E19\u0E01\u0E25\u0E31\u0E1A\u0E40\u0E1B\u0E47\u0E19\u0E04\u0E48\u0E32\u0E21\u0E32\u0E15\u0E23\u0E10\u0E32\u0E19\u0E17\u0E35\u0E48\u0E2A\u0E2D\u0E14\u0E04\u0E25\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E19\u0E17\u0E31\u0E49\u0E07 TrueMoney & PayPal \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08",
+        promotionConfig: reset,
+        effectiveTrueMoneyTiers,
+        effectivePayPalPackages
+      });
     } catch (err) {
       next(err);
     }

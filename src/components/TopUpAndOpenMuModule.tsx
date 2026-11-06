@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiFetch } from '../utils/apiClient';
 import {
   AccountData,
   LanguageCode,
@@ -229,6 +230,9 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   } | null>(null);
   const [payerEmail, setPayerEmail] = useState<string>('');
   const [isCapturingPayPal, setIsCapturingPayPal] = useState(false);
+  const [exchangeCredits, setExchangeCredits] = useState(500);
+  const [isExchanging, setIsExchanging] = useState(false);
+  const [providerStatus, setProviderStatus] = useState({ trueMoney: 'disabled', payPal: 'disabled', cards: 'disabled' });
 
   const [grants, setGrants] = useState<OpenMuCoinGrantRecord[]>([]);
   const [banner, setBanner] = useState<{
@@ -239,7 +243,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
 
   const fetchStatusAndGrants = async () => {
     try {
-      const res = await fetch('/api/openmu/status');
+      const res = await apiFetch('/api/openmu/status');
       if (res.ok) {
         const data = await res.json();
         if (data.promotionConfig) {
@@ -269,6 +273,12 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         }
         if (typeof data.merchantPhone === 'string') {
           setMerchantPhone(data.merchantPhone);
+        }
+        if (data.paymentProviders) {
+          setProviderStatus(data.paymentProviders);
+          if (activeTab === 'truemoney' && data.paymentProviders.trueMoney !== 'configured') {
+            setActiveTab(data.paymentProviders.payPal === 'configured' ? 'paypal' : 'history');
+          }
         }
       }
     } catch {
@@ -301,7 +311,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
     setBanner(null);
 
     try {
-      const res = await fetch('/api/payments/truemoney/redeem', {
+      const res = await apiFetch('/api/payments/truemoney/redeem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -360,7 +370,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   const handleStartPayPalCheckout = async (pkg: PayPalPackage) => {
     setBanner(null);
     try {
-      const res = await fetch('/api/payments/paypal/create-order', {
+      const res = await apiFetch('/api/payments/paypal/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -369,11 +379,8 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         }),
       });
       const data = await res.json();
-      if (res.ok && data.ok) {
-        setActivePayPalOrder({
-          orderToken: data.orderToken,
-          pkg,
-        });
+      if (res.ok && data.ok && typeof data.approvalUrl === 'string') {
+        window.location.assign(data.approvalUrl);
       } else {
         setBanner({
           ok: false,
@@ -409,7 +416,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
     setIsCapturingPayPal(true);
 
     try {
-      const res = await fetch('/api/payments/paypal/capture-order', {
+      const res = await apiFetch('/api/payments/paypal/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -469,6 +476,26 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   const activeTier =
     tmTiers.find((t) => t.amountThb === selectedThb) || tmTiers[0];
 
+  const handleCreditExchange = async () => {
+    setIsExchanging(true);
+    setBanner(null);
+    try {
+      const response = await apiFetch('/api/payments/credits/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({ credits: exchangeCredits }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || 'Exchange failed.');
+      onCreditsGranted(-exchangeCredits, data.wCoinC, `Exchanged ${exchangeCredits} Credits for ${data.wCoinC} WCoinC`);
+      setBanner({ ok: true, message: `${exchangeCredits.toLocaleString()} Credits → ${Number(data.wCoinC).toLocaleString()} WCoinC` });
+    } catch (error) {
+      setBanner({ ok: false, message: error instanceof Error ? error.message : 'Exchange failed.' });
+    } finally {
+      setIsExchanging(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Account Currency Header */}
@@ -489,8 +516,8 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
           </div>
           <p className="text-xs text-zinc-400">
             {L(lang, {
-              en: 'Every top-up grants WebShop Credits for website purchases and delivers WCoinC directly to your Egis-MU in-game CashShop.',
-              th: 'ทุกยอดการเติมจะเพิ่มทั้ง WebShop Credits สำหรับซื้อไอเทมหน้าเว็บ และส่งเหรียญ WCoinC เข้าสู่ CashShop ในเกมโดยอัตโนมัติ',
+              en: 'Top-ups grant WebShop Credits. Exchange 5 Credits for 1 WCoinC through the protected OpenMU grant service.',
+              th: 'ยอดเติมเงินจะได้รับ WebShop Credits และสามารถแลก 5 Credits เป็น 1 WCoinC ผ่านระบบ OpenMU ที่ป้องกันรายการซ้ำ',
               pt: 'Cada doação adiciona WebShop Credits para compras no site e entrega WCoinC diretamente no CashShop do jogo.',
               ru: 'Каждое пополнение начисляет WebShop Credits на сайте и автоматически отправляет WCoinC в игровой CashShop.',
               es: 'Cada recarga otorga WebShop Credits para la tienda web y envía WCoinC directamente al CashShop del juego.',
@@ -536,6 +563,21 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         </div>
       </div>
 
+      <div className="rounded border border-emerald-500/30 bg-emerald-950/20 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-white">แลก Credits เป็น WCoinC</h3>
+            <p className="mt-1 text-xs text-zinc-400">5 Credits = 1 WCoinC · ขั้นต่ำ 100 Credits · ส่งผ่าน OpenMU grant API</p>
+          </div>
+          <div className="flex gap-2">
+            <input type="number" min={100} max={50000} step={5} value={exchangeCredits} onChange={(event) => setExchangeCredits(Math.trunc(Number(event.target.value)))} className="w-32 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
+            <button type="button" disabled={isExchanging || exchangeCredits < 100 || exchangeCredits > account.credits || exchangeCredits % 5 !== 0} onClick={handleCreditExchange} className="rounded bg-emerald-500 px-4 py-2 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-40">
+              {isExchanging ? 'กำลังแลก…' : `รับ ${(exchangeCredits / 5).toLocaleString()} WCoinC`}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Unified Promotion Parity Info + Active Campaign Event Banner */}
       {promoConfig?.campaignActive && promoConfig.extraBonusPercent > 0 ? (
         <div className="p-4 rounded border border-amber-500/50 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -563,13 +605,13 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         <div className="px-4 py-2.5 rounded border border-zinc-800 bg-zinc-900/60 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-300">
           <span>
             {L(lang, {
-              en: 'Unified Promotion Standard: TrueMoney Wallet and PayPal receive identical bonus tiers (0% to +30%).',
-              th: 'มาตรฐานโปรโมชั่นเดียวกันทั้งระบบ: เติมผ่าน TrueMoney Wallet หรือ PayPal ได้รับเรทเครดิตและโบนัสเท่ากันทุกขั้น (0% ถึง +30%)',
+              en: 'Conservative donation tiers use the same 0% to +15% bonus schedule across enabled providers.',
+              th: 'ราคาสนับสนุนใช้โบนัสระดับกลาง 0% ถึง +15% เท่ากันในช่องทางที่เปิดใช้งาน',
             })}
           </span>
           <span className="font-mono-tabular text-amber-400">
             1 THB = {promoConfig?.baseCreditsPerThb ?? 10} Cr +{' '}
-            {promoConfig?.baseWCoinCPerThb ?? 2} WCoinC
+            {promoConfig?.baseWCoinCPerThb ?? 0} WCoinC
           </span>
         </div>
       )}
@@ -578,11 +620,12 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
       <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded bg-zinc-900 border border-zinc-800">
         <button
           type="button"
+          disabled={providerStatus.trueMoney !== 'configured'}
           onClick={() => {
             setActiveTab('truemoney');
             setBanner(null);
           }}
-          className={`px-4 py-2 rounded text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
+          className={`px-4 py-2 rounded text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40 ${
             activeTab === 'truemoney'
               ? 'bg-[#ff8300] text-zinc-950 shadow-sm'
               : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
@@ -601,6 +644,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
 
         <button
           type="button"
+          disabled={providerStatus.payPal !== 'configured'}
           onClick={() => {
             setActiveTab('paypal');
             setBanner(null);
@@ -669,7 +713,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
       )}
 
       {/* TAB 1: TRUEMONEY WALLET */}
-      {activeTab === 'truemoney' && (
+      {activeTab === 'truemoney' && providerStatus.trueMoney === 'configured' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left: Tier Selection */}
           <div className="lg:col-span-7 p-5 rounded border border-zinc-800 bg-zinc-900/80 space-y-4">
@@ -1082,7 +1126,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
       )}
 
       {/* TAB 2: PAYPAL CHECKOUT */}
-      {activeTab === 'paypal' && (
+      {activeTab === 'paypal' && providerStatus.payPal === 'configured' && (
         <div className="space-y-5">
           <div className="p-4 rounded border border-zinc-800 bg-zinc-900/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 text-zinc-300">
@@ -1145,10 +1189,10 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
                   <div className="space-y-2.5 pt-2 border-t border-zinc-800/80">
                     <div className="flex items-baseline justify-between">
                       <span className="text-lg font-bold font-mono-tabular text-white">
-                        ${pkg.priceUsd.toFixed(2)} USD
+                        ฿{pkg.priceThb.toLocaleString()} THB
                       </span>
                       <span className="text-xs font-mono-tabular text-zinc-400">
-                        เทียบเท่า ฿{pkg.priceThb.toLocaleString()}
+                        ประมาณ ${pkg.priceUsd.toFixed(2)} USD
                       </span>
                     </div>
 
