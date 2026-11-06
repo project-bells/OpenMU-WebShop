@@ -21,3 +21,12 @@
 - [ ] Configure `OPENMU_DATABASE_URL`, a CashShop-role `OPENMU_API_KEY`, Redis, Turnstile, HTTPS domain and 64+ character session secret.
 - [ ] Run an end-to-end sandbox payment and confirm exactly one webshop ledger credit and one OpenMU grant.
 - [ ] Decide whether online-time rewards use OpenMU's built-in `GoblinPointsForPlayTimePlugIn`; do not trust browser-reported online time.
+
+## Verification — 2026-11-06
+
+- Implementation commit: `62556fd`.
+- `npm run check`: TypeScript, 5 unit tests, client build and server bundle passed.
+- `npm audit --audit-level=moderate`: 0 vulnerabilities.
+- `git diff --check`: passed.
+- Docker image build could not run because Docker Desktop daemon was not available on the verification machine.
+- Live payment activation remains intentionally blocked until the provider credentials and end-to-end gates above are complete.
