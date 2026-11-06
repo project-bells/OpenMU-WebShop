@@ -9,6 +9,7 @@
 - [x] PayPal Orders v2 create/capture flow with server-side amount, currency, package and account verification.
 - [x] Idempotent OpenMU WCoin grant reference.
 - [x] Online credit-to-WCoin exchange at 5 Credits = 1 WCoinC, with transactional reservation and retry key.
+- [x] Display authoritative Credits/WCoinC wallet balances and reuse the same retry key for pending exchanges.
 - [x] Conservative donation ladder: ฿50/100/150/300/500/1,000 and 0–15% bonus.
 - [x] Fail-closed production configuration, security headers, reproducible lockfile and dependency audit.
 - [x] Disable browser-reported online-time rewards; only authoritative OpenMU server rewards may grant currency.

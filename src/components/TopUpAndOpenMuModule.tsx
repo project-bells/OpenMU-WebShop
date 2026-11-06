@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import {
+  MAX_CREDIT_EXCHANGE,
+  MIN_CREDIT_EXCHANGE,
+  quoteCreditExchange,
+  selectCreditExchangeAttempt,
+} from '../utils/creditExchange';
+import {
   AccountData,
   LanguageCode,
   PayPalPromoPackage,
@@ -55,6 +61,7 @@ interface TopUpAndOpenMuModuleProps {
     wCoinCAdded: number,
     logDetail: string
   ) => void;
+  onWalletSynchronized: (credits: number, wCoinC: number, logDetail: string) => void;
   onManagePromotions?: () => void;
   initialTab?: 'truemoney' | 'paypal' | 'history';
 }
@@ -202,6 +209,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   wCoinCBalance,
   lang = 'Thai',
   onCreditsGranted,
+  onWalletSynchronized,
   onManagePromotions,
   initialTab = 'truemoney',
 }) => {
@@ -232,6 +240,7 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   const [isCapturingPayPal, setIsCapturingPayPal] = useState(false);
   const [exchangeCredits, setExchangeCredits] = useState(500);
   const [isExchanging, setIsExchanging] = useState(false);
+  const [pendingExchange, setPendingExchange] = useState<{ credits: number; idempotencyKey: string } | null>(null);
   const [providerStatus, setProviderStatus] = useState({ trueMoney: 'disabled', payPal: 'disabled', cards: 'disabled' });
 
   const [grants, setGrants] = useState<OpenMuCoinGrantRecord[]>([]);
@@ -479,16 +488,25 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
   const handleCreditExchange = async () => {
     setIsExchanging(true);
     setBanner(null);
+    const attempt = selectCreditExchangeAttempt(exchangeCredits, pendingExchange, () => crypto.randomUUID());
+    setPendingExchange(attempt);
     try {
       const response = await apiFetch('/api/payments/credits/exchange', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-        body: JSON.stringify({ credits: exchangeCredits }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': attempt.idempotencyKey },
+        body: JSON.stringify({ credits: attempt.credits }),
       });
       const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.message || 'Exchange failed.');
-      onCreditsGranted(-exchangeCredits, data.wCoinC, `Exchanged ${exchangeCredits} Credits for ${data.wCoinC} WCoinC`);
-      setBanner({ ok: true, message: `${exchangeCredits.toLocaleString()} Credits → ${Number(data.wCoinC).toLocaleString()} WCoinC` });
+      if (!response.ok || !data.ok) {
+        if (!data.pending) setPendingExchange(null);
+        throw new Error(data.message || 'Exchange failed.');
+      }
+      if (!data.wallet || typeof data.wallet.credits !== 'number' || typeof data.wallet.wCoinC !== 'number') {
+        throw new Error('The exchange completed, but the authoritative wallet balance was unavailable. Sign in again to refresh it.');
+      }
+      setPendingExchange(null);
+      onWalletSynchronized(data.wallet.credits, data.wallet.wCoinC, `Exchanged ${attempt.credits} Credits for ${data.wCoinC} WCoinC${data.idempotentReplay ? ' (replay confirmed)' : ''}`);
+      setBanner({ ok: true, message: `${attempt.credits.toLocaleString()} Credits → ${Number(data.wCoinC).toLocaleString()} WCoinC` });
     } catch (error) {
       setBanner({ ok: false, message: error instanceof Error ? error.message : 'Exchange failed.' });
     } finally {
@@ -567,11 +585,11 @@ export const TopUpAndOpenMuModule: React.FC<TopUpAndOpenMuModuleProps> = ({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-sm font-bold text-white">แลก Credits เป็น WCoinC</h3>
-            <p className="mt-1 text-xs text-zinc-400">5 Credits = 1 WCoinC · ขั้นต่ำ 100 Credits · ส่งผ่าน OpenMU grant API</p>
+            <p className="mt-1 text-xs text-zinc-400">5 Credits = 1 WCoinC · ขั้นต่ำ 100 Credits · แลกทางเดียวเพื่อป้องกันการวนแลกสร้างมูลค่าซ้ำ · ส่งผ่าน OpenMU grant API</p>
           </div>
           <div className="flex gap-2">
-            <input type="number" min={100} max={50000} step={5} value={exchangeCredits} onChange={(event) => setExchangeCredits(Math.trunc(Number(event.target.value)))} className="w-32 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
-            <button type="button" disabled={isExchanging || exchangeCredits < 100 || exchangeCredits > account.credits || exchangeCredits % 5 !== 0} onClick={handleCreditExchange} className="rounded bg-emerald-500 px-4 py-2 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-40">
+            <input type="number" min={MIN_CREDIT_EXCHANGE} max={MAX_CREDIT_EXCHANGE} step={5} value={exchangeCredits} onChange={(event) => { setExchangeCredits(Math.trunc(Number(event.target.value))); setPendingExchange(null); }} className="w-32 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
+            <button type="button" disabled={isExchanging || !quoteCreditExchange(exchangeCredits) || exchangeCredits > account.credits} onClick={handleCreditExchange} className="rounded bg-emerald-500 px-4 py-2 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-40">
               {isExchanging ? 'กำลังแลก…' : `รับ ${(exchangeCredits / 5).toLocaleString()} WCoinC`}
             </button>
           </div>

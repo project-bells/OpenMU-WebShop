@@ -55,6 +55,7 @@ import type {
   VaultItemInstance,
   WebShopItem,
 } from './src/types/webshop';
+import { quoteCreditExchange } from './src/utils/creditExchange';
 
 dotenv.config();
 
@@ -808,22 +809,30 @@ async function startServer() {
   app.post('/api/payments/credits/exchange', paymentLimiter, async (req: AuthenticatedRequest, res, next) => {
     try {
       if (!req.session) { res.status(401).json({ ok: false }); return; }
-      const credits = Math.trunc(Number(req.body?.credits));
+      const quote = quoteCreditExchange(req.body?.credits);
       const idempotencyKey = String(req.headers['idempotency-key'] ?? '').trim();
       if (!/^[a-zA-Z0-9:_-]{16,128}$/.test(idempotencyKey)) {
         res.status(400).json({ ok: false, message: 'A valid Idempotency-Key header is required.' }); return;
       }
-      if (credits < 100 || credits > 50_000 || credits % 5 !== 0) {
+      if (!quote) {
         res.status(400).json({ ok: false, message: 'Exchange 100-50,000 credits in multiples of 5.' }); return;
       }
-      const wCoinC = credits / 5;
+      const { credits, wCoinC } = quote;
       const status = await reserveCreditExchange(req.session.loginName, credits, wCoinC, idempotencyKey);
-      if (status === 'completed') { res.json({ ok: true, idempotentReplay: true, creditsSpent: credits, wCoinC }); return; }
+      if (status === 'completed') {
+        const wallet = await getOpenMuAccountSummary(req.session.loginName);
+        res.json({ ok: true, idempotentReplay: true, creditsSpent: credits, wCoinC, wallet });
+        return;
+      }
       const reference = `credit-exchange:${idempotencyKey}`;
       const granted = await forwardGrantToExternalOpenMu(req.session.loginName, 'WCoinC', wCoinC, 'WebShop credit exchange', reference);
-      if (!granted) { res.status(503).json({ ok: false, pending: true, message: 'Exchange is reserved and awaiting the OpenMU server. Retry with the same Idempotency-Key.' }); return; }
+      if (!granted) {
+        res.status(503).json({ ok: false, pending: true, idempotencyKey, message: 'Exchange is reserved and awaiting the OpenMU server. Retry this pending exchange.' });
+        return;
+      }
       await completeCreditExchange(idempotencyKey);
-      res.status(201).json({ ok: true, creditsSpent: credits, wCoinC });
+      const wallet = await getOpenMuAccountSummary(req.session.loginName);
+      res.status(201).json({ ok: true, creditsSpent: credits, wCoinC, wallet });
     } catch (error) { next(error); }
   });
 

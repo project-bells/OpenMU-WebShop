@@ -17002,6 +17002,18 @@ async function verifyPayPalWebhook(headers, event) {
   return body.verification_status === "SUCCESS";
 }
 
+// src/utils/creditExchange.ts
+var CREDIT_EXCHANGE_RATE = 5;
+var MIN_CREDIT_EXCHANGE = 100;
+var MAX_CREDIT_EXCHANGE = 5e4;
+function quoteCreditExchange(value) {
+  const credits = Math.trunc(Number(value));
+  if (!Number.isFinite(credits) || credits < MIN_CREDIT_EXCHANGE || credits > MAX_CREDIT_EXCHANGE || credits % CREDIT_EXCHANGE_RATE !== 0) {
+    return null;
+  }
+  return { credits, wCoinC: credits / CREDIT_EXCHANGE_RATE };
+}
+
 // server.ts
 dotenv.config();
 var DEFAULT_PROMO_SNAPSHOT = buildDefaultPromotionConfig();
@@ -17543,30 +17555,32 @@ async function startServer() {
         res.status(401).json({ ok: false });
         return;
       }
-      const credits = Math.trunc(Number(req.body?.credits));
+      const quote = quoteCreditExchange(req.body?.credits);
       const idempotencyKey = String(req.headers["idempotency-key"] ?? "").trim();
       if (!/^[a-zA-Z0-9:_-]{16,128}$/.test(idempotencyKey)) {
         res.status(400).json({ ok: false, message: "A valid Idempotency-Key header is required." });
         return;
       }
-      if (credits < 100 || credits > 5e4 || credits % 5 !== 0) {
+      if (!quote) {
         res.status(400).json({ ok: false, message: "Exchange 100-50,000 credits in multiples of 5." });
         return;
       }
-      const wCoinC = credits / 5;
+      const { credits, wCoinC } = quote;
       const status = await reserveCreditExchange(req.session.loginName, credits, wCoinC, idempotencyKey);
       if (status === "completed") {
-        res.json({ ok: true, idempotentReplay: true, creditsSpent: credits, wCoinC });
+        const wallet2 = await getOpenMuAccountSummary(req.session.loginName);
+        res.json({ ok: true, idempotentReplay: true, creditsSpent: credits, wCoinC, wallet: wallet2 });
         return;
       }
       const reference = `credit-exchange:${idempotencyKey}`;
       const granted = await forwardGrantToExternalOpenMu(req.session.loginName, "WCoinC", wCoinC, "WebShop credit exchange", reference);
       if (!granted) {
-        res.status(503).json({ ok: false, pending: true, message: "Exchange is reserved and awaiting the OpenMU server. Retry with the same Idempotency-Key." });
+        res.status(503).json({ ok: false, pending: true, idempotencyKey, message: "Exchange is reserved and awaiting the OpenMU server. Retry this pending exchange." });
         return;
       }
       await completeCreditExchange(idempotencyKey);
-      res.status(201).json({ ok: true, creditsSpent: credits, wCoinC });
+      const wallet = await getOpenMuAccountSummary(req.session.loginName);
+      res.status(201).json({ ok: true, creditsSpent: credits, wCoinC, wallet });
     } catch (error) {
       next(error);
     }

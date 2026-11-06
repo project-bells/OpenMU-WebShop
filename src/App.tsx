@@ -1663,6 +1663,7 @@ export default function App() {
               className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {currentAccount.credits.toLocaleString()} Credits ·{' '}
+              {(wCoinCByAccount[currentAccount.username.toLowerCase()] ?? 0).toLocaleString()} WCoinC ·{' '}
               {t('nav_topup', lang)}
             </button>
           ) : (
@@ -2354,6 +2355,20 @@ export default function App() {
                       ru: `Получено +${creditsAdded.toLocaleString()} кредитов и +${wCoinCAdded.toLocaleString()} WCoinC!`,
                       es: `¡Recibiste +${creditsAdded.toLocaleString()} Créditos y +${wCoinCAdded.toLocaleString()} WCoinC!`,
                       bg: `Получихте +${creditsAdded.toLocaleString()} кредита и +${wCoinCAdded.toLocaleString()} WCoinC!`,
+                    })
+                  );
+                }}
+                onWalletSynchronized={(credits, wCoinC, logDetail) => {
+                  updateCurrentAccount((acc) => ({ ...acc, credits }));
+                  setWCoinCByAccount((prev) => ({
+                    ...prev,
+                    [currentAccount.username.toLowerCase()]: wCoinC,
+                  }));
+                  appendShopLog(logDetail);
+                  showToast(
+                    L(lang, {
+                      en: `Wallet updated: ${credits.toLocaleString()} Credits · ${wCoinC.toLocaleString()} WCoinC`,
+                      th: `อัปเดตกระเป๋าแล้ว: ${credits.toLocaleString()} Credits · ${wCoinC.toLocaleString()} WCoinC`,
                     })
                   );
                 }}
