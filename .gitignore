@@ -4,5 +4,6 @@ dist/
 coverage/
 .DS_Store
 *.log
+logs/*.ndjson
 .env*
 !.env.example

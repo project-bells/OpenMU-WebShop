@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { apiFetch, setCsrfToken } from './utils/apiClient';
 import {
   INITIAL_WEBSHOP_ITEMS,
   WebShopItem,
@@ -11,7 +12,6 @@ import {
 import {
   DEFAULT_WEBSHOP_CONFIG,
   EGIS_MU_LOGO_URL,
-  INITIAL_ACCOUNTS,
   INITIAL_BANS,
   INITIAL_CHARACTERS,
   INITIAL_GROUPS,
@@ -33,7 +33,6 @@ import {
   BUY_CHAR_400_CREDITS,
   DELETE_CHAR_400_REWARD_CREDITS,
   MU_CLASSES,
-  ONLINE_HOUR_REWARD_CREDITS,
   WAREHOUSE_ZEN_MAX_LIMIT,
   ZEN_PURCHASE_AMOUNT,
   ZEN_PURCHASE_CREDITS,
@@ -47,7 +46,6 @@ import {
   BuyCharacter400Module,
   CharNameModule,
   DeleteCharacter400Module,
-  OnlineHoursRewardModule,
   ResetPointsModule,
   UnbanModule,
   ZenModule,
@@ -109,7 +107,7 @@ export default function App() {
   // Core WebShop production state (clean initial state without temp/demo users)
   const [config, setConfig] = useState<WebShopConfig>(DEFAULT_WEBSHOP_CONFIG);
   const [catalog, setCatalog] = useState<WebShopItem[]>(INITIAL_WEBSHOP_ITEMS);
-  const [accounts, setAccounts] = useState<AccountData[]>(INITIAL_ACCOUNTS);
+  const [accounts, setAccounts] = useState<AccountData[]>([]);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [characters, setCharacters] = useState<Character[]>(INITIAL_CHARACTERS);
   const [groups, setGroups] = useState<ItemGroup[]>(INITIAL_GROUPS);
@@ -137,53 +135,24 @@ export default function App() {
 
   // Load persisted session state & hydrate catalog from backend cache
   useEffect(() => {
-    let hadSavedCatalog = false;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.catalog && Array.isArray(parsed.catalog) && parsed.catalog.length > 0) {
-          setCatalog(parsed.catalog);
-          hadSavedCatalog = true;
-        }
-        if (Array.isArray(parsed.accounts)) {
-          const savedMap = new Map<string, AccountData>(
-            (parsed.accounts as AccountData[]).map((a) => [
-              a.username.toLowerCase(),
-              a,
-            ])
-          );
-          for (const seedAcc of INITIAL_ACCOUNTS) {
-            if (!savedMap.has(seedAcc.username.toLowerCase())) {
-              savedMap.set(seedAcc.username.toLowerCase(), seedAcc);
-            }
-          }
-          setAccounts(Array.from(savedMap.values()));
-        }
-        if (Array.isArray(parsed.characters)) setCharacters(parsed.characters);
-        if (Array.isArray(parsed.groups) && parsed.groups.length > 0) setGroups(parsed.groups);
-        if (Array.isArray(parsed.logs)) setLogs(parsed.logs);
-        if (Array.isArray(parsed.bans)) setBans(parsed.bans);
-        if (typeof parsed.currentUsername === 'string' && parsed.currentUsername.trim()) {
-          setCurrentUsername(parsed.currentUsername);
-        }
-        if (parsed.wCoinCByAccount && typeof parsed.wCoinCByAccount === 'object') {
-          setWCoinCByAccount(parsed.wCoinCByAccount);
-        }
         if (parsed.lang) setLang(parsed.lang);
       }
     } catch {
       // ignore corrupted storage
     }
 
-    fetch('/api/shop/catalog')
+    apiFetch('/api/shop/catalog')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data || !data.ok) return;
-        if (!hadSavedCatalog && Array.isArray(data.items) && data.items.length > 0) {
+        if (Array.isArray(data.items) && data.items.length > 0) {
           setCatalog(data.items);
         }
-        if (!hadSavedCatalog && Array.isArray(data.groups) && data.groups.length > 0) {
+        if (Array.isArray(data.groups) && data.groups.length > 0) {
           setGroups(data.groups);
         }
         if (data.pricing && data.limits) {
@@ -203,14 +172,6 @@ export default function App() {
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          catalog,
-          accounts,
-          characters,
-          groups,
-          logs,
-          bans,
-          currentUsername,
-          wCoinCByAccount,
           lang,
         })
       );
@@ -218,14 +179,6 @@ export default function App() {
       // ignore quota error
     }
   }, [
-    catalog,
-    accounts,
-    characters,
-    groups,
-    logs,
-    bans,
-    currentUsername,
-    wCoinCByAccount,
     lang,
   ]);
 
@@ -261,11 +214,7 @@ export default function App() {
   // Hydrate server-side Audit Logs when opening Hawk Eye Audit Module (Admin only)
   useEffect(() => {
     if (!isAdminUser || !currentAccount || activeModule !== 'log') return;
-    fetch('/api/admin/audit-logs?limit=250', {
-      headers: {
-        'X-Admin-User': currentAccount.username,
-      },
-    })
+    apiFetch('/api/admin/audit-logs?limit=250')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data?.ok || !Array.isArray(data.logs)) return;
@@ -414,7 +363,20 @@ export default function App() {
     );
   };
 
+  useEffect(() => {
+    apiFetch('/api/openmu/session')
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!data?.ok || !data.account?.loginName) return;
+        setCsrfToken(data.csrfToken);
+        handleAuthSuccess(data.account.loginName, data.account);
+      })
+      .catch(() => setCsrfToken(undefined));
+  }, []);
+
   const handleLogout = () => {
+    void apiFetch('/api/openmu/logout', { method: 'POST' });
+    setCsrfToken(undefined);
     setCurrentUsername(null);
     setActiveModule('home');
     showToast(
@@ -462,7 +424,7 @@ export default function App() {
 
     const idempotencyKey = crypto.randomUUID();
     try {
-      const response = await fetch('/api/shop/purchase', {
+      const response = await apiFetch('/api/shop/purchase', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -578,7 +540,7 @@ export default function App() {
 
     const idempotencyKey = crypto.randomUUID();
     try {
-      const response = await fetch('/api/shop/purchase-group', {
+      const response = await apiFetch('/api/shop/purchase-group', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -671,7 +633,7 @@ export default function App() {
   const handleRefundItem = async (instance: VaultItemInstance) => {
     if (!currentAccount) return;
     try {
-      const response = await fetch('/api/shop/refund', {
+      const response = await apiFetch('/api/shop/refund', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1069,50 +1031,6 @@ export default function App() {
       ru: `Персонаж «${targetChar.name}» (400 ур.) удалён! Начислено +${reward.toLocaleString()} кредитов.`,
       es: `¡"${targetChar.name}" (Lv.400) eliminado! Recibiste +${reward.toLocaleString()} Créditos.`,
       bg: `"${targetChar.name}" (400 ниво) е изтрит! Получихте +${reward.toLocaleString()} кредита.`,
-    });
-    showToast(msg);
-    return { ok: true, message: msg };
-  };
-
-  // 7. Online Hours -> Credits Exchange
-  const handleRedeemOnlineHours = (hoursToRedeem: number) => {
-    if (!currentAccount) return requireAuthResponse();
-    const availableHours = Math.floor((currentAccount.onlineMinutes || 0) / 60);
-    if (availableHours < 1) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'You need at least 1 full hour (60 minutes) of online time to redeem credits.',
-          th: 'คุณยังไม่มีเวลาออนไลน์สะสมครบ 1 ชั่วโมง (60 นาที) สำหรับแลกเครดิต',
-          pt: 'Você precisa de pelo menos 1 hora completa (60 minutos) online para trocar.',
-          ru: 'Для обмена требуется минимум 1 полный час (60 минут) онлайн-времени.',
-          es: 'Necesitas al menos 1 hora completa (60 minutos) online para canjear.',
-          bg: 'Нужен е поне 1 пълен час (60 минути) онлайн време за обмяна.',
-        }),
-      };
-    }
-    const validHours = Math.max(1, Math.min(hoursToRedeem, availableHours));
-    const minutesToDeduct = validHours * 60;
-    const creditsEarned = validHours * ONLINE_HOUR_REWARD_CREDITS;
-
-    updateCurrentAccount((acc) => ({
-      ...acc,
-      credits: acc.credits + creditsEarned,
-      onlineMinutes: Math.max(0, (acc.onlineMinutes || 0) - minutesToDeduct),
-      exchangedOnlineHours: (acc.exchangedOnlineHours || 0) + validHours,
-    }));
-
-    appendShopLog(
-      `Exchanged ${validHours} online hour(s) for +${creditsEarned} Credits`
-    );
-
-    const msg = L(lang, {
-      en: `Exchanged ${validHours}h online time for +${creditsEarned.toLocaleString()} Credits!`,
-      th: `แลกเวลาออนไลน์ ${validHours} ชั่วโมงสำเร็จ! ได้รับ +${creditsEarned.toLocaleString()} Credits`,
-      pt: `Trocou ${validHours}h online por +${creditsEarned.toLocaleString()} Créditos!`,
-      ru: `Обменено ${validHours} ч. онлайна на +${creditsEarned.toLocaleString()} кредитов!`,
-      es: `¡Canjeaste ${validHours}h online por +${creditsEarned.toLocaleString()} Créditos!`,
-      bg: `Обменихте ${validHours}ч онлайн за +${creditsEarned.toLocaleString()} кредита!`,
     });
     showToast(msg);
     return { ok: true, message: msg };
@@ -1745,6 +1663,7 @@ export default function App() {
               className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {currentAccount.credits.toLocaleString()} Credits ·{' '}
+              {(wCoinCByAccount[currentAccount.username.toLowerCase()] ?? 0).toLocaleString()} WCoinC ·{' '}
               {t('nav_topup', lang)}
             </button>
           ) : (
@@ -2353,11 +2272,16 @@ export default function App() {
 
           {activeModule === 'onlinereward' &&
             (currentAccount ? (
-              <OnlineHoursRewardModule
-                account={currentAccount}
-                lang={lang}
-                onRedeemOnlineHours={handleRedeemOnlineHours}
-              />
+              <div className="max-w-2xl rounded border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-100">
+                {L(lang, {
+                  en: 'Online-time rewards are managed by the OpenMU game server. Browser-reported play time is disabled to prevent forged credit grants.',
+                  th: 'รางวัลเวลาออนไลน์ต้องจัดการโดย OpenMU game server เท่านั้น ระบบจะไม่รับเวลาเล่นจาก browser เพื่อป้องกันการปลอมเครดิต',
+                  pt: 'As recompensas por tempo online são gerenciadas pelo servidor OpenMU. O tempo informado pelo navegador está desativado.',
+                  ru: 'Награды за онлайн-время выдаёт сервер OpenMU. Данные браузера отключены во избежание подделки кредитов.',
+                  es: 'Las recompensas por tiempo online las gestiona el servidor OpenMU. El tiempo informado por el navegador está desactivado.',
+                  bg: 'Наградите за онлайн време се управляват от OpenMU сървъра. Данните от браузъра са изключени.',
+                })}
+              </div>
             ) : (
               <GuestAuthPromptCard />
             ))}
@@ -2434,6 +2358,20 @@ export default function App() {
                     })
                   );
                 }}
+                onWalletSynchronized={(credits, wCoinC, logDetail) => {
+                  updateCurrentAccount((acc) => ({ ...acc, credits }));
+                  setWCoinCByAccount((prev) => ({
+                    ...prev,
+                    [currentAccount.username.toLowerCase()]: wCoinC,
+                  }));
+                  appendShopLog(logDetail);
+                  showToast(
+                    L(lang, {
+                      en: `Wallet updated: ${credits.toLocaleString()} Credits · ${wCoinC.toLocaleString()} WCoinC`,
+                      th: `อัปเดตกระเป๋าแล้ว: ${credits.toLocaleString()} Credits · ${wCoinC.toLocaleString()} WCoinC`,
+                    })
+                  );
+                }}
               />
             ) : (
               <GuestAuthPromptCard />
@@ -2479,11 +2417,10 @@ export default function App() {
                 setCatalog((prev) =>
                   prev.map((it) => (it.uid === updated.uid ? updated : it))
                 );
-                fetch('/api/admin/catalog/items', {
+                apiFetch('/api/admin/catalog/items', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'X-Admin-User': currentAccount.username,
                   },
                   body: JSON.stringify({ item: updated }),
                 }).catch(() => {});
@@ -2495,11 +2432,10 @@ export default function App() {
               }}
               onAddItem={(newItem) => {
                 setCatalog((prev) => [...prev, newItem]);
-                fetch('/api/admin/catalog/items', {
+                apiFetch('/api/admin/catalog/items', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'X-Admin-User': currentAccount.username,
                   },
                   body: JSON.stringify({ item: newItem }),
                 }).catch(() => {});
@@ -2512,9 +2448,8 @@ export default function App() {
               onRemoveItem={(uid) => {
                 const target = catalog.find((c) => c.uid === uid);
                 setCatalog((prev) => prev.filter((it) => it.uid !== uid));
-                fetch(`/api/admin/catalog/items/${uid}`, {
+                apiFetch(`/api/admin/catalog/items/${uid}`, {
                   method: 'DELETE',
-                  headers: { 'X-Admin-User': currentAccount.username },
                 }).catch(() => {});
                 appendShopLog(
                   `Admin removed item UID #${uid} (${target?.name || 'Item'})`,
@@ -2532,11 +2467,10 @@ export default function App() {
               lang={lang}
               onAddGroup={(grp) => {
                 setGroups((prev) => [...prev, grp]);
-                fetch('/api/admin/catalog/groups', {
+                apiFetch('/api/admin/catalog/groups', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'X-Admin-User': currentAccount.username,
                   },
                   body: JSON.stringify({ group: grp }),
                 }).catch(() => {});
@@ -2550,11 +2484,10 @@ export default function App() {
                 setGroups((prev) =>
                   prev.map((g) => (g.id === updatedGrp.id ? updatedGrp : g))
                 );
-                fetch('/api/admin/catalog/groups', {
+                apiFetch('/api/admin/catalog/groups', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'X-Admin-User': currentAccount.username,
                   },
                   body: JSON.stringify({ group: updatedGrp }),
                 }).catch(() => {});
@@ -2567,9 +2500,8 @@ export default function App() {
               onDeleteGroup={(id) => {
                 const grp = groups.find((g) => g.id === id);
                 setGroups((prev) => prev.filter((g) => g.id !== id));
-                fetch(`/api/admin/catalog/groups/${id}`, {
+                apiFetch(`/api/admin/catalog/groups/${id}`, {
                   method: 'DELETE',
-                  headers: { 'X-Admin-User': currentAccount.username },
                 }).catch(() => {});
                 appendShopLog(
                   `Admin deleted item set #${id} (${grp?.name || 'Group'})`,

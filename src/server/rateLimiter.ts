@@ -2,14 +2,8 @@ import type express from 'express';
 import { incrementRateWindow } from './redisCache';
 
 export function extractClientIp(req: express.Request): string {
-  const cfIp = req.headers['cf-connecting-ip'];
-  if (typeof cfIp === 'string' && cfIp.trim()) {
-    return cfIp.trim();
-  }
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
-  }
+  // Express derives req.ip from the explicitly configured trust-proxy setting.
+  // Never trust forwarding headers directly; clients can forge them.
   return (req.ip || req.socket.remoteAddress || '0.0.0.0').replace(/^::ffff:/, '');
 }
 
@@ -31,20 +25,8 @@ export function createDistributedRateLimiter(config: RateLimiterConfig): express
       const ip = extractClientIp(req);
       let compositeSuffix = ip;
 
-      if (config.includeAccountKey) {
-        const bodyUser =
-          req.body && typeof req.body === 'object'
-            ? (req.body.accountId || req.body.loginName || req.body.username || '')
-            : '';
-        const headerUser = req.headers['x-username'] || '';
-        const acct = String(bodyUser || headerUser || '')
-          .trim()
-          .toLowerCase()
-          .slice(0, 20);
-        if (acct) {
-          compositeSuffix = `${ip}:${acct}`;
-        }
-      }
+      // IP is intentionally the only unauthenticated key. User-controlled account
+      // names would let an attacker evade the limiter by changing the name.
 
       const { count, resetAtMs } = await incrementRateWindow(
         `${config.prefix}:${compositeSuffix}`,
