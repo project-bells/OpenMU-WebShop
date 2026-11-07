@@ -69,8 +69,8 @@ interface TopUpAndOpenMuModuleProps {
 const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
   {
     code: 'PKG_50',
-    name: 'Egis Explorer Pack',
-    nameTh: 'แพ็กเกจนักผจญภัย Egis',
+    name: 'Mu Origins Explorer Pack',
+    nameTh: 'แพ็กเกจนักผจญภัย Mu Origins',
     priceUsd: 1.43,
     priceThb: 50,
     bonusPercent: 0,
@@ -82,8 +82,8 @@ const DEFAULT_PAYPAL_PACKAGES: PayPalPackage[] = [
   },
   {
     code: 'PKG_100',
-    name: 'Egis Starter Pack',
-    nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
+    name: 'Mu Origins Starter Pack',
+    nameTh: 'แพ็กเกจผู้เริ่มต้น Mu Origins',
     priceUsd: 2.86,
     priceThb: 100,
     bonusPercent: 5,

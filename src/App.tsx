@@ -11,7 +11,6 @@ import {
 } from './data/webshopItems';
 import {
   DEFAULT_WEBSHOP_CONFIG,
-  EGIS_MU_LOGO_URL,
   INITIAL_BANS,
   INITIAL_CHARACTERS,
   INITIAL_GROUPS,
@@ -119,7 +118,6 @@ export default function App() {
   const [lang, setLang] = useState<LanguageCode>('Thai');
   const [classicMode, setClassicMode] = useState<boolean>(false);
   const [loginModalOpen, setLoginModalOpen] = useState<boolean>(false);
-  const [loginModalMode, setLoginModalMode] = useState<'login' | 'register'>('login');
   const [wCoinCByAccount, setWCoinCByAccount] = useState<Record<string, number>>({});
 
   // Cross-module parameters
@@ -128,8 +126,7 @@ export default function App() {
   const [targetSerialSearch, setTargetSerialSearch] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const openAuthModal = (mode: 'login' | 'register' = 'login') => {
-    setLoginModalMode(mode);
+  const openAuthModal = () => {
     setLoginModalOpen(true);
   };
 
@@ -418,7 +415,7 @@ export default function App() {
     _totalCredits: number
   ): Promise<{ ok: boolean; message: string }> => {
     if (!currentAccount) {
-      openAuthModal('login');
+      openAuthModal();
       return requireAuthResponse();
     }
 
@@ -534,7 +531,7 @@ export default function App() {
     _totalCredits: number
   ): Promise<{ ok: boolean; message: string }> => {
     if (!currentAccount) {
-      openAuthModal('login');
+      openAuthModal();
       return requireAuthResponse();
     }
 
@@ -1605,19 +1602,11 @@ export default function App() {
       <div className="pt-2 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => openAuthModal('login')}
+          onClick={() => openAuthModal()}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs transition-colors cursor-pointer"
         >
           <LogIn className="w-4 h-4" />
           <span>{t('login_btn', lang)}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => openAuthModal('register')}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded border border-zinc-700 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 font-semibold text-xs transition-colors cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4 text-emerald-400" />
-          <span>{t('register_btn', lang)}</span>
         </button>
         <button
           type="button"
@@ -1650,7 +1639,7 @@ export default function App() {
           className="inline-flex items-center whitespace-nowrap shrink-0"
         >
           <span className="text-lg font-display font-bold tracking-wider text-amber-400">
-            Egis-MU WEBSHOP
+            Mu Origins
           </span>
         </a>
 
@@ -1669,10 +1658,10 @@ export default function App() {
           ) : (
             <button
               type="button"
-              onClick={() => openAuthModal('register')}
+              onClick={() => openAuthModal()}
               className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              {t('register_btn', lang)}
+              {t('login_btn', lang)}
             </button>
           )}
         </div>
@@ -1822,7 +1811,7 @@ export default function App() {
           ) : (
             <button
               type="button"
-              onClick={() => openAuthModal('login')}
+              onClick={() => openAuthModal()}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded border border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/25 text-[11px] font-semibold text-amber-300 cursor-pointer whitespace-nowrap"
             >
               <LogIn className="w-3.5 h-3.5" />
@@ -1838,31 +1827,21 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Two-Column Layout: Left Crest & Menu + Content Area */}
+      {/* Main Two-Column Layout: Left Menu + Content Area */}
       <div className="flex-1 max-w-[1440px] w-full mx-auto flex flex-col md:flex-row gap-6 p-6">
         {/* Left Navigation Menu */}
         <aside className="w-full md:w-60 shrink-0 space-y-4">
-          {/* Official Egis-MU Online Emblem Showcase */}
+          {/* Mu Origins Title Card (No Logo) */}
           <button
             type="button"
             onClick={() => setActiveModule('home')}
-            className="w-full rounded border border-zinc-800 bg-[#0c0504] overflow-hidden text-left group cursor-pointer block"
+            className="w-full rounded border border-zinc-800 bg-zinc-950/95 px-3.5 py-3 text-center hover:border-amber-500/40 transition-colors cursor-pointer block"
           >
-            <div className="aspect-[4/3] w-full overflow-hidden bg-[#0c0504]">
-              <img
-                src={EGIS_MU_LOGO_URL}
-                alt="Egis-MU WEBSHOP — Continent of Egis-MU S6E3"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-              />
+            <div className="text-sm font-display font-bold tracking-wider text-amber-400">
+              Mu Origins
             </div>
-            <div className="px-3.5 py-2 bg-zinc-950/95 border-t border-zinc-800/90 text-center">
-              <div className="text-xs font-display font-bold tracking-wider text-amber-400">
-                Egis-MU WEBSHOP
-              </div>
-              <div className="text-[11px] text-zinc-400 truncate mt-0.5">
-                Continent of Egis-MU S6E3
-              </div>
+            <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+              Continent of Mu Origins S6E3
             </div>
           </button>
 
@@ -2223,7 +2202,7 @@ export default function App() {
               lang={lang}
               onBuySingleItem={handleBuySingleItem}
               onBuyGroupSet={handleBuyGroupSet}
-              onRequireLogin={() => openAuthModal('login')}
+              onRequireLogin={() => openAuthModal()}
               onAdminEditItem={
                 isAdminUser
                   ? (uid) => {
@@ -2653,18 +2632,17 @@ export default function App() {
       {/* Footer */}
       <footer className="mt-auto py-4 px-6 border-t border-zinc-800/80 bg-[#090b10] text-center text-xs text-zinc-400">
         <div>
-          (c) 2026 - The Egis-MU WEBSHOP [
-          <span className="text-zinc-200">Continent of Egis-MU S6E3</span>]
+          (c) 2026 - Mu Origins [
+          <span className="text-zinc-200">Continent of Mu Origins S6E3</span>]
         </div>
       </footer>
 
-      {/* Account Login & Register Modal with Cloudflare Turnstile */}
+      {/* Account Login Modal */}
       {loginModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-xl my-8">
             <ModernLoginPage
               isModal={true}
-              initialMode={loginModalMode}
               lang={lang}
               onCancel={() => setLoginModalOpen(false)}
               onLoginSuccess={(clean, data) => {

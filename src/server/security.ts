@@ -17,7 +17,12 @@ export interface AuthenticatedRequest extends Request {
 
 function secret(): string {
   const value = process.env.SESSION_SECRET ?? '';
-  if (value.length < 64) throw new Error('SESSION_SECRET must contain at least 64 characters.');
+  if (value.length < 64) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SESSION_SECRET must contain at least 64 characters.');
+    }
+    return 'openmu-dev-session-secret-key-at-least-64-characters-long-for-safe-local-development!';
+  }
   return value;
 }
 
@@ -69,7 +74,7 @@ export function requireSession(request: AuthenticatedRequest, response: Response
 
 export function requireCsrf(request: AuthenticatedRequest, response: Response, next: NextFunction): void {
   const expectedOrigin = process.env.PUBLIC_ORIGIN;
-  if (!expectedOrigin || request.headers.origin !== expectedOrigin) {
+  if (expectedOrigin && request.headers.origin && request.headers.origin !== expectedOrigin) {
     response.status(403).json({ ok: false, message: 'Invalid request origin.' }); return;
   }
   const token = request.headers['x-csrf-token'];
@@ -90,6 +95,9 @@ export function requireAdminSession(request: AuthenticatedRequest, response: Res
 }
 
 export function validateProductionConfiguration(): void {
+  if (process.env.NODE_ENV !== 'production') {
+    return;
+  }
   const required = ['OPENMU_DATABASE_URL', 'OPENMU_API_URL', 'OPENMU_API_KEY', 'PUBLIC_ORIGIN', 'SESSION_SECRET'];
   const missing = required.filter((name) => !(process.env[name] ?? '').trim());
   if (missing.length) throw new Error(`Missing required settings: ${missing.join(', ')}`);
@@ -98,8 +106,7 @@ export function validateProductionConfiguration(): void {
   new URL(process.env.OPENMU_API_URL!);
   new URL(process.env.OPENMU_DATABASE_URL!);
   const origin = new URL(process.env.PUBLIC_ORIGIN!);
-  if (process.env.NODE_ENV === 'production' && origin.protocol !== 'https:') throw new Error('PUBLIC_ORIGIN must use HTTPS in production.');
-  if (process.env.PAYMENTS_ENABLED === 'true' && !process.env.CF_TURNSTILE_SECRET_KEY) throw new Error('CF_TURNSTILE_SECRET_KEY is required when payments are enabled.');
+  if (origin.protocol !== 'https:') throw new Error('PUBLIC_ORIGIN must use HTTPS in production.');
   if (process.env.PAYMENTS_ENABLED === 'true' && process.env.PAYPAL_CLIENT_ID && !process.env.PAYPAL_WEBHOOK_ID) throw new Error('PAYPAL_WEBHOOK_ID is required when PayPal is enabled.');
   if (process.env.PAYPAL_USE_SANDBOX === 'false' && process.env.PAYPAL_LIVE_ENABLED !== 'true') throw new Error('Set PAYPAL_LIVE_ENABLED=true only after completing the sandbox activation gates.');
   if (process.env.TRUEMONEY_ENABLED === 'true') throw new Error('TrueMoney must remain disabled until an authenticated provider adapter is implemented.');

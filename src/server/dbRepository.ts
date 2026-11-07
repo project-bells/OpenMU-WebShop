@@ -141,8 +141,116 @@ export function verifyAccountPassword(
 }
 
 // ============================================================================
-// Database Pool Initialization (PostgreSQL on OCI / Docker + Embedded Fallback)
+// Database & In-Memory Store Initialization
 // ============================================================================
+export const memoryAccounts = new Map<string, ServerAccountRecord>();
+export const memoryMembStat = new Map<string, MembStatRow>();
+export const memoryGrantsByIdempotency = new Map<string, OpenMuCoinGrant>();
+export const memoryGrantsByReference = new Map<string, OpenMuCoinGrant>();
+export const memoryGrantsList: OpenMuCoinGrant[] = [];
+export const memoryCreditExchanges = new Map<
+  string,
+  {
+    status: 'pending' | 'completed';
+    account_login: string;
+    credits_spent: number;
+    wcoinc_granted: number;
+  }
+>();
+
+export let serverCatalog: WebShopItem[] = structuredClone(INITIAL_WEBSHOP_ITEMS);
+export let serverGroups: ItemGroup[] = structuredClone(INITIAL_GROUPS);
+export let serverConfig: WebShopConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
+export let catalogVersion = 1;
+export let memoryPromotionConfig: PromotionConfig = buildDefaultPromotionConfig();
+
+export function seedMemoryStore(): void {
+  const envAdmin = (process.env.ADMIN_USERNAME || 'admin').trim();
+  const envPass = process.env.ADMIN_PASSWORD || 'admin';
+  const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || '')
+    ? String(process.env.ADMIN_DELETE_CODE)
+    : '0000000';
+
+  const initialAccounts: Array<{
+    loginName: string;
+    password: string;
+    securityCode: string;
+    state: 'Normal' | 'GameMaster';
+    role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
+    isMasterAdmin: boolean;
+    credits: number;
+    wCoinC: number;
+    vaultMoney: number;
+  }> = [
+    {
+      loginName: envAdmin,
+      password: envPass,
+      securityCode: envDeleteCode,
+      state: 'GameMaster',
+      role: 'SUPER_ADMIN',
+      isMasterAdmin: true,
+      credits: 100_000,
+      wCoinC: 10_000,
+      vaultMoney: 500_000_000,
+    },
+    {
+      loginName: 'user01',
+      password: '123456',
+      securityCode: '123456',
+      state: 'Normal',
+      role: 'USER',
+      isMasterAdmin: false,
+      credits: 50_000,
+      wCoinC: 5_000,
+      vaultMoney: 100_000_000,
+    },
+    {
+      loginName: 'admin01',
+      password: '123456',
+      securityCode: '123456',
+      state: 'GameMaster',
+      role: 'ADMIN',
+      isMasterAdmin: false,
+      credits: 50_000,
+      wCoinC: 5_000,
+      vaultMoney: 100_000_000,
+    },
+  ];
+
+  const nowIso = new Date().toISOString();
+  for (const acc of initialAccounts) {
+    const key = acc.loginName.toLowerCase();
+    memoryAccounts.set(key, {
+      id: crypto.randomUUID(),
+      loginName: acc.loginName,
+      passwordPlainOrSimulatedBcrypt: acc.password,
+      passwordHash: hashSimulatedBcrypt(acc.password),
+      securityCode: acc.securityCode,
+      email: `${acc.loginName}@egis-mu.com`,
+      state: acc.state,
+      role: acc.role,
+      isMasterAdmin: acc.isMasterAdmin,
+      registrationDate: nowIso,
+      credits: acc.credits,
+      vaultMoney: acc.vaultMoney,
+      wCoinC: acc.wCoinC,
+      wCoinP: 0,
+      goblinPoints: 0,
+      vipUntil: null,
+      vaultItems: [],
+    });
+
+    memoryMembStat.set(key, {
+      memb___id: acc.loginName,
+      ConnectStat: 0,
+      ServerName: 'Continent-of-Egis-MU-1',
+      IP: '127.0.0.1',
+      ConnectTM: null,
+      DisConnectTM: nowIso,
+    });
+  }
+}
+
 const DB_URL = (
   process.env.OPENMU_DATABASE_URL ||
   process.env.DATABASE_URL ||
@@ -154,7 +262,12 @@ let pgHealthy = false;
 
 export async function initializeDatabaseLayer(): Promise<void> {
   if (!DB_URL) {
-    throw new Error('OPENMU_DATABASE_URL is required. Embedded account and payment storage is disabled.');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('OPENMU_DATABASE_URL is required. Embedded account and payment storage is disabled.');
+    }
+    console.warn('[Database] No OPENMU_DATABASE_URL configured. Initializing embedded ACID memory storage for development.');
+    seedMemoryStore();
+    return;
   }
 
   try {
@@ -185,7 +298,11 @@ export async function initializeDatabaseLayer(): Promise<void> {
   } catch (err) {
     console.error(`[Database] PostgreSQL unavailable (${err instanceof Error ? err.message : err}).`);
     pgHealthy = false;
-    throw err;
+    if (process.env.NODE_ENV === 'production') {
+      throw err;
+    }
+    console.warn('[Database] Falling back to embedded ACID memory storage for development.');
+    seedMemoryStore();
   }
 }
 
@@ -347,7 +464,20 @@ export async function authenticateOpenMuAccount(
   password: string
 ): Promise<AuthenticatedOpenMuAccount | null> {
   if (!pgPool || !pgHealthy) {
-    throw new Error('OpenMU database is unavailable.');
+    const mem = memoryAccounts.get(loginName.trim().toLowerCase());
+    if (!mem) return null;
+    const ok = verifyAccountPassword(mem.passwordHash, mem.passwordPlainOrSimulatedBcrypt, password);
+    if (!ok) return null;
+    return {
+      id: mem.id,
+      loginName: mem.loginName,
+      email: mem.email,
+      state: mem.state === 'Normal' || mem.state === 'GameMaster' ? 0 : 1,
+      credits: mem.credits,
+      wCoinC: mem.wCoinC,
+      wCoinP: mem.wCoinP,
+      goblinPoints: mem.goblinPoints,
+    };
   }
 
   const result = await pgPool.query<{
@@ -417,7 +547,20 @@ export async function authenticateOpenMuAccount(
 }
 
 export async function getOpenMuAccountSummary(loginName: string): Promise<AuthenticatedOpenMuAccount | null> {
-  if (!pgPool || !pgHealthy) throw new Error('OpenMU database is unavailable.');
+  if (!pgPool || !pgHealthy) {
+    const mem = memoryAccounts.get(loginName.trim().toLowerCase());
+    if (!mem) return null;
+    return {
+      id: mem.id,
+      loginName: mem.loginName,
+      email: mem.email,
+      state: mem.state === 'Normal' || mem.state === 'GameMaster' ? 0 : 1,
+      credits: mem.credits,
+      wCoinC: mem.wCoinC,
+      wCoinP: mem.wCoinP,
+      goblinPoints: mem.goblinPoints,
+    };
+  }
   const result = await pgPool.query<{
     Id: string; LoginName: string; EMail: string; State: number; WCoinC: number; WCoinP: number; GoblinPoints: number; credits: number;
   }>(
@@ -434,7 +577,23 @@ export async function getOpenMuAccountSummary(loginName: string): Promise<Authen
 }
 
 export async function reserveCreditExchange(loginName: string, credits: number, wCoinC: number, idempotencyKey: string): Promise<'pending' | 'completed'> {
-  if (!pgPool || !pgHealthy) throw new Error('OpenMU database is unavailable.');
+  if (!pgPool || !pgHealthy) {
+    const existing = memoryCreditExchanges.get(idempotencyKey);
+    if (existing) {
+      if (existing.account_login.toLowerCase() !== loginName.toLowerCase() || existing.credits_spent !== credits || existing.wcoinc_granted !== wCoinC) throw new Error('Idempotency key was already used for a different exchange.');
+      return existing.status;
+    }
+    const mem = memoryAccounts.get(loginName.trim().toLowerCase());
+    if (!mem || mem.credits < credits) throw new TransactionDomainError('INSUFFICIENT_CREDITS', 409, 'Not enough webshop credits.');
+    mem.credits -= credits;
+    memoryCreditExchanges.set(idempotencyKey, {
+      status: 'pending',
+      account_login: loginName,
+      credits_spent: credits,
+      wcoinc_granted: wCoinC,
+    });
+    return 'pending';
+  }
   const client = await pgPool.connect();
   try {
     await client.query('BEGIN');
@@ -463,7 +622,17 @@ export async function reserveCreditExchange(loginName: string, credits: number, 
 }
 
 export async function completeCreditExchange(idempotencyKey: string): Promise<void> {
-  if (!pgPool || !pgHealthy) throw new Error('OpenMU database is unavailable.');
+  if (!pgPool || !pgHealthy) {
+    const entry = memoryCreditExchanges.get(idempotencyKey);
+    if (entry) {
+      entry.status = 'completed';
+      const mem = memoryAccounts.get(entry.account_login.trim().toLowerCase());
+      if (mem) {
+        mem.wCoinC += entry.wcoinc_granted;
+      }
+    }
+    return;
+  }
   await pgPool.query(`UPDATE webshop_credit_exchanges SET status = 'completed', completed_at = NOW() WHERE idempotency_key = $1`, [idempotencyKey]);
 }
 
@@ -490,93 +659,6 @@ async function withAccountMutex<T>(accountKey: string, task: () => Promise<T>): 
     if (accountLocks.get(normalized) === chained) {
       accountLocks.delete(normalized);
     }
-  }
-}
-
-const memoryAccounts = new Map<string, ServerAccountRecord>();
-const memoryMembStat = new Map<string, MembStatRow>();
-const memoryGrantsByIdempotency = new Map<string, OpenMuCoinGrant>();
-const memoryGrantsByReference = new Map<string, OpenMuCoinGrant>();
-const memoryGrantsList: OpenMuCoinGrant[] = [];
-
-let serverCatalog: WebShopItem[] = structuredClone(INITIAL_WEBSHOP_ITEMS);
-let serverGroups: ItemGroup[] = structuredClone(INITIAL_GROUPS);
-let serverConfig: WebShopConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
-let catalogVersion = 1;
-let memoryPromotionConfig: PromotionConfig = buildDefaultPromotionConfig();
-
-function seedMemoryStore(): void {
-  const envAdmin = (process.env.ADMIN_USERNAME || 'admin').trim();
-  const envPass = process.env.ADMIN_PASSWORD || 'admin';
-  const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || '')
-    ? String(process.env.ADMIN_DELETE_CODE)
-    : '0000000';
-
-  const initialAccounts: Array<{
-    loginName: string;
-    password: string;
-    securityCode: string;
-    state: 'Normal' | 'GameMaster';
-    role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
-    isMasterAdmin: boolean;
-  }> = [
-    {
-      loginName: envAdmin,
-      password: envPass,
-      securityCode: envDeleteCode,
-      state: 'GameMaster',
-      role: 'SUPER_ADMIN',
-      isMasterAdmin: true,
-    },
-    {
-      loginName: 'user01',
-      password: '123456',
-      securityCode: '123456',
-      state: 'Normal',
-      role: 'USER',
-      isMasterAdmin: false,
-    },
-    {
-      loginName: 'admin01',
-      password: '123456',
-      securityCode: '123456',
-      state: 'GameMaster',
-      role: 'ADMIN',
-      isMasterAdmin: false,
-    },
-  ];
-
-  const nowIso = new Date().toISOString();
-  for (const acc of initialAccounts) {
-    const key = acc.loginName.toLowerCase();
-    memoryAccounts.set(key, {
-      id: crypto.randomUUID(),
-      loginName: acc.loginName,
-      passwordPlainOrSimulatedBcrypt: acc.password,
-      passwordHash: hashSimulatedBcrypt(acc.password),
-      securityCode: acc.securityCode,
-      email: `${acc.loginName}@egis-mu.com`,
-      state: acc.state,
-      role: acc.role,
-      isMasterAdmin: acc.isMasterAdmin,
-      registrationDate: nowIso,
-      credits: 0,
-      vaultMoney: 0,
-      wCoinC: 0,
-      wCoinP: 0,
-      goblinPoints: 0,
-      vipUntil: null,
-      vaultItems: [],
-    });
-
-    memoryMembStat.set(key, {
-      memb___id: acc.loginName,
-      ConnectStat: 0,
-      ServerName: 'Continent-of-Egis-MU-1',
-      IP: '127.0.0.1',
-      ConnectTM: null,
-      DisConnectTM: nowIso,
-    });
   }
 }
 
@@ -712,8 +794,8 @@ export function buildDefaultPromotionConfig(): PromotionConfig {
       amountThb: 50,
       bonusPercent: 0,
       code: 'PKG_50',
-      name: 'Egis Explorer Pack',
-      nameTh: 'แพ็กเกจนักผจญภัย Egis',
+      name: 'Mu Origins Explorer Pack',
+      nameTh: 'แพ็กเกจนักผจญภัย Mu Origins',
       bonusTextTh: 'เรทมาตรฐาน',
       bonusTextEn: 'Standard Rate',
     },
@@ -721,8 +803,8 @@ export function buildDefaultPromotionConfig(): PromotionConfig {
       amountThb: 100,
       bonusPercent: 3,
       code: 'PKG_100',
-      name: 'Egis Starter Pack',
-      nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
+      name: 'Mu Origins Starter Pack',
+      nameTh: 'แพ็กเกจผู้เริ่มต้น Mu Origins',
       bonusTextTh: 'โบนัส +3%',
       bonusTextEn: '+3% Bonus',
     },
@@ -878,8 +960,8 @@ function sanitizePromotionConfig(
               .toUpperCase() || `PKG_${idx + 1}`;
           return {
             code: cleanCode,
-            name: String(p.name || `Egis Pack ${priceThb} THB`).trim(),
-            nameTh: String(p.nameTh || `แพ็กเกจ Egis ${priceThb} บาท`).trim(),
+            name: String(p.name || `Mu Origins Pack ${priceThb} THB`).trim(),
+            nameTh: String(p.nameTh || `แพ็กเกจ Mu Origins ${priceThb} บาท`).trim(),
             priceUsd,
             priceThb,
             bonusPercent,

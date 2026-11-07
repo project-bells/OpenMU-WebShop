@@ -28,7 +28,6 @@ import {
   queryMembStatOnlineStatus,
   reserveCreditExchange,
   completeCreditExchange,
-  registerAccountRecord,
   resetPromotionConfigToDefault,
   setMembStatConnectionState,
   updatePromotionConfig,
@@ -131,19 +130,32 @@ async function startServer() {
   await initializeDatabaseLayer();
 
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 3000;
 
   app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
   app.disable('x-powered-by');
 
-  // Zero-Trust Security Headers (compatible with iframe preview environments)
+  // Security Headers (compatible with iframe preview environments)
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-XSS-Protection', '0');
-    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api-m.sandbox.paypal.com https://api-m.paypal.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    if (process.env.NODE_ENV === 'production' && process.env.FRAME_PROTECTION === 'strict') {
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    }
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; " +
+      "img-src 'self' data: blob: https:; " +
+      "font-src 'self' data: https://fonts.gstatic.com; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+      "frame-src 'self'; " +
+      "connect-src 'self' ws: wss: https: https://api-m.sandbox.paypal.com https://api-m.paypal.com; " +
+      "base-uri 'self'; " +
+      "form-action 'self'"
+    );
     next();
   });
 
@@ -279,77 +291,6 @@ async function startServer() {
     next: express.NextFunction
   ) {
     requireAdminSession(req as AuthenticatedRequest, res, next);
-  }
-
-  async function verifyCloudflareTurnstile(
-    token: string | undefined,
-    remoteIp: string | undefined
-  ): Promise<{ ok: boolean; reason?: string }> {
-    if (!token || !token.trim()) {
-      return {
-        ok: false,
-        reason:
-          'กรุณายืนยันความปลอดภัย Cloudflare Turnstile ก่อนเข้าสู่ระบบ (Turnstile verification required)',
-      };
-    }
-
-    const secretKey = process.env.CF_TURNSTILE_SECRET_KEY;
-    if (!secretKey) return { ok: false, reason: 'Cloudflare Turnstile is not configured.' };
-
-    if (process.env.NODE_ENV !== 'production' && (
-      token.startsWith('TEST_TOKEN_') ||
-      token === 'mock_turnstile_pass' ||
-      token === '1x00000000000000000000AA'
-    )) {
-      return { ok: true };
-    }
-
-    try {
-      const formData = new URLSearchParams();
-      formData.append('secret', secretKey);
-      formData.append('response', token.trim());
-      if (remoteIp) {
-        formData.append('remoteip', remoteIp);
-      }
-
-      const cfRes = await fetch(
-        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-        {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        }
-      );
-
-      if (!cfRes.ok) {
-        return {
-          ok: false,
-          reason: `Cloudflare Turnstile API HTTP Error (${cfRes.status})`,
-        };
-      }
-
-      const cfData = (await cfRes.json()) as {
-        success: boolean;
-        'error-codes'?: string[];
-      };
-
-      if (!cfData.success) {
-        const errorList = (cfData['error-codes'] || ['invalid-input-response']).join(', ');
-        return {
-          ok: false,
-          reason: `การตรวจสอบความปลอดภัย Cloudflare Turnstile ไม่ผ่าน (${errorList})`,
-        };
-      }
-
-      return { ok: true };
-    } catch {
-      return {
-        ok: false,
-        reason: 'ไม่สามารถติดต่อเซิร์ฟเวอร์ Cloudflare Turnstile ได้ กรุณาลองใหม่อีกครั้ง',
-      };
-    }
   }
 
   // ==========================================================================
@@ -841,26 +782,12 @@ async function startServer() {
       const {
         loginName,
         password,
-        turnstileToken,
-        'cf-turnstile-response': cfResponse,
       } = req.body as {
         loginName?: string;
         password?: string;
-        turnstileToken?: string;
-        'cf-turnstile-response'?: string;
       };
 
-      const token = turnstileToken || cfResponse;
       const clientIp = extractClientIp(req);
-
-      const turnstileResult = await verifyCloudflareTurnstile(token, clientIp);
-      if (!turnstileResult.ok) {
-        res.status(403).json({
-          ok: false,
-          message: turnstileResult.reason || 'Cloudflare verification failed',
-        });
-        return;
-      }
 
       if (!loginName || !loginName.trim()) {
         res.status(400).json({ ok: false, message: 'กรุณาระบุชื่อบัญชี (LoginName)' });
@@ -955,99 +882,6 @@ async function startServer() {
       credits: account.credits, vaultMoney: 0, vipUntil: null, vaultItems: [],
       wCoinC: account.wCoinC, wCoinP: account.wCoinP, goblinPoints: account.goblinPoints,
     } });
-  });
-
-  app.post('/api/openmu/register', authLimiter, async (_req, res) => {
-    res.status(410).json({ ok: false, message: 'Registration is handled by the main player website.' });
-  });
-
-  /* Legacy registration implementation retained below but unreachable until removed after migration. */
-  app.post('/api/openmu/register-legacy-disabled', authLimiter, async (req, res, next) => {
-    try {
-      const {
-        loginName,
-        password,
-        email,
-        characterDeleteCode,
-        turnstileToken,
-        'cf-turnstile-response': cfResponse,
-      } = req.body as {
-        loginName?: string;
-        password?: string;
-        email?: string;
-        characterDeleteCode?: string;
-        turnstileToken?: string;
-        'cf-turnstile-response'?: string;
-      };
-
-      const token = turnstileToken || cfResponse;
-      const clientIp = extractClientIp(req);
-
-      const turnstileResult = await verifyCloudflareTurnstile(token, clientIp);
-      if (!turnstileResult.ok) {
-        res.status(403).json({
-          ok: false,
-          message: turnstileResult.reason || 'Cloudflare verification failed',
-        });
-        return;
-      }
-
-      if (!loginName || loginName.trim().length < 3 || loginName.trim().length > 10) {
-        res.status(400).json({
-          ok: false,
-          message: 'LoginName ต้องมีความยาว 3–10 ตัวอักษร',
-        });
-        return;
-      }
-      if (!password || password.length < 6) {
-        res.status(400).json({
-          ok: false,
-          message: 'Password ต้องมีความยาวอย่างน้อย 6 ตัวอักษร',
-        });
-        return;
-      }
-
-      const cleanDeleteCode = String(characterDeleteCode || '').trim();
-      if (!/^\d{4,8}$/.test(cleanDeleteCode)) {
-        res.status(400).json({
-          ok: false,
-          message: 'รหัสสำหรับลบตัวละครต้องเป็นตัวเลข 0-9 เท่านั้น (ความยาว 4–8 หลัก)',
-        });
-        return;
-      }
-
-      const newAcc = await registerAccountRecord(
-        loginName.trim(),
-        password,
-        email || `${loginName.trim()}@openmu.local`,
-        cleanDeleteCode,
-        clientIp
-      );
-
-      res.status(201).json({
-        ok: true,
-        message: `Account "${newAcc.loginName}" registered successfully.`,
-        account: {
-          id: newAcc.id,
-          loginName: newAcc.loginName,
-          email: newAcc.email,
-          characterDeleteCode: newAcc.securityCode,
-          state: newAcc.state,
-          role: newAcc.role,
-          isMasterAdmin: false,
-          credits: newAcc.credits,
-          vaultMoney: newAcc.vaultMoney,
-          vipUntil: newAcc.vipUntil,
-          vaultItems: newAcc.vaultItems,
-          wCoinC: newAcc.wCoinC,
-          wCoinP: newAcc.wCoinP,
-          goblinPoints: newAcc.goblinPoints,
-          isAdmin: false,
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
   });
 
   app.get('/api/accounts/:loginName/cash-shop', (req, res) => {

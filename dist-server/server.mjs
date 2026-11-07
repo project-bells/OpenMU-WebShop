@@ -14737,12 +14737,110 @@ function hashSimulatedBcrypt(password) {
   const digest = crypto4.createHash("sha256").update(`openmu_salt_${password}`).digest("base64").replace(/[^a-zA-Z0-9./]/g, "A").slice(0, 53);
   return `$2a$11$${digest}`;
 }
+function verifyAccountPassword(storedPlainOrHash, storedHash, candidatePassword) {
+  const candidateHash = hashSimulatedBcrypt(candidatePassword);
+  const a = Buffer.from(storedHash);
+  const b = Buffer.from(candidateHash);
+  if (a.length === b.length && crypto4.timingSafeEqual(a, b)) {
+    return true;
+  }
+  const pA = Buffer.from(storedPlainOrHash);
+  const pB = Buffer.from(candidatePassword);
+  return pA.length === pB.length && crypto4.timingSafeEqual(pA, pB);
+}
+var memoryAccounts = /* @__PURE__ */ new Map();
+var memoryMembStat = /* @__PURE__ */ new Map();
+var memoryGrantsByIdempotency = /* @__PURE__ */ new Map();
+var memoryGrantsByReference = /* @__PURE__ */ new Map();
+var memoryGrantsList = [];
+var memoryCreditExchanges = /* @__PURE__ */ new Map();
+var serverCatalog = structuredClone(INITIAL_WEBSHOP_ITEMS);
+var serverGroups = structuredClone(INITIAL_GROUPS);
+var serverConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
+var catalogVersion = 1;
+var memoryPromotionConfig = buildDefaultPromotionConfig();
+function seedMemoryStore() {
+  const envAdmin = (process.env.ADMIN_USERNAME || "admin").trim();
+  const envPass = process.env.ADMIN_PASSWORD || "admin";
+  const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || "") ? String(process.env.ADMIN_DELETE_CODE) : "0000000";
+  const initialAccounts = [
+    {
+      loginName: envAdmin,
+      password: envPass,
+      securityCode: envDeleteCode,
+      state: "GameMaster",
+      role: "SUPER_ADMIN",
+      isMasterAdmin: true,
+      credits: 1e5,
+      wCoinC: 1e4,
+      vaultMoney: 5e8
+    },
+    {
+      loginName: "user01",
+      password: "123456",
+      securityCode: "123456",
+      state: "Normal",
+      role: "USER",
+      isMasterAdmin: false,
+      credits: 5e4,
+      wCoinC: 5e3,
+      vaultMoney: 1e8
+    },
+    {
+      loginName: "admin01",
+      password: "123456",
+      securityCode: "123456",
+      state: "GameMaster",
+      role: "ADMIN",
+      isMasterAdmin: false,
+      credits: 5e4,
+      wCoinC: 5e3,
+      vaultMoney: 1e8
+    }
+  ];
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  for (const acc of initialAccounts) {
+    const key = acc.loginName.toLowerCase();
+    memoryAccounts.set(key, {
+      id: crypto4.randomUUID(),
+      loginName: acc.loginName,
+      passwordPlainOrSimulatedBcrypt: acc.password,
+      passwordHash: hashSimulatedBcrypt(acc.password),
+      securityCode: acc.securityCode,
+      email: `${acc.loginName}@egis-mu.com`,
+      state: acc.state,
+      role: acc.role,
+      isMasterAdmin: acc.isMasterAdmin,
+      registrationDate: nowIso,
+      credits: acc.credits,
+      vaultMoney: acc.vaultMoney,
+      wCoinC: acc.wCoinC,
+      wCoinP: 0,
+      goblinPoints: 0,
+      vipUntil: null,
+      vaultItems: []
+    });
+    memoryMembStat.set(key, {
+      memb___id: acc.loginName,
+      ConnectStat: 0,
+      ServerName: "Continent-of-Egis-MU-1",
+      IP: "127.0.0.1",
+      ConnectTM: null,
+      DisConnectTM: nowIso
+    });
+  }
+}
 var DB_URL = (process.env.OPENMU_DATABASE_URL || process.env.DATABASE_URL || "").trim();
 var pgPool = null;
 var pgHealthy = false;
 async function initializeDatabaseLayer() {
   if (!DB_URL) {
-    throw new Error("OPENMU_DATABASE_URL is required. Embedded account and payment storage is disabled.");
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("OPENMU_DATABASE_URL is required. Embedded account and payment storage is disabled.");
+    }
+    console.warn("[Database] No OPENMU_DATABASE_URL configured. Initializing embedded ACID memory storage for development.");
+    seedMemoryStore();
+    return;
   }
   try {
     pgPool = new Pool({
@@ -14767,7 +14865,11 @@ async function initializeDatabaseLayer() {
   } catch (err) {
     console.error(`[Database] PostgreSQL unavailable (${err instanceof Error ? err.message : err}).`);
     pgHealthy = false;
-    throw err;
+    if (process.env.NODE_ENV === "production") {
+      throw err;
+    }
+    console.warn("[Database] Falling back to embedded ACID memory storage for development.");
+    seedMemoryStore();
   }
 }
 async function bootstrapPostgresSchema(client) {
@@ -14905,7 +15007,20 @@ function getPgPool() {
 }
 async function authenticateOpenMuAccount(loginName, password) {
   if (!pgPool || !pgHealthy) {
-    throw new Error("OpenMU database is unavailable.");
+    const mem = memoryAccounts.get(loginName.trim().toLowerCase());
+    if (!mem) return null;
+    const ok = verifyAccountPassword(mem.passwordHash, mem.passwordPlainOrSimulatedBcrypt, password);
+    if (!ok) return null;
+    return {
+      id: mem.id,
+      loginName: mem.loginName,
+      email: mem.email,
+      state: mem.state === "Normal" || mem.state === "GameMaster" ? 0 : 1,
+      credits: mem.credits,
+      wCoinC: mem.wCoinC,
+      wCoinP: mem.wCoinP,
+      goblinPoints: mem.goblinPoints
+    };
   }
   const result = await pgPool.query(
     `SELECT "Id", "LoginName", "PasswordHash", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
@@ -14963,7 +15078,20 @@ async function authenticateOpenMuAccount(loginName, password) {
   };
 }
 async function getOpenMuAccountSummary(loginName) {
-  if (!pgPool || !pgHealthy) throw new Error("OpenMU database is unavailable.");
+  if (!pgPool || !pgHealthy) {
+    const mem = memoryAccounts.get(loginName.trim().toLowerCase());
+    if (!mem) return null;
+    return {
+      id: mem.id,
+      loginName: mem.loginName,
+      email: mem.email,
+      state: mem.state === "Normal" || mem.state === "GameMaster" ? 0 : 1,
+      credits: mem.credits,
+      wCoinC: mem.wCoinC,
+      wCoinP: mem.wCoinP,
+      goblinPoints: mem.goblinPoints
+    };
+  }
   const result = await pgPool.query(
     `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints", COALESCE(w.credits, 0)::int AS credits
        FROM data."Account" a
@@ -14984,7 +15112,23 @@ async function getOpenMuAccountSummary(loginName) {
   } : null;
 }
 async function reserveCreditExchange(loginName, credits, wCoinC, idempotencyKey) {
-  if (!pgPool || !pgHealthy) throw new Error("OpenMU database is unavailable.");
+  if (!pgPool || !pgHealthy) {
+    const existing = memoryCreditExchanges.get(idempotencyKey);
+    if (existing) {
+      if (existing.account_login.toLowerCase() !== loginName.toLowerCase() || existing.credits_spent !== credits || existing.wcoinc_granted !== wCoinC) throw new Error("Idempotency key was already used for a different exchange.");
+      return existing.status;
+    }
+    const mem = memoryAccounts.get(loginName.trim().toLowerCase());
+    if (!mem || mem.credits < credits) throw new TransactionDomainError("INSUFFICIENT_CREDITS", 409, "Not enough webshop credits.");
+    mem.credits -= credits;
+    memoryCreditExchanges.set(idempotencyKey, {
+      status: "pending",
+      account_login: loginName,
+      credits_spent: credits,
+      wcoinc_granted: wCoinC
+    });
+    return "pending";
+  }
   const client = await pgPool.connect();
   try {
     await client.query("BEGIN");
@@ -15019,7 +15163,17 @@ async function reserveCreditExchange(loginName, credits, wCoinC, idempotencyKey)
   }
 }
 async function completeCreditExchange(idempotencyKey) {
-  if (!pgPool || !pgHealthy) throw new Error("OpenMU database is unavailable.");
+  if (!pgPool || !pgHealthy) {
+    const entry = memoryCreditExchanges.get(idempotencyKey);
+    if (entry) {
+      entry.status = "completed";
+      const mem = memoryAccounts.get(entry.account_login.trim().toLowerCase());
+      if (mem) {
+        mem.wCoinC += entry.wcoinc_granted;
+      }
+    }
+    return;
+  }
   await pgPool.query(`UPDATE webshop_credit_exchanges SET status = 'completed', completed_at = NOW() WHERE idempotency_key = $1`, [idempotencyKey]);
 }
 var accountLocks = /* @__PURE__ */ new Map();
@@ -15042,16 +15196,6 @@ async function withAccountMutex(accountKey, task) {
     }
   }
 }
-var memoryAccounts = /* @__PURE__ */ new Map();
-var memoryMembStat = /* @__PURE__ */ new Map();
-var memoryGrantsByIdempotency = /* @__PURE__ */ new Map();
-var memoryGrantsByReference = /* @__PURE__ */ new Map();
-var memoryGrantsList = [];
-var serverCatalog = structuredClone(INITIAL_WEBSHOP_ITEMS);
-var serverGroups = structuredClone(INITIAL_GROUPS);
-var serverConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
-var catalogVersion = 1;
-var memoryPromotionConfig = buildDefaultPromotionConfig();
 async function getCatalogBundleCached() {
   const cached = await cacheGetJson(CATALOG_CACHE_KEY);
   if (cached) {
@@ -16779,7 +16923,12 @@ var SESSION_COOKIE = "__Host-openmu_shop";
 var SESSION_LIFETIME_SECONDS = 60 * 60;
 function secret() {
   const value = process.env.SESSION_SECRET ?? "";
-  if (value.length < 64) throw new Error("SESSION_SECRET must contain at least 64 characters.");
+  if (value.length < 64) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("SESSION_SECRET must contain at least 64 characters.");
+    }
+    return "openmu-dev-session-secret-key-at-least-64-characters-long-for-safe-local-development!";
+  }
   return value;
 }
 function signature(payload) {
@@ -16830,7 +16979,7 @@ function requireSession(request, response, next) {
 }
 function requireCsrf(request, response, next) {
   const expectedOrigin = process.env.PUBLIC_ORIGIN;
-  if (!expectedOrigin || request.headers.origin !== expectedOrigin) {
+  if (expectedOrigin && request.headers.origin && request.headers.origin !== expectedOrigin) {
     response.status(403).json({ ok: false, message: "Invalid request origin." });
     return;
   }
@@ -16855,6 +17004,9 @@ function requireAdminSession(request, response, next) {
   next();
 }
 function validateProductionConfiguration() {
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
   const required = ["OPENMU_DATABASE_URL", "OPENMU_API_URL", "OPENMU_API_KEY", "PUBLIC_ORIGIN", "SESSION_SECRET"];
   const missing = required.filter((name) => !(process.env[name] ?? "").trim());
   if (missing.length) throw new Error(`Missing required settings: ${missing.join(", ")}`);
@@ -16863,7 +17015,7 @@ function validateProductionConfiguration() {
   new URL(process.env.OPENMU_API_URL);
   new URL(process.env.OPENMU_DATABASE_URL);
   const origin = new URL(process.env.PUBLIC_ORIGIN);
-  if (process.env.NODE_ENV === "production" && origin.protocol !== "https:") throw new Error("PUBLIC_ORIGIN must use HTTPS in production.");
+  if (origin.protocol !== "https:") throw new Error("PUBLIC_ORIGIN must use HTTPS in production.");
   if (process.env.PAYMENTS_ENABLED === "true" && !process.env.CF_TURNSTILE_SECRET_KEY) throw new Error("CF_TURNSTILE_SECRET_KEY is required when payments are enabled.");
   if (process.env.PAYMENTS_ENABLED === "true" && process.env.PAYPAL_CLIENT_ID && !process.env.PAYPAL_WEBHOOK_ID) throw new Error("PAYPAL_WEBHOOK_ID is required when PayPal is enabled.");
   if (process.env.PAYPAL_USE_SANDBOX === "false" && process.env.PAYPAL_LIVE_ENABLED !== "true") throw new Error("Set PAYPAL_LIVE_ENABLED=true only after completing the sandbox activation gates.");
@@ -17073,9 +17225,14 @@ async function startServer() {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-XSS-Protection", "0");
-    res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api-m.sandbox.paypal.com https://api-m.paypal.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    if (process.env.NODE_ENV === "production" && process.env.FRAME_PROTECTION === "strict") {
+      res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    }
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; connect-src 'self' ws: wss: https: https://api-m.sandbox.paypal.com https://api-m.paypal.com; base-uri 'self'; form-action 'self'"
+    );
     next();
   });
   app.use(

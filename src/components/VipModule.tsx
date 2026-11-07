@@ -88,12 +88,12 @@ export const VipModule: React.FC<VipModuleProps> = ({
               <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
               <span>
                 {L(lang, {
-                  en: 'Egis-MU VIP Membership & Sub-Server',
-                  th: 'ระบบห้อง VIP & สิทธิพิเศษ Egis-MU',
-                  pt: 'Sistema de Sala VIP & Benefícios Egis-MU',
-                  ru: 'VIP Система и VIP Сервер Egis-MU',
-                  es: 'Sistema de Sala VIP y Beneficios Egis-MU',
-                  bg: 'VIP Система и VIP Зала Egis-MU',
+                  en: 'Mu Origins VIP Membership & Sub-Server',
+                  th: 'ระบบห้อง VIP & สิทธิพิเศษ Mu Origins',
+                  pt: 'Sistema de Sala VIP & Benefícios Mu Origins',
+                  ru: 'VIP Система и VIP Сервер Mu Origins',
+                  es: 'Sistema de Sala VIP y Beneficios Mu Origins',
+                  bg: 'VIP Система и VIP Зала Mu Origins',
                 })}
               </span>
             </div>
@@ -111,12 +111,12 @@ export const VipModule: React.FC<VipModuleProps> = ({
             </h1>
             <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
               {L(lang, {
-                en: 'Access the dedicated Continent of Egis-MU VIP sub-server with +30% EXP bonus and +20% Drop rate boost (Normal Room EXP 100x / Drop 40% → VIP Room EXP 130x / Drop 60%). Uncrowded farming spots!',
-                th: 'เข้าสู่ห้อง VIP พิเศษเฉพาะสมาชิก Continent of Egis-MU เพิ่มค่า EXP +30% และอัตรา Drop +20% (ห้องธรรมดา EXP 100x ดรอป 40% → ห้อง VIP เป็น EXP 130x ดรอป 60%) จุดฟาร์มกว้างขวาง ไม่แออัด',
-                pt: 'Acesse a sala VIP exclusiva de Continent of Egis-MU com bônus de EXP +30% e taxa de Drop +20% (Sala normal EXP 100x / Drop 40% → Sala VIP EXP 130x / Drop 60%). Spawns livres e sem aglomeração.',
-                ru: 'Доступ на выделенный VIP сервер Continent of Egis-MU с бонусом к Опыту +30% и шансу Дропа +20% (Обычный EXP 100x / Дроп 40% → VIP EXP 130x / Дроп 60%). Свободные споты!',
-                es: 'Accede a la sala VIP exclusiva de Continent of Egis-MU con bono de EXP +30% y tasa de Drop +20% (Sala normal EXP 100x / Drop 40% → Sala VIP EXP 130x / Drop 60%). Spawns libres y amplios.',
-                bg: 'Достъп до ексклузивна VIP зала на Continent of Egis-MU с бонус към EXP +30% и Drop +20% (Обикновена EXP 100x / Drop 40% → VIP EXP 130x / Drop 60%).',
+                en: 'Access the dedicated Continent of Mu Origins VIP sub-server with +30% EXP bonus and +20% Drop rate boost (Normal Room EXP 100x / Drop 40% → VIP Room EXP 130x / Drop 60%). Uncrowded farming spots!',
+                th: 'เข้าสู่ห้อง VIP พิเศษเฉพาะสมาชิก Continent of Mu Origins เพิ่มค่า EXP +30% และอัตรา Drop +20% (ห้องธรรมดา EXP 100x ดรอป 40% → ห้อง VIP เป็น EXP 130x ดรอป 60%) จุดฟาร์มกว้างขวาง ไม่แออัด',
+                pt: 'Acesse a sala VIP exclusiva de Continent of Mu Origins com bônus de EXP +30% e taxa de Drop +20% (Sala normal EXP 100x / Drop 40% → Sala VIP EXP 130x / Drop 60%). Spawns livres e sem aglomeração.',
+                ru: 'Доступ на выделенный VIP сервер Continent of Mu Origins с бонусом к Опыту +30% и шансу Дропа +20% (Обычный EXP 100x / Дроп 40% → VIP EXP 130x / Дроп 60%). Свободные споты!',
+                es: 'Accede a la sala VIP exclusiva de Continent of Mu Origins con bono de EXP +30% y tasa de Drop +20% (Sala normal EXP 100x / Drop 40% → Sala VIP EXP 130x / Drop 60%). Spawns libres y amplios.',
+                bg: 'Достъп до ексклузивна VIP зала на Continent of Mu Origins с бонус към EXP +30% и Drop +20% (Обикновена EXP 100x / Drop 40% → VIP EXP 130x / Drop 60%).',
               })}
             </p>
           </div>
@@ -361,12 +361,12 @@ export const VipModule: React.FC<VipModuleProps> = ({
                 </h3>
                 <p className="text-xs text-amber-400/80">
                   {L(lang, {
-                    en: 'Continent of Egis-MU [VIP Room 2]',
-                    th: 'สิทธิพิเศษเฉพาะสมาชิก VIP Continent of Egis-MU',
-                    pt: 'Exclusivo para membros VIP Egis-MU',
-                    ru: 'Эксклюзивно для VIP участников Egis-MU',
-                    es: 'Exclusivo para miembros VIP Egis-MU',
-                    bg: 'Ексклузивно за VIP членове на Egis-MU',
+                    en: 'Continent of Mu Origins [VIP Room 2]',
+                    th: 'สิทธิพิเศษเฉพาะสมาชิก VIP Continent of Mu Origins',
+                    pt: 'Exclusivo para membros VIP Mu Origins',
+                    ru: 'Эксклюзивно для VIP участников Mu Origins',
+                    es: 'Exclusivo para miembros VIP Mu Origins',
+                    bg: 'Ексклузивно за VIP членове на Mu Origins',
                   })}
                 </p>
               </div>

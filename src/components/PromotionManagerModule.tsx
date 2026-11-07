@@ -98,8 +98,8 @@ const FALLBACK_CONFIG: PromotionConfig = {
   payPalPackages: [
     {
       code: 'PKG_50',
-      name: 'Egis Explorer Pack',
-      nameTh: 'แพ็กเกจนักผจญภัย Egis',
+      name: 'Mu Origins Explorer Pack',
+      nameTh: 'แพ็กเกจนักผจญภัย Mu Origins',
       priceThb: 50,
       priceUsd: 1.43,
       bonusPercent: 0,
@@ -111,8 +111,8 @@ const FALLBACK_CONFIG: PromotionConfig = {
     },
     {
       code: 'PKG_100',
-      name: 'Egis Starter Pack',
-      nameTh: 'แพ็กเกจผู้เริ่มต้น Egis',
+      name: 'Mu Origins Starter Pack',
+      nameTh: 'แพ็กเกจผู้เริ่มต้น Mu Origins',
       priceThb: 100,
       priceUsd: 2.86,
       bonusPercent: 5,
@@ -329,10 +329,10 @@ export const PromotionManagerModule: React.FC<PromotionManagerModuleProps> = ({
           code: existing?.code || `PKG_${tm.amountThb}`,
           name:
             existing?.name ||
-            `Egis Tier ${idx + 1} Pack (${tm.amountThb} THB)`,
+            `Mu Origins Tier ${idx + 1} Pack (${tm.amountThb} THB)`,
           nameTh:
             existing?.nameTh ||
-            `แพ็กเกจ Egis ระดับ ${idx + 1} (${tm.amountThb} บาท)`,
+            `แพ็กเกจ Mu Origins ระดับ ${idx + 1} (${tm.amountThb} บาท)`,
           priceThb: tm.amountThb,
           priceUsd: Number((tm.amountThb / fxRate).toFixed(2)),
           bonusPercent: tm.bonusPercent,
@@ -585,8 +585,8 @@ export const PromotionManagerModule: React.FC<PromotionManagerModuleProps> = ({
           ...prev.payPalPackages,
           {
             code: `PKG_${nextThb}`,
-            name: `Egis Elite Chest (${nextThb} THB)`,
-            nameTh: `แพ็กเกจ Egis Elite (${nextThb} บาท)`,
+            name: `Mu Origins Elite Chest (${nextThb} THB)`,
+            nameTh: `แพ็กเกจ Mu Origins Elite (${nextThb} บาท)`,
             priceThb: nextThb,
             priceUsd: Number(
               (nextThb / Math.max(1, prev.usdToThbRate)).toFixed(2)

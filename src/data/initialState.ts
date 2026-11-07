@@ -8,9 +8,6 @@ import {
   WebShopConfig,
 } from '../types/webshop';
 
-export const EGIS_MU_LOGO_URL =
-  '/assets/aistudio/Gemini_Generated_Image_hppasvhppasvhppa_7bd6cc6a.jpg';
-
 export const DEFAULT_WEBSHOP_CONFIG: WebShopConfig = {
   credits: {
     reset: 200, // Cost to Reset Points
@@ -46,9 +43,9 @@ export const DEFAULT_WEBSHOP_CONFIG: WebShopConfig = {
     zen_limit: 900000000, // 900M Warehouse Zen Maximum Limit
   },
   misc: {
-    title: 'Welcome to The Egis-MU WEBSHOP',
+    title: 'Welcome to Mu Origins',
     admins: 'admin,admin01',
-    servername: 'Continent of Egis-MU S6E3',
+    servername: 'Continent of Mu Origins S6E3',
     serverlink: '#',
     topcredits: 20,
     s3classes: true,

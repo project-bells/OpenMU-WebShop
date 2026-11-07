@@ -198,7 +198,7 @@ export const WarehouseGrid: React.FC<WarehouseGridProps> = ({
                 ))}
                 <td
                   style={{ width: '28px', height: '28px' }}
-                  title="Egis-MU WEBSHOP [Continent of Egis-MU S6E3]"
+                  title="Mu Origins [Continent of Mu Origins S6E3]"
                   className={`vault-cell text-center font-mono-tabular text-[11px] font-bold ${
                     classicMode ? 'text-black bg-[#999999]' : 'text-amber-400 bg-zinc-950/80'
                   }`}
