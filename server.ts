@@ -33,6 +33,9 @@ import {
   listAdminAccounts,
   queryMembStatOnlineStatus,
   redeemAccountOnlineHours,
+  reserveAuthoritativeItemOrder,
+  completeAuthoritativeItemOrder,
+  failAuthoritativeItemOrder,
   reserveCreditExchange,
   resetPromotionConfigToDefault,
   setMembStatConnectionState,
@@ -40,6 +43,11 @@ import {
   upsertCatalogGroup,
   upsertCatalogItem,
 } from './src/server/dbRepository';
+import {
+  getOpenMuCashShopCatalog,
+  grantOpenMuInventoryItem,
+  OpenMuInventoryApiError,
+} from './src/server/openMuInventoryApi';
 import {
   clearSessionCookie,
   createSession,
@@ -251,7 +259,7 @@ async function startServer() {
   app.use('/api/accounts', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
   app.use('/api/payments', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
   app.use('/api/admin', (req, res, next) => req.method === 'GET' ? next() : requireCsrf(req as AuthenticatedRequest, res, next));
-  app.use(['/api/shop/purchase', '/api/shop/purchase-group', '/api/shop/refund'], (_req, res) => {
+  app.use(['/api/shop/purchase-group', '/api/shop/refund'], (_req, res) => {
     res.status(503).json({ ok: false, message: 'Direct item delivery is disabled until an authoritative OpenMU inventory API is configured.' });
   });
 
@@ -440,31 +448,119 @@ async function startServer() {
         typeof headerIdem === 'string' && headerIdem.trim()
           ? headerIdem.trim()
           : body.idempotencyKey;
+      if (!idempotencyKey || body.currency === 'WCoinC') {
+        throw new TransactionDomainError(
+          body.currency === 'WCoinC' ? 'WCOIN_PURCHASE_NOT_AUTHORITATIVE' : 'IDEMPOTENCY_KEY_REQUIRED',
+          422,
+          body.currency === 'WCoinC'
+            ? 'WCoin purchases remain disabled until OpenMU can debit WCoin and deliver the item atomically.'
+            : 'Idempotency-Key is required.'
+        );
+      }
+      if (
+        Number(body.level) !== 0 ||
+        Number(body.option) !== 0 ||
+        Boolean(body.luck) ||
+        Boolean(body.skill) ||
+        (Array.isArray(body.exlOptions) && body.exlOptions.some(Boolean)) ||
+        body.ancientStamina === 5 ||
+        body.ancientStamina === 10 ||
+        body.fenrirVariant === 1 ||
+        body.fenrirVariant === 2 ||
+        body.fenrirVariant === 3
+      ) {
+        throw new TransactionDomainError(
+          'CLIENT_ITEM_OPTIONS_REJECTED',
+          422,
+          'Item options are controlled by the authoritative OpenMU offer and cannot be selected by the browser.'
+        );
+      }
 
-      const result = await executePurchaseSingleItemTx({
-        accountId: req.session?.loginName || '',
-        ipAddress: clientIp,
-        idempotencyKey,
-        currency: body.currency || 'credits',
+      const reference = `webshop:order:${idempotencyKey}`;
+      const order = await reserveAuthoritativeItemOrder({
+        accountLogin: req.session?.loginName || '',
         itemUid: Number(body.itemUid),
-        level: Number(body.level) || 0,
-        option: Number(body.option) || 0,
-        luck: Boolean(body.luck),
-        skill: Boolean(body.skill),
-        exlOptions: Array.isArray(body.exlOptions) ? body.exlOptions : [],
-        ancientStamina:
-          body.ancientStamina === 5 || body.ancientStamina === 10
-            ? body.ancientStamina
-            : 0,
-        fenrirVariant:
-          body.fenrirVariant === 1 ||
-          body.fenrirVariant === 2 ||
-          body.fenrirVariant === 3
-            ? body.fenrirVariant
-            : 0,
+        reference,
       });
+      if (order.status === 'delivered') {
+        res.json({
+          ok: true,
+          idempotentReplay: true,
+          orderStatus: order.status,
+          reference,
+          chargedCredits: order.chargedCredits,
+          chargedWCoinC: 0,
+          remainingCredits: order.remainingCredits,
+          remainingWCoinC: 0,
+          addedItems: [],
+          message: 'The item was already delivered to your in-game Cash Shop storage.',
+        });
+        return;
+      }
+      if (order.status !== 'pending') {
+        throw new TransactionDomainError(
+          'ORDER_REQUIRES_REVIEW',
+          409,
+          `Order ${reference} is ${order.status} and cannot be submitted again.`
+        );
+      }
 
-      res.status(result.idempotentReplay ? 200 : 201).json(result);
+      try {
+        const grant = await grantOpenMuInventoryItem({
+          loginName: order.accountLogin,
+          packageSequence: order.packageSequence,
+          priceSequence: order.priceSequence,
+          reference,
+          reason: `WebShop Credits purchase, item UID ${order.itemUid}`,
+        });
+        await completeAuthoritativeItemOrder(reference, grant.id);
+        await recordAuditLog(
+          {
+            accountId: order.accountLogin,
+            ipAddress: clientIp,
+            action: 'AUTHORITATIVE_ITEM_PURCHASE',
+            status: 'COMMITTED',
+            creditsDelta: -order.chargedCredits,
+            idempotencyKey,
+            details: `Delivered OpenMU package ${order.packageSequence}, price ${order.priceSequence ?? 'bundle'}, grant ${grant.id}, reference ${reference}`,
+          },
+          getPgPool()
+        );
+        res.status(201).json({
+          ok: true,
+          orderStatus: 'delivered',
+          reference,
+          openMuGrantId: grant.id,
+          chargedCredits: order.chargedCredits,
+          chargedWCoinC: 0,
+          remainingCredits: order.remainingCredits,
+          remainingWCoinC: 0,
+          addedItems: [],
+          message: 'Item delivered to your in-game Cash Shop storage.',
+        });
+      } catch (error) {
+        if (!(error instanceof OpenMuInventoryApiError)) throw error;
+        if (error.retryable) {
+          res.status(503).json({
+            ok: false,
+            pending: true,
+            reference,
+            idempotencyKey,
+            remainingCredits: order.remainingCredits,
+            message: 'Delivery is pending. Retry the same purchase; do not create a new order.',
+          });
+          return;
+        }
+        const refund = error.code !== 'REFERENCE_CONFLICT';
+        await failAuthoritativeItemOrder(reference, error.code, refund);
+        throw new TransactionDomainError(
+          error.code,
+          error.status || 409,
+          refund
+            ? `${error.message} Reserved credits were returned.`
+            : `${error.message} The order requires manual review; credits were not changed again.`
+        );
+      }
     } catch (err) {
       next(err);
     }
@@ -1035,9 +1131,35 @@ async function startServer() {
   app.post('/api/admin/catalog/items', requireAdmin, async (req, res, next) => {
     try {
       const item = req.body?.item as WebShopItem | undefined;
-      if (!item || typeof item.uid !== 'number' || !item.name) {
+      if (!item || !Number.isInteger(item.uid) || !item.name || !Number.isInteger(item.credits) || item.credits < 0) {
         res.status(400).json({ ok: false, message: 'Valid WebShopItem payload required.' });
         return;
+      }
+      if (item.openMuPackageSequence !== undefined) {
+        if (!Number.isInteger(item.openMuPackageSequence) || item.openMuPackageSequence < 0) {
+          throw new TransactionDomainError('INVALID_OPENMU_MAPPING', 422, 'OpenMU package sequence must be a non-negative integer.');
+        }
+        const catalog = await getOpenMuCashShopCatalog();
+        const offer = catalog.find((entry) => entry.packageSequence === item.openMuPackageSequence);
+        if (!offer) {
+          throw new TransactionDomainError('INVALID_OPENMU_MAPPING', 422, 'The OpenMU package is not enabled in the authoritative catalog.');
+        }
+        if (offer.isBundle) {
+          if (item.openMuPriceSequence !== undefined && item.openMuPriceSequence !== null) {
+            throw new TransactionDomainError('INVALID_OPENMU_MAPPING', 422, 'An OpenMU bundle must not specify a price sequence.');
+          }
+          item.openMuPriceSequence = null;
+        } else {
+          if (!Number.isInteger(item.openMuPriceSequence)) {
+            throw new TransactionDomainError('INVALID_OPENMU_MAPPING', 422, 'A non-bundle OpenMU package requires a price sequence.');
+          }
+          const product = offer.products.find((entry) => entry.priceSequence === item.openMuPriceSequence);
+          if (!product || product.itemGroup !== item.type || product.itemNumber !== item.id) {
+            throw new TransactionDomainError('INVALID_OPENMU_MAPPING', 422, 'The OpenMU product does not match this WebShop item type and number.');
+          }
+        }
+      } else {
+        delete item.openMuPriceSequence;
       }
       const saved = await upsertCatalogItem(item);
       const adminAcc = getRequesterAccount(req);

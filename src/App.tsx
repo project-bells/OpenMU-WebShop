@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, setCsrfToken } from './utils/apiClient';
 import {
   INITIAL_WEBSHOP_ITEMS,
@@ -120,6 +120,7 @@ export default function App() {
   const [classicMode, setClassicMode] = useState<boolean>(false);
   const [loginModalOpen, setLoginModalOpen] = useState<boolean>(false);
   const [wCoinCByAccount, setWCoinCByAccount] = useState<Record<string, number>>({});
+  const pendingPurchaseKeys = useRef<Map<number, string>>(new Map());
 
   // Cross-module parameters
   const [adminEditUid, setAdminEditUid] = useState<number | null>(null);
@@ -504,7 +505,43 @@ export default function App() {
       return requireAuthResponse();
     }
 
-    const idempotencyKey = crypto.randomUUID();
+    if (item.openMuPackageSequence === undefined) {
+      return {
+        ok: false,
+        message: L(lang, {
+          en: 'This item is not mapped to an authoritative OpenMU offer yet.',
+          th: 'ไอเทมนี้ยังไม่ได้เชื่อมกับรายการขาย authoritative ของ OpenMU',
+          pt: 'Este item ainda não está mapeado para uma oferta autoritativa do OpenMU.',
+          ru: 'Предмет ещё не сопоставлен с авторитетным предложением OpenMU.',
+          es: 'Este objeto aún no está vinculado a una oferta autoritativa de OpenMU.',
+          bg: 'Предметът още не е свързан с авторитетна оферта на OpenMU.',
+        }),
+      };
+    }
+
+    if (
+      level !== 0 || option !== 0 || luck || skill || exlOptions.some(Boolean) ||
+      ancientStamina !== 0 || fenrirVariant !== 0
+    ) {
+      return {
+        ok: false,
+        message: L(lang, {
+          en: 'Options are fixed by the OpenMU offer. Select the base item without custom options.',
+          th: 'ออปชันถูกกำหนดโดย OpenMU กรุณาเลือกไอเทมพื้นฐานโดยไม่เพิ่มออปชัน',
+          pt: 'As opções são fixadas pela oferta OpenMU. Selecione o item base.',
+          ru: 'Опции задаются предложением OpenMU. Выберите базовый предмет.',
+          es: 'Las opciones están fijadas por OpenMU. Selecciona el objeto base.',
+          bg: 'Опциите се определят от OpenMU. Изберете базовия предмет.',
+        }),
+      };
+    }
+
+    const storageKey = `openmu:pending-purchase:${currentAccount.username.toLowerCase()}:${item.uid}`;
+    const persistedKey = window.localStorage.getItem(storageKey);
+    const idempotencyKey =
+      pendingPurchaseKeys.current.get(item.uid) || persistedKey || crypto.randomUUID();
+    pendingPurchaseKeys.current.set(item.uid, idempotencyKey);
+    window.localStorage.setItem(storageKey, idempotencyKey);
     try {
       const response = await apiFetch('/api/shop/purchase', {
         method: 'POST',
@@ -531,6 +568,16 @@ export default function App() {
 
       const data = await response.json();
       if (!response.ok || !data.ok) {
+        if (!data?.pending) {
+          pendingPurchaseKeys.current.delete(item.uid);
+          window.localStorage.removeItem(storageKey);
+        }
+        if (typeof data?.remainingCredits === 'number') {
+          updateCurrentAccount((acc) => ({
+            ...acc,
+            credits: data.remainingCredits,
+          }));
+        }
         return {
           ok: false,
           message:
@@ -545,6 +592,9 @@ export default function App() {
             }),
         };
       }
+
+      pendingPurchaseKeys.current.delete(item.uid);
+      window.localStorage.removeItem(storageKey);
 
       const added: VaultItemInstance[] = Array.isArray(data.addedItems)
         ? data.addedItems
@@ -593,12 +643,12 @@ export default function App() {
       return {
         ok: false,
         message: L(lang, {
-          en: 'Unable to reach WebShop transaction server. No credits were deducted.',
-          th: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ธุรกรรมได้ ระบบยังไม่ได้หักเครดิตของคุณ',
-          pt: 'Não foi possível conectar ao servidor. Nenhum crédito foi descontado.',
-          ru: 'Сервер транзакций недоступен. Кредиты не списаны.',
-          es: 'No se pudo conectar al servidor. No se descontaron créditos.',
-          bg: 'Няма връзка със сървъра. Не са удържани кредити.',
+          en: 'The order result is unknown. Retry this same item to reconcile the existing order; do not submit a different purchase.',
+          th: 'ยังไม่ทราบผลคำสั่งซื้อ กรุณากดซื้อไอเทมเดิมอีกครั้งเพื่อตรวจสอบคำสั่งซื้อเดิม และอย่าสร้างคำสั่งซื้ออื่น',
+          pt: 'O resultado é desconhecido. Tente novamente o mesmo item para reconciliar o pedido existente.',
+          ru: 'Результат заказа неизвестен. Повторите покупку того же предмета для сверки заказа.',
+          es: 'El resultado es desconocido. Reintenta el mismo artículo para conciliar el pedido existente.',
+          bg: 'Резултатът е неизвестен. Опитайте отново същия предмет, за да сверите поръчката.',
         }),
       };
     }

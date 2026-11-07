@@ -170,6 +170,21 @@ export const memoryCreditExchanges = new Map<
   }
 >();
 
+export interface AuthoritativeItemOrder {
+  reference: string;
+  accountLogin: string;
+  itemUid: number;
+  packageSequence: number;
+  priceSequence: number | null;
+  chargedCredits: number;
+  status: 'pending' | 'delivered' | 'rejected' | 'manual_review';
+  openMuGrantId: string | null;
+  failureCode: string | null;
+  remainingCredits: number;
+}
+
+export const memoryAuthoritativeItemOrders = new Map<string, AuthoritativeItemOrder>();
+
 export let serverCatalog: WebShopItem[] = structuredClone(INITIAL_WEBSHOP_ITEMS);
 export let serverGroups: ItemGroup[] = structuredClone(INITIAL_GROUPS);
 export let serverConfig: WebShopConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
@@ -340,6 +355,30 @@ export async function initializeDatabaseLayer(): Promise<void> {
     const client = await pgPool.connect();
     try {
       await bootstrapPostgresSchema(client);
+      const mappings = await client.query<{
+        item_uid: number;
+        package_sequence: number | null;
+        price_sequence: number | null;
+        item_json: WebShopItem | null;
+      }>('SELECT item_uid, package_sequence, price_sequence, item_json FROM webshop_catalog_openmu_mappings');
+      for (const mapping of mappings.rows) {
+        const persisted = mapping.item_json;
+        const item = persisted ?? serverCatalog.find((candidate) => candidate.uid === mapping.item_uid);
+        if (!item) continue;
+        if (mapping.package_sequence === null) {
+          delete item.openMuPackageSequence;
+          delete item.openMuPriceSequence;
+        } else {
+          item.openMuPackageSequence = mapping.package_sequence;
+          item.openMuPriceSequence = mapping.price_sequence;
+        }
+        const index = serverCatalog.findIndex((candidate) => candidate.uid === mapping.item_uid);
+        if (index >= 0) {
+          serverCatalog[index] = item;
+        } else {
+          serverCatalog.push(item);
+        }
+      }
       pgHealthy = true;
       console.info('[Database] PostgreSQL connected & ACID schema verified.');
     } finally {
@@ -464,6 +503,37 @@ async function bootstrapPostgresSchema(client: pg.PoolClient): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       completed_at TIMESTAMPTZ
     );
+
+    CREATE TABLE IF NOT EXISTS webshop_item_orders (
+      reference VARCHAR(128) PRIMARY KEY,
+      account_login VARCHAR(20) NOT NULL,
+      item_uid INTEGER NOT NULL,
+      package_sequence INTEGER NOT NULL,
+      price_sequence INTEGER,
+      charged_credits INTEGER NOT NULL CHECK (charged_credits > 0),
+      status VARCHAR(16) NOT NULL CHECK (status IN ('pending', 'delivered', 'rejected', 'manual_review')),
+      openmu_grant_id UUID,
+      failure_code VARCHAR(64),
+      response_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_webshop_item_orders_account_created
+      ON webshop_item_orders (LOWER(account_login), created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS webshop_catalog_openmu_mappings (
+      item_uid INTEGER PRIMARY KEY,
+      package_sequence INTEGER CHECK (package_sequence >= 0),
+      price_sequence INTEGER,
+      item_json JSONB,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE webshop_catalog_openmu_mappings
+      ADD COLUMN IF NOT EXISTS item_json JSONB;
+    ALTER TABLE webshop_catalog_openmu_mappings
+      ALTER COLUMN package_sequence DROP NOT NULL;
 
     CREATE TABLE IF NOT EXISTS webshop_audit_logs (
       id UUID PRIMARY KEY,
@@ -2158,6 +2228,19 @@ export async function invalidateCatalogCache(): Promise<void> {
 }
 
 export async function upsertCatalogItem(item: WebShopItem): Promise<WebShopItem> {
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `INSERT INTO webshop_catalog_openmu_mappings
+         (item_uid, package_sequence, price_sequence, item_json, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (item_uid) DO UPDATE SET
+         package_sequence = EXCLUDED.package_sequence,
+         price_sequence = EXCLUDED.price_sequence,
+         item_json = EXCLUDED.item_json,
+         updated_at = NOW()`,
+      [item.uid, item.openMuPackageSequence ?? null, item.openMuPriceSequence ?? null, item]
+    );
+  }
   const idx = serverCatalog.findIndex((c) => c.uid === item.uid);
   if (idx >= 0) {
     serverCatalog[idx] = { ...item };
@@ -2169,6 +2252,12 @@ export async function upsertCatalogItem(item: WebShopItem): Promise<WebShopItem>
 }
 
 export async function deleteCatalogItem(uid: number): Promise<boolean> {
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      'DELETE FROM webshop_catalog_openmu_mappings WHERE item_uid = $1',
+      [uid]
+    );
+  }
   const before = serverCatalog.length;
   serverCatalog = serverCatalog.filter((c) => c.uid !== uid);
   if (serverCatalog.length !== before) {
@@ -2724,7 +2813,262 @@ export async function registerAccountRecord(
 }
 
 // ============================================================================
-// STRICT ACID PURCHASE TRANSACTIONS (Anti-Dupe + MEMB_STAT Check + Rollback)
+// AUTHORITATIVE OPENMU ITEM ORDER LEDGER
+// ============================================================================
+
+function validateAuthoritativeOrderReference(reference: string): string {
+  const clean = reference.trim();
+  if (!/^webshop:order:[A-Za-z0-9-]{8,100}$/.test(clean)) {
+    throw new TransactionDomainError(
+      'INVALID_IDEMPOTENCY_KEY',
+      400,
+      'A valid immutable Idempotency-Key is required.'
+    );
+  }
+  return clean;
+}
+
+function getAuthoritativeCatalogItem(itemUid: number): WebShopItem {
+  const item = serverCatalog.find((candidate) => candidate.uid === itemUid);
+  if (!item) {
+    throw new TransactionDomainError('ITEM_NOT_FOUND', 404, 'Catalog item not found.');
+  }
+  if (!Number.isInteger(item.openMuPackageSequence) || item.openMuPackageSequence! < 0) {
+    throw new TransactionDomainError(
+      'AUTHORITATIVE_OFFER_NOT_MAPPED',
+      422,
+      'This item is not mapped to an authoritative OpenMU cash shop offer.'
+    );
+  }
+  if (!Number.isInteger(item.credits) || item.credits <= 0) {
+    throw new TransactionDomainError('ITEM_NOT_FOR_SALE', 422, 'This item is not for sale.');
+  }
+  return item;
+}
+
+export async function reserveAuthoritativeItemOrder(params: {
+  accountLogin: string;
+  itemUid: number;
+  reference: string;
+}): Promise<AuthoritativeItemOrder> {
+  const accountLogin = params.accountLogin.trim();
+  const reference = validateAuthoritativeOrderReference(params.reference);
+  const item = getAuthoritativeCatalogItem(params.itemUid);
+  const packageSequence = item.openMuPackageSequence!;
+  const priceSequence = item.openMuPriceSequence ?? null;
+  const chargedCredits = item.credits;
+
+  if (pgPool && pgHealthy) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      const existingResult = await client.query<{
+        reference: string;
+        account_login: string;
+        item_uid: number;
+        package_sequence: number;
+        price_sequence: number | null;
+        charged_credits: number;
+        status: AuthoritativeItemOrder['status'];
+        openmu_grant_id: string | null;
+        failure_code: string | null;
+        credits: number;
+      }>(
+        `SELECT o.*, a.credits
+         FROM webshop_item_orders o
+         JOIN webshop_accounts a ON LOWER(a.login_name) = LOWER(o.account_login)
+         WHERE o.reference = $1
+         FOR UPDATE OF o`,
+        [reference]
+      );
+      const existing = existingResult.rows[0];
+      if (existing) {
+        if (
+          existing.account_login.toLowerCase() !== accountLogin.toLowerCase() ||
+          existing.item_uid !== item.uid ||
+          existing.package_sequence !== packageSequence ||
+          existing.price_sequence !== priceSequence ||
+          existing.charged_credits !== chargedCredits
+        ) {
+          throw new TransactionDomainError(
+            'IDEMPOTENCY_CONFLICT',
+            409,
+            'The Idempotency-Key is already bound to another order.'
+          );
+        }
+        await client.query('COMMIT');
+        return {
+          reference: existing.reference,
+          accountLogin: existing.account_login,
+          itemUid: existing.item_uid,
+          packageSequence: existing.package_sequence,
+          priceSequence: existing.price_sequence,
+          chargedCredits: existing.charged_credits,
+          status: existing.status,
+          openMuGrantId: existing.openmu_grant_id,
+          failureCode: existing.failure_code,
+          remainingCredits: existing.credits,
+        };
+      }
+
+      const accountResult = await client.query<{ login_name: string; credits: number }>(
+        `SELECT login_name, credits
+         FROM webshop_accounts
+         WHERE LOWER(login_name) = LOWER($1)
+         FOR UPDATE`,
+        [accountLogin]
+      );
+      const account = accountResult.rows[0];
+      if (!account) {
+        throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'Account not found.');
+      }
+      if (account.credits < chargedCredits) {
+        throw new TransactionDomainError('INSUFFICIENT_CREDITS', 402, 'Insufficient credits.');
+      }
+      const remainingCredits = account.credits - chargedCredits;
+      await client.query(
+        `UPDATE webshop_accounts SET credits = $2, updated_at = NOW() WHERE login_name = $1`,
+        [account.login_name, remainingCredits]
+      );
+      await client.query(
+        `INSERT INTO webshop_item_orders
+           (reference, account_login, item_uid, package_sequence, price_sequence,
+            charged_credits, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+        [reference, account.login_name, item.uid, packageSequence, priceSequence, chargedCredits]
+      );
+      await client.query('COMMIT');
+      return {
+        reference,
+        accountLogin: account.login_name,
+        itemUid: item.uid,
+        packageSequence,
+        priceSequence,
+        chargedCredits,
+        status: 'pending',
+        openMuGrantId: null,
+        failureCode: null,
+        remainingCredits,
+      };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  return withAccountMutex(accountLogin, async () => {
+    const existing = memoryAuthoritativeItemOrders.get(reference);
+    if (existing) {
+      if (
+        existing.accountLogin.toLowerCase() !== accountLogin.toLowerCase() ||
+        existing.itemUid !== item.uid ||
+        existing.packageSequence !== packageSequence ||
+        existing.priceSequence !== priceSequence ||
+        existing.chargedCredits !== chargedCredits
+      ) {
+        throw new TransactionDomainError(
+          'IDEMPOTENCY_CONFLICT',
+          409,
+          'The Idempotency-Key is already bound to another order.'
+        );
+      }
+      return { ...existing };
+    }
+    const account = memoryAccounts.get(accountLogin.toLowerCase());
+    if (!account) throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'Account not found.');
+    if (account.credits < chargedCredits) {
+      throw new TransactionDomainError('INSUFFICIENT_CREDITS', 402, 'Insufficient credits.');
+    }
+    account.credits -= chargedCredits;
+    const order: AuthoritativeItemOrder = {
+      reference,
+      accountLogin: account.loginName,
+      itemUid: item.uid,
+      packageSequence,
+      priceSequence,
+      chargedCredits,
+      status: 'pending',
+      openMuGrantId: null,
+      failureCode: null,
+      remainingCredits: account.credits,
+    };
+    memoryAuthoritativeItemOrders.set(reference, order);
+    return { ...order };
+  });
+}
+
+export async function completeAuthoritativeItemOrder(
+  reference: string,
+  openMuGrantId: string
+): Promise<void> {
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `UPDATE webshop_item_orders
+       SET status = 'delivered', openmu_grant_id = $2, failure_code = NULL,
+           updated_at = NOW()
+       WHERE reference = $1 AND status IN ('pending', 'delivered')`,
+      [reference, openMuGrantId]
+    );
+    return;
+  }
+  const order = memoryAuthoritativeItemOrders.get(reference);
+  if (order && (order.status === 'pending' || order.status === 'delivered')) {
+    order.status = 'delivered';
+    order.openMuGrantId = openMuGrantId;
+    order.failureCode = null;
+  }
+}
+
+export async function failAuthoritativeItemOrder(
+  reference: string,
+  failureCode: string,
+  refund: boolean
+): Promise<void> {
+  if (pgPool && pgHealthy) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<{ account_login: string; charged_credits: number }>(
+        `UPDATE webshop_item_orders
+         SET status = $2, failure_code = $3, updated_at = NOW()
+         WHERE reference = $1 AND status = 'pending'
+         RETURNING account_login, charged_credits`,
+        [reference, refund ? 'rejected' : 'manual_review', failureCode]
+      );
+      if (refund && result.rows[0]) {
+        await client.query(
+          `UPDATE webshop_accounts
+           SET credits = credits + $2, updated_at = NOW()
+           WHERE LOWER(login_name) = LOWER($1)`,
+          [result.rows[0].account_login, result.rows[0].charged_credits]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return;
+  }
+  const order = memoryAuthoritativeItemOrders.get(reference);
+  if (!order || order.status !== 'pending') return;
+  order.status = refund ? 'rejected' : 'manual_review';
+  order.failureCode = failureCode;
+  if (refund) {
+    const account = memoryAccounts.get(order.accountLogin.toLowerCase());
+    if (account) {
+      account.credits += order.chargedCredits;
+      order.remainingCredits = account.credits;
+    }
+  }
+}
+
+// ============================================================================
+// LEGACY DIRECT ITEM TRANSACTIONS (DISABLED BY HTTP ROUTING)
 // ============================================================================
 export interface PurchaseSingleItemRequest {
   accountId: string;

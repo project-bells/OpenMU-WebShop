@@ -1,4 +1,8 @@
 export interface WebShopItem {
+  /** OpenMU server-authoritative cash shop package. Missing means not purchasable. */
+  openMuPackageSequence?: number;
+  /** Required for an option package; omitted for an OpenMU bundle package. */
+  openMuPriceSequence?: number | null;
   uid: number;
   id: number;
   name: string;

@@ -535,6 +535,35 @@ export const ItemManagerModule: React.FC<{
               </div>
 
               <div>
+                <label className="block text-zinc-400 mb-1">OpenMU Package (blank = disabled)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={formState.openMuPackageSequence ?? ''}
+                  onChange={(e) => setFormState({
+                    ...formState,
+                    openMuPackageSequence: e.target.value === '' ? undefined : Number(e.target.value),
+                  })}
+                  className="w-full px-2.5 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-cyan-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 mb-1">OpenMU Price (blank = bundle)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={formState.openMuPriceSequence ?? ''}
+                  disabled={formState.openMuPackageSequence === undefined}
+                  onChange={(e) => setFormState({
+                    ...formState,
+                    openMuPriceSequence: e.target.value === '' ? null : Number(e.target.value),
+                  })}
+                  className="w-full px-2.5 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-cyan-300 disabled:opacity-40"
+                />
+              </div>
+
+              <div>
                 <label className="block text-zinc-400 mb-1">
                   {L(lang, {
                     en: 'Category',
@@ -843,6 +872,35 @@ export const ItemManagerModule: React.FC<{
                   })
                 }
                 className="w-full px-2.5 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-amber-400 font-bold"
+              />
+            </div>
+
+            <div>
+              <label className="block text-zinc-400 mb-1">OpenMU Package (blank = disabled)</label>
+              <input
+                type="number"
+                min={0}
+                value={newItemState.openMuPackageSequence ?? ''}
+                onChange={(e) => setNewItemState({
+                  ...newItemState,
+                  openMuPackageSequence: e.target.value === '' ? undefined : Number(e.target.value),
+                })}
+                className="w-full px-2.5 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-cyan-300"
+              />
+            </div>
+
+            <div>
+              <label className="block text-zinc-400 mb-1">OpenMU Price (blank = bundle)</label>
+              <input
+                type="number"
+                min={0}
+                value={newItemState.openMuPriceSequence ?? ''}
+                disabled={newItemState.openMuPackageSequence === undefined}
+                onChange={(e) => setNewItemState({
+                  ...newItemState,
+                  openMuPriceSequence: e.target.value === '' ? null : Number(e.target.value),
+                })}
+                className="w-full px-2.5 py-1.5 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-cyan-300 disabled:opacity-40"
               />
             </div>
 

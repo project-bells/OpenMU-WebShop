@@ -13709,9 +13709,9 @@ var DEFAULT_WEBSHOP_CONFIG = {
     // 900M Warehouse Zen Maximum Limit
   },
   misc: {
-    title: "Welcome to The Egis-MU WEBSHOP",
+    title: "Welcome to Mu Origins",
     admins: "admin,admin01",
-    servername: "Continent of Egis-MU S6E3",
+    servername: "Continent of Mu Origins S6E3",
     serverlink: "#",
     topcredits: 20,
     s3classes: true,
@@ -14028,6 +14028,10 @@ var CATEGORY_NAMES = {
     bg: "\u0421\u0432\u0438\u0442\u044A\u0446\u0438 \u0438 \u041A\u044A\u043B\u0431\u0430"
   }
 };
+var INITIAL_STARTING_POINTS = 300;
+var BUY_CHAR_400_CREDITS = 500;
+var DELETE_CHAR_400_REWARD_CREDITS = 300;
+var ONLINE_HOUR_REWARD_CREDITS = 5;
 var MU_CLASSES = [
   {
     code: "dw",
@@ -14228,6 +14232,30 @@ var MU_CLASSES = [
 var CLASS_3_CLASSES = MU_CLASSES.filter(
   (c) => c.s3
 );
+function calculateClassStatPoints(classCode, level = 400) {
+  const classDef = MU_CLASSES.find((c) => c.code === classCode) || MU_CLASSES[0];
+  const safeLevel = Math.max(1, Math.min(400, level));
+  const levelUps = Math.max(0, safeLevel - 1);
+  const pointsPerLevel = classDef.pointsPerLevel;
+  const startingPoints = INITIAL_STARTING_POINTS;
+  const levelPoints = levelUps * pointsPerLevel;
+  const totalPoints = startingPoints + levelPoints;
+  const excludedClass2QuestPoints = classDef.hasMarlonAndClass2Quest ? 20 : 0;
+  const excludedMarlon220Points = classDef.hasMarlonAndClass2Quest && safeLevel > 220 ? safeLevel - 220 : 0;
+  const totalIfQuestsCompleted = totalPoints + excludedClass2QuestPoints + excludedMarlon220Points;
+  return {
+    classDef,
+    level: safeLevel,
+    levelUps,
+    pointsPerLevel,
+    startingPoints,
+    levelPoints,
+    totalPoints,
+    excludedClass2QuestPoints,
+    excludedMarlon220Points,
+    totalIfQuestsCompleted
+  };
+}
 function buildOccupancyMatrix(vaultItems) {
   const grid = Array.from(
     { length: 15 },
@@ -14396,57 +14424,6 @@ function verifySlotPlacement(existingItems, slotIndex, itemX, itemY) {
 }
 function locateFreeWarehouseSlot(existingItems, itemX, itemY) {
   return findFreeVaultSlot(existingItems, itemX, itemY);
-}
-function sanitizeAndPriceSingleItem(item, rawOpts, config) {
-  if (config.credits.zerocredit === 0 && item.credits <= 0) {
-    throw new Error("ITEM_NOT_FOR_SALE");
-  }
-  const maxLv = item.maxitlv > 0 ? item.maxitlv : config.limit.item_level;
-  const maxOp = item.maxitop > 0 ? item.maxitop : config.limit.item_option;
-  const maxEx = Math.min(
-    3,
-    item.maxitxl > 0 ? item.maxitxl : config.limit.item_excellent
-  );
-  const level = item.hasLevel === 1 ? Math.max(0, Math.min(maxLv, Math.trunc(Number(rawOpts.level) || 0))) : 0;
-  const option = item.hasOption === 1 ? Math.max(0, Math.min(maxOp, Math.trunc(Number(rawOpts.option) || 0))) : 0;
-  const luck = item.luck === 1 ? Boolean(rawOpts.luck) : false;
-  const skill = item.skill === 1 ? Boolean(rawOpts.skill) : false;
-  const isFenrir = item.type === 12 && item.id === 37;
-  const exlAllowed = item.ex_type >= 0 && item.ex_type !== 3 && !isFenrir;
-  const exlOptions = Array.from(
-    { length: 6 },
-    (_, idx) => exlAllowed ? Boolean(rawOpts.exlOptions?.[idx]) : false
-  );
-  const exCount = exlOptions.filter(Boolean).length;
-  if (exCount > maxEx) {
-    throw new Error(`MAX_EXCELLENT_OPTIONS_EXCEEDED:${maxEx}`);
-  }
-  const ancientStamina = item.ex_type === 3 && (rawOpts.ancientStamina === 5 || rawOpts.ancientStamina === 10) ? rawOpts.ancientStamina : 0;
-  const fenrirVariant = isFenrir && (rawOpts.fenrirVariant === 1 || rawOpts.fenrirVariant === 2 || rawOpts.fenrirVariant === 3) ? rawOpts.fenrirVariant : 0;
-  const totalCredits = calculateItemTotalCredits(
-    item.credits,
-    level,
-    option,
-    luck,
-    skill,
-    exlOptions,
-    ancientStamina,
-    fenrirVariant,
-    config
-  );
-  if (!Number.isFinite(totalCredits) || totalCredits < 0) {
-    throw new Error("INVALID_PRICE_CALCULATION");
-  }
-  return {
-    level,
-    option,
-    luck,
-    skill,
-    exlOptions,
-    ancientStamina,
-    fenrirVariant,
-    totalCredits
-  };
 }
 function sanitizeAndPriceGroupSet(group, memberItems, rawOpts, config) {
   if (memberItems.length === 0) {
@@ -14749,11 +14726,13 @@ function verifyAccountPassword(storedPlainOrHash, storedHash, candidatePassword)
   return pA.length === pB.length && crypto4.timingSafeEqual(pA, pB);
 }
 var memoryAccounts = /* @__PURE__ */ new Map();
+var memoryCharacters = /* @__PURE__ */ new Map();
 var memoryMembStat = /* @__PURE__ */ new Map();
 var memoryGrantsByIdempotency = /* @__PURE__ */ new Map();
 var memoryGrantsByReference = /* @__PURE__ */ new Map();
 var memoryGrantsList = [];
 var memoryCreditExchanges = /* @__PURE__ */ new Map();
+var memoryAuthoritativeItemOrders = /* @__PURE__ */ new Map();
 var serverCatalog = structuredClone(INITIAL_WEBSHOP_ITEMS);
 var serverGroups = structuredClone(INITIAL_GROUPS);
 var serverConfig = structuredClone(DEFAULT_WEBSHOP_CONFIG);
@@ -14762,7 +14741,7 @@ var memoryPromotionConfig = buildDefaultPromotionConfig();
 function seedMemoryStore() {
   const envAdmin = (process.env.ADMIN_USERNAME || "admin").trim();
   const envPass = process.env.ADMIN_PASSWORD || "admin";
-  const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || "") ? String(process.env.ADMIN_DELETE_CODE) : "0000000";
+  const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || "") ? String(process.env.ADMIN_DELETE_CODE) : "123456";
   const initialAccounts = [
     {
       loginName: envAdmin,
@@ -14773,7 +14752,9 @@ function seedMemoryStore() {
       isMasterAdmin: true,
       credits: 1e5,
       wCoinC: 1e4,
-      vaultMoney: 5e8
+      vaultMoney: 5e8,
+      onlineMinutes: 360,
+      exchangedOnlineHours: 4
     },
     {
       loginName: "user01",
@@ -14784,7 +14765,9 @@ function seedMemoryStore() {
       isMasterAdmin: false,
       credits: 5e4,
       wCoinC: 5e3,
-      vaultMoney: 1e8
+      vaultMoney: 1e8,
+      onlineMinutes: 240,
+      exchangedOnlineHours: 2
     },
     {
       loginName: "admin01",
@@ -14795,7 +14778,9 @@ function seedMemoryStore() {
       isMasterAdmin: false,
       credits: 5e4,
       wCoinC: 5e3,
-      vaultMoney: 1e8
+      vaultMoney: 1e8,
+      onlineMinutes: 300,
+      exchangedOnlineHours: 3
     }
   ];
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -14814,6 +14799,8 @@ function seedMemoryStore() {
       registrationDate: nowIso,
       credits: acc.credits,
       vaultMoney: acc.vaultMoney,
+      onlineMinutes: acc.onlineMinutes,
+      exchangedOnlineHours: acc.exchangedOnlineHours,
       wCoinC: acc.wCoinC,
       wCoinP: 0,
       goblinPoints: 0,
@@ -14827,6 +14814,33 @@ function seedMemoryStore() {
       IP: "127.0.0.1",
       ConnectTM: null,
       DisConnectTM: nowIso
+    });
+  }
+  const seedChars = [
+    { name: "BladeKing", accountId: envAdmin, classCode: "bm", level: 400 },
+    { name: "SoulLord", accountId: envAdmin, classCode: "gm", level: 400 },
+    { name: "DarkKnight", accountId: "user01", classCode: "bm", level: 400 },
+    { name: "HighElf400", accountId: "user01", classCode: "he", level: 400 },
+    { name: "OriginGM", accountId: "admin01", classCode: "le", level: 400 }
+  ];
+  for (const sc of seedChars) {
+    const calc = calculateClassStatPoints(sc.classCode, sc.level);
+    memoryCharacters.set(sc.name.toLowerCase(), {
+      name: sc.name,
+      accountId: sc.accountId,
+      classCode: calc.classDef.code,
+      classId: calc.classDef.id,
+      level: sc.level,
+      resets: 0,
+      levelUpPoints: calc.totalPoints,
+      strength: calc.classDef.baseStr,
+      agility: calc.classDef.baseAgi,
+      vitality: calc.classDef.baseVit,
+      energy: calc.classDef.baseEne,
+      command: calc.classDef.baseCmd,
+      money: 5e7,
+      ctlCode: 0,
+      isOnline: false
     });
   }
 }
@@ -14857,6 +14871,25 @@ async function initializeDatabaseLayer() {
     const client = await pgPool.connect();
     try {
       await bootstrapPostgresSchema(client);
+      const mappings = await client.query("SELECT item_uid, package_sequence, price_sequence, item_json FROM webshop_catalog_openmu_mappings");
+      for (const mapping of mappings.rows) {
+        const persisted = mapping.item_json;
+        const item = persisted ?? serverCatalog.find((candidate) => candidate.uid === mapping.item_uid);
+        if (!item) continue;
+        if (mapping.package_sequence === null) {
+          delete item.openMuPackageSequence;
+          delete item.openMuPriceSequence;
+        } else {
+          item.openMuPackageSequence = mapping.package_sequence;
+          item.openMuPriceSequence = mapping.price_sequence;
+        }
+        const index = serverCatalog.findIndex((candidate) => candidate.uid === mapping.item_uid);
+        if (index >= 0) {
+          serverCatalog[index] = item;
+        } else {
+          serverCatalog.push(item);
+        }
+      }
       pgHealthy = true;
       console.info("[Database] PostgreSQL connected & ACID schema verified.");
     } finally {
@@ -14896,6 +14929,8 @@ async function bootstrapPostgresSchema(client) {
       is_master_admin BOOLEAN NOT NULL DEFAULT FALSE,
       credits INTEGER NOT NULL DEFAULT 0 CHECK (credits >= 0),
       vault_money BIGINT NOT NULL DEFAULT 0 CHECK (vault_money >= 0),
+      online_minutes INTEGER NOT NULL DEFAULT 0 CHECK (online_minutes >= 0),
+      exchanged_online_hours INTEGER NOT NULL DEFAULT 0 CHECK (exchanged_online_hours >= 0),
       wcoinc INTEGER NOT NULL DEFAULT 0 CHECK (wcoinc >= 0),
       wcoinp INTEGER NOT NULL DEFAULT 0 CHECK (wcoinp >= 0),
       goblin_points INTEGER NOT NULL DEFAULT 0 CHECK (goblin_points >= 0),
@@ -14906,6 +14941,29 @@ async function bootstrapPostgresSchema(client) {
 
     ALTER TABLE webshop_accounts
       ADD COLUMN IF NOT EXISTS security_code VARCHAR(16) NOT NULL DEFAULT '0000000';
+    ALTER TABLE webshop_accounts
+      ADD COLUMN IF NOT EXISTS online_minutes INTEGER NOT NULL DEFAULT 0 CHECK (online_minutes >= 0);
+    ALTER TABLE webshop_accounts
+      ADD COLUMN IF NOT EXISTS exchanged_online_hours INTEGER NOT NULL DEFAULT 0 CHECK (exchanged_online_hours >= 0);
+
+    CREATE TABLE IF NOT EXISTS webshop_characters (
+      name VARCHAR(20) PRIMARY KEY,
+      account_login VARCHAR(20) NOT NULL,
+      class_code VARCHAR(16) NOT NULL DEFAULT 'bm',
+      class_id SMALLINT NOT NULL DEFAULT 18,
+      level SMALLINT NOT NULL DEFAULT 400,
+      resets INTEGER NOT NULL DEFAULT 0,
+      level_up_points INTEGER NOT NULL DEFAULT 0,
+      strength INTEGER NOT NULL DEFAULT 28,
+      agility INTEGER NOT NULL DEFAULT 20,
+      vitality INTEGER NOT NULL DEFAULT 25,
+      energy INTEGER NOT NULL DEFAULT 10,
+      command INTEGER NOT NULL DEFAULT 0,
+      money BIGINT NOT NULL DEFAULT 0,
+      ctl_code SMALLINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS webshop_warehouse_items (
       instance_id VARCHAR(64) PRIMARY KEY,
@@ -14956,6 +15014,37 @@ async function bootstrapPostgresSchema(client) {
       completed_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS webshop_item_orders (
+      reference VARCHAR(128) PRIMARY KEY,
+      account_login VARCHAR(20) NOT NULL,
+      item_uid INTEGER NOT NULL,
+      package_sequence INTEGER NOT NULL,
+      price_sequence INTEGER,
+      charged_credits INTEGER NOT NULL CHECK (charged_credits > 0),
+      status VARCHAR(16) NOT NULL CHECK (status IN ('pending', 'delivered', 'rejected', 'manual_review')),
+      openmu_grant_id UUID,
+      failure_code VARCHAR(64),
+      response_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_webshop_item_orders_account_created
+      ON webshop_item_orders (LOWER(account_login), created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS webshop_catalog_openmu_mappings (
+      item_uid INTEGER PRIMARY KEY,
+      package_sequence INTEGER CHECK (package_sequence >= 0),
+      price_sequence INTEGER,
+      item_json JSONB,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE webshop_catalog_openmu_mappings
+      ADD COLUMN IF NOT EXISTS item_json JSONB;
+    ALTER TABLE webshop_catalog_openmu_mappings
+      ALTER COLUMN package_sequence DROP NOT NULL;
+
     CREATE TABLE IF NOT EXISTS webshop_audit_logs (
       id UUID PRIMARY KEY,
       account_id VARCHAR(32) NOT NULL,
@@ -15005,25 +15094,42 @@ function getDatabaseHealth() {
 function getPgPool() {
   return pgPool && pgHealthy ? pgPool : null;
 }
+function getConfiguredAdminUsernames() {
+  const configured = (process.env.ADMIN_ACCOUNTS ?? "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+  const envAdmin = (process.env.ADMIN_USERNAME || "admin").trim().toLowerCase();
+  if (envAdmin) configured.push(envAdmin);
+  configured.push("admin01");
+  return new Set(configured);
+}
 async function authenticateOpenMuAccount(loginName, password) {
+  const adminAccounts = getConfiguredAdminUsernames();
   if (!pgPool || !pgHealthy) {
     const mem = memoryAccounts.get(loginName.trim().toLowerCase());
     if (!mem) return null;
     const ok = verifyAccountPassword(mem.passwordHash, mem.passwordPlainOrSimulatedBcrypt, password);
     if (!ok) return null;
+    const isAdmin2 = Boolean(
+      mem.isMasterAdmin || mem.role === "ADMIN" || mem.role === "SUPER_ADMIN" || mem.state === "GameMaster" || adminAccounts.has(mem.loginName.toLowerCase())
+    );
     return {
       id: mem.id,
       loginName: mem.loginName,
       email: mem.email,
       state: mem.state === "Normal" || mem.state === "GameMaster" ? 0 : 1,
       credits: mem.credits,
+      vaultMoney: mem.vaultMoney,
+      onlineMinutes: mem.onlineMinutes,
+      exchangedOnlineHours: mem.exchangedOnlineHours,
+      vipUntil: mem.vipUntil,
+      isAdmin: isAdmin2,
+      role: isAdmin2 ? mem.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ADMIN" : "USER",
       wCoinC: mem.wCoinC,
       wCoinP: mem.wCoinP,
       goblinPoints: mem.goblinPoints
     };
   }
   const result = await pgPool.query(
-    `SELECT "Id", "LoginName", "PasswordHash", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
+    `SELECT "Id", "LoginName", "PasswordHash", COALESCE("SecurityCode", '') AS "SecurityCode", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
        FROM data."Account"
       WHERE LOWER("LoginName") = LOWER($1)
       LIMIT 1`,
@@ -15033,19 +15139,18 @@ async function authenticateOpenMuAccount(loginName, password) {
   if (!account || !await bcrypt.compare(password, account.PasswordHash)) {
     return null;
   }
-  const adminAccounts = new Set(
-    (process.env.ADMIN_ACCOUNTS ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)
-  );
+  const isConfiguredAdmin = adminAccounts.has(account.LoginName.toLowerCase()) || account.State === 2;
   await pgPool.query(
     `INSERT INTO webshop_accounts (
        id, login_name, password_hash, security_code, email, state, role, is_master_admin,
        credits, vault_money, wcoinc, wcoinp, goblin_points
-     ) VALUES ($1, $2, '', '', $3, $4, $5, $6, 0, 0, $7, $8, $9)
+     ) VALUES ($1, $2, '', $3, $4, $5, $6, $7, 0, 0, $8, $9, $10)
      ON CONFLICT (login_name) DO UPDATE SET
+       security_code = CASE WHEN EXCLUDED.security_code <> '' THEN EXCLUDED.security_code ELSE webshop_accounts.security_code END,
        email = EXCLUDED.email,
        state = EXCLUDED.state,
-       role = EXCLUDED.role,
-       is_master_admin = EXCLUDED.is_master_admin,
+       role = CASE WHEN webshop_accounts.role IN ('ADMIN', 'SUPER_ADMIN') THEN webshop_accounts.role ELSE EXCLUDED.role END,
+       is_master_admin = webshop_accounts.is_master_admin OR EXCLUDED.is_master_admin,
        wcoinc = EXCLUDED.wcoinc,
        wcoinp = EXCLUDED.wcoinp,
        goblin_points = EXCLUDED.goblin_points,
@@ -15053,63 +15158,1066 @@ async function authenticateOpenMuAccount(loginName, password) {
     [
       account.Id,
       account.LoginName,
+      account.SecurityCode || "",
       account.EMail,
       String(account.State),
-      adminAccounts.has(account.LoginName.toLowerCase()) ? "ADMIN" : "USER",
-      adminAccounts.has(account.LoginName.toLowerCase()),
+      isConfiguredAdmin ? "ADMIN" : "USER",
+      isConfiguredAdmin,
       account.WCoinC,
       account.WCoinP,
       account.GoblinPoints
     ]
   );
   const wallet = await pgPool.query(
-    "SELECT credits FROM webshop_accounts WHERE LOWER(login_name) = LOWER($1) LIMIT 1",
+    `SELECT credits, vault_money, online_minutes, exchanged_online_hours, vip_until, role, is_master_admin
+       FROM webshop_accounts
+      WHERE LOWER(login_name) = LOWER($1)
+      LIMIT 1`,
     [account.LoginName]
+  );
+  const wRow = wallet.rows[0];
+  const isAdmin = Boolean(
+    isConfiguredAdmin || wRow?.is_master_admin || wRow?.role === "ADMIN" || wRow?.role === "SUPER_ADMIN"
   );
   return {
     id: account.Id,
     loginName: account.LoginName,
     email: account.EMail,
-    state: account.State,
-    credits: wallet.rows[0]?.credits ?? 0,
+    state: account.State === 2 ? 0 : account.State,
+    credits: wRow?.credits ?? 0,
+    vaultMoney: Number(wRow?.vault_money ?? 0),
+    onlineMinutes: Number(wRow?.online_minutes ?? 0),
+    exchangedOnlineHours: Number(wRow?.exchanged_online_hours ?? 0),
+    vipUntil: wRow?.vip_until ? new Date(wRow.vip_until).toISOString() : null,
+    isAdmin,
+    role: isAdmin ? "ADMIN" : "USER",
     wCoinC: account.WCoinC,
     wCoinP: account.WCoinP,
     goblinPoints: account.GoblinPoints
   };
 }
 async function getOpenMuAccountSummary(loginName) {
+  const adminAccounts = getConfiguredAdminUsernames();
   if (!pgPool || !pgHealthy) {
     const mem = memoryAccounts.get(loginName.trim().toLowerCase());
     if (!mem) return null;
+    const isAdmin2 = Boolean(
+      mem.isMasterAdmin || mem.role === "ADMIN" || mem.role === "SUPER_ADMIN" || mem.state === "GameMaster" || adminAccounts.has(mem.loginName.toLowerCase())
+    );
     return {
       id: mem.id,
       loginName: mem.loginName,
       email: mem.email,
       state: mem.state === "Normal" || mem.state === "GameMaster" ? 0 : 1,
       credits: mem.credits,
+      vaultMoney: mem.vaultMoney,
+      onlineMinutes: mem.onlineMinutes,
+      exchangedOnlineHours: mem.exchangedOnlineHours,
+      vipUntil: mem.vipUntil,
+      isAdmin: isAdmin2,
+      role: isAdmin2 ? mem.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ADMIN" : "USER",
       wCoinC: mem.wCoinC,
       wCoinP: mem.wCoinP,
       goblinPoints: mem.goblinPoints
     };
   }
   const result = await pgPool.query(
-    `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints", COALESCE(w.credits, 0)::int AS credits
+    `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints",
+            COALESCE(w.credits, 0)::int AS credits,
+            COALESCE(w.vault_money, 0)::bigint AS vault_money,
+            COALESCE(w.online_minutes, 0)::int AS online_minutes,
+            COALESCE(w.exchanged_online_hours, 0)::int AS exchanged_online_hours,
+            w.vip_until,
+            w.role,
+            w.is_master_admin
        FROM data."Account" a
        LEFT JOIN webshop_accounts w ON LOWER(w.login_name) = LOWER(a."LoginName")
       WHERE LOWER(a."LoginName") = LOWER($1) LIMIT 1`,
     [loginName]
   );
   const account = result.rows[0];
-  return account ? {
+  if (!account) return null;
+  const isAdmin = Boolean(
+    adminAccounts.has(account.LoginName.toLowerCase()) || account.State === 2 || account.is_master_admin || account.role === "ADMIN" || account.role === "SUPER_ADMIN"
+  );
+  return {
     id: account.Id,
     loginName: account.LoginName,
     email: account.EMail,
-    state: account.State,
+    state: account.State === 2 ? 0 : account.State,
     credits: account.credits,
+    vaultMoney: Number(account.vault_money ?? 0),
+    onlineMinutes: Number(account.online_minutes ?? 0),
+    exchangedOnlineHours: Number(account.exchanged_online_hours ?? 0),
+    vipUntil: account.vip_until ? new Date(account.vip_until).toISOString() : null,
+    isAdmin,
+    role: isAdmin ? "ADMIN" : "USER",
     wCoinC: account.WCoinC,
     wCoinP: account.WCoinP,
     goblinPoints: account.GoblinPoints
-  } : null;
+  };
+}
+async function listAdminAccounts(limit = 250) {
+  const adminAccounts = getConfiguredAdminUsernames();
+  if (!pgPool || !pgHealthy) {
+    return Array.from(memoryAccounts.values()).slice(0, limit).map((acc) => {
+      const isAdmin = Boolean(
+        acc.isMasterAdmin || acc.role === "ADMIN" || acc.role === "SUPER_ADMIN" || acc.state === "GameMaster" || adminAccounts.has(acc.loginName.toLowerCase())
+      );
+      const stat = memoryMembStat.get(acc.loginName.toLowerCase());
+      return {
+        username: acc.loginName,
+        credits: acc.credits,
+        vaultMoney: acc.vaultMoney,
+        wCoinC: acc.wCoinC,
+        vipUntil: acc.vipUntil,
+        isAdmin,
+        role: isAdmin ? "ADMIN" : "USER",
+        isOnline: stat?.ConnectStat === 1
+      };
+    });
+  }
+  try {
+    const res = await pgPool.query(
+      `SELECT COALESCE(a."LoginName", w.login_name) AS login_name,
+              COALESCE(w.credits, 0)::int AS credits,
+              COALESCE(w.vault_money, 0)::bigint AS vault_money,
+              COALESCE(a."WCoinC", w.wcoinc, 0)::int AS wcoinc,
+              w.vip_until,
+              w.role,
+              w.is_master_admin,
+              a."State" AS state
+         FROM data."Account" a
+         FULL OUTER JOIN webshop_accounts w ON LOWER(w.login_name) = LOWER(a."LoginName")
+        ORDER BY COALESCE(w.credits, 0) DESC, COALESCE(a."LoginName", w.login_name) ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return res.rows.filter((r) => Boolean(r.login_name)).map((r) => {
+      const isAdmin = Boolean(
+        adminAccounts.has(r.login_name.toLowerCase()) || r.state === 2 || r.state === "GameMaster" || r.is_master_admin || r.role === "ADMIN" || r.role === "SUPER_ADMIN"
+      );
+      return {
+        username: r.login_name,
+        credits: Number(r.credits || 0),
+        vaultMoney: Number(r.vault_money || 0),
+        wCoinC: Number(r.wcoinc || 0),
+        vipUntil: r.vip_until ? new Date(r.vip_until).toISOString() : null,
+        isAdmin,
+        role: isAdmin ? "ADMIN" : "USER",
+        isOnline: false
+      };
+    });
+  } catch {
+    const res = await pgPool.query(
+      `SELECT login_name, credits, vault_money, wcoinc, vip_until, role, is_master_admin
+         FROM webshop_accounts
+        ORDER BY credits DESC, login_name ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return res.rows.map((r) => {
+      const isAdmin = Boolean(
+        adminAccounts.has(r.login_name.toLowerCase()) || r.is_master_admin || r.role === "ADMIN" || r.role === "SUPER_ADMIN"
+      );
+      return {
+        username: r.login_name,
+        credits: Number(r.credits || 0),
+        vaultMoney: Number(r.vault_money || 0),
+        wCoinC: Number(r.wcoinc || 0),
+        vipUntil: r.vip_until ? new Date(r.vip_until).toISOString() : null,
+        isAdmin,
+        role: isAdmin ? "ADMIN" : "USER",
+        isOnline: false
+      };
+    });
+  }
+}
+async function adminAdjustAccountBalance(params) {
+  const cleanTarget = (params.targetLoginName || "").trim();
+  if (!cleanTarget || !/^[a-zA-Z0-9_-]{3,20}$/.test(cleanTarget)) {
+    throw new TransactionDomainError(
+      "INVALID_ACCOUNT",
+      400,
+      "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38\u0E0A\u0E37\u0E48\u0E2D\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E17\u0E35\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 (3\u201320 \u0E15\u0E31\u0E27\u0E2D\u0E31\u0E01\u0E29\u0E23)"
+    );
+  }
+  const creditsDelta = typeof params.creditsDelta === "number" && Number.isFinite(params.creditsDelta) ? Math.trunc(params.creditsDelta) : 0;
+  const vaultZenDelta = typeof params.vaultZenDelta === "number" && Number.isFinite(params.vaultZenDelta) ? Math.trunc(params.vaultZenDelta) : 0;
+  if (creditsDelta === 0 && vaultZenDelta === 0) {
+    throw new TransactionDomainError(
+      "INVALID_DELTA",
+      400,
+      "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38\u0E08\u0E33\u0E19\u0E27\u0E19\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E2B\u0E23\u0E37\u0E2D\u0E08\u0E33\u0E19\u0E27\u0E19\u0E40\u0E07\u0E34\u0E19 Zen \u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E1B\u0E23\u0E31\u0E1A (\u0E15\u0E49\u0E2D\u0E07\u0E44\u0E21\u0E48\u0E40\u0E1B\u0E47\u0E19 0)"
+    );
+  }
+  const MAX_VAULT_ZEN = 9e8;
+  const adminAccounts = getConfiguredAdminUsernames();
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanTarget, async () => {
+      const key = cleanTarget.toLowerCase();
+      let mem = memoryAccounts.get(key);
+      if (!mem) {
+        const isAdmin2 = adminAccounts.has(key);
+        mem = {
+          id: crypto4.randomUUID(),
+          loginName: cleanTarget,
+          passwordPlainOrSimulatedBcrypt: "123456",
+          passwordHash: hashSimulatedBcrypt("123456"),
+          securityCode: "0000000",
+          email: `${cleanTarget}@muorigins.online`,
+          state: isAdmin2 ? "GameMaster" : "Normal",
+          role: isAdmin2 ? "ADMIN" : "USER",
+          isMasterAdmin: isAdmin2,
+          registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
+          credits: 0,
+          vaultMoney: 0,
+          onlineMinutes: 0,
+          exchangedOnlineHours: 0,
+          wCoinC: 0,
+          wCoinP: 0,
+          goblinPoints: 0,
+          vipUntil: null,
+          vaultItems: []
+        };
+        memoryAccounts.set(key, mem);
+      }
+      if (creditsDelta !== 0) {
+        mem.credits = Math.max(0, mem.credits + creditsDelta);
+      }
+      if (vaultZenDelta !== 0) {
+        mem.vaultMoney = Math.min(MAX_VAULT_ZEN, Math.max(0, mem.vaultMoney + vaultZenDelta));
+      }
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: creditsDelta !== 0 ? "ADMIN_ADJUST_CREDITS" : "ADMIN_ADJUST_VAULT_ZEN",
+        status: "COMMITTED",
+        creditsDelta,
+        details: creditsDelta !== 0 ? `Admin "${params.adminLoginName}" adjusted ${mem.loginName}'s credits by ${creditsDelta >= 0 ? `+${creditsDelta.toLocaleString()}` : creditsDelta.toLocaleString()} (Total: ${mem.credits.toLocaleString()} Cr)` : `Admin "${params.adminLoginName}" adjusted ${mem.loginName}'s Vault Zen by ${vaultZenDelta >= 0 ? `+${vaultZenDelta.toLocaleString()}` : vaultZenDelta.toLocaleString()} (Total: ${mem.vaultMoney.toLocaleString()} Zen)`
+      });
+      const isAdmin = Boolean(
+        mem.isMasterAdmin || mem.role === "ADMIN" || mem.role === "SUPER_ADMIN" || mem.state === "GameMaster" || adminAccounts.has(key)
+      );
+      return {
+        username: mem.loginName,
+        credits: mem.credits,
+        vaultMoney: mem.vaultMoney,
+        wCoinC: mem.wCoinC,
+        vipUntil: mem.vipUntil,
+        isAdmin,
+        role: isAdmin ? "ADMIN" : "USER",
+        isOnline: memoryMembStat.get(key)?.ConnectStat === 1
+      };
+    });
+  }
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SAVEPOINT sp_openmu_lookup");
+    try {
+      const openMuRes = await client.query(
+        `SELECT "Id", "LoginName", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
+           FROM data."Account"
+          WHERE LOWER("LoginName") = LOWER($1)
+          LIMIT 1`,
+        [cleanTarget]
+      );
+      const oa = openMuRes.rows[0];
+      if (oa) {
+        const isCfgAdmin = adminAccounts.has(oa.LoginName.toLowerCase()) || oa.State === 2;
+        await client.query(
+          `INSERT INTO webshop_accounts (
+             id, login_name, password_hash, security_code, email, state, role, is_master_admin,
+             credits, vault_money, wcoinc, wcoinp, goblin_points
+           ) VALUES ($1, $2, '', '', $3, $4, $5, $6, 0, 0, $7, $8, $9)
+           ON CONFLICT (login_name) DO NOTHING`,
+          [
+            oa.Id,
+            oa.LoginName,
+            oa.EMail || `${oa.LoginName}@muorigins.online`,
+            String(oa.State),
+            isCfgAdmin ? "ADMIN" : "USER",
+            isCfgAdmin,
+            oa.WCoinC || 0,
+            oa.WCoinP || 0,
+            oa.GoblinPoints || 0
+          ]
+        );
+      }
+      await client.query("RELEASE SAVEPOINT sp_openmu_lookup");
+    } catch {
+      await client.query("ROLLBACK TO SAVEPOINT sp_openmu_lookup");
+    }
+    const lockRes = await client.query(
+      `SELECT login_name, credits, vault_money, wcoinc, vip_until, role, is_master_admin
+         FROM webshop_accounts
+        WHERE LOWER(login_name) = LOWER($1)
+        FOR UPDATE`,
+      [cleanTarget]
+    );
+    const existing = lockRes.rows[0];
+    if (!existing) {
+      throw new TransactionDomainError(
+        "ACCOUNT_NOT_FOUND",
+        404,
+        `\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19 "${cleanTarget}" \u0E43\u0E19\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25 OpenMU`
+      );
+    }
+    const updatedCredits = creditsDelta !== 0 ? Math.max(0, Number(existing.credits || 0) + creditsDelta) : Number(existing.credits || 0);
+    const updatedVaultMoney = vaultZenDelta !== 0 ? Math.min(MAX_VAULT_ZEN, Math.max(0, Number(existing.vault_money || 0) + vaultZenDelta)) : Number(existing.vault_money || 0);
+    const updRes = await client.query(
+      `UPDATE webshop_accounts
+          SET credits = $1,
+              vault_money = $2,
+              updated_at = NOW()
+        WHERE login_name = $3
+        RETURNING login_name, credits, vault_money, wcoinc, vip_until, role, is_master_admin`,
+      [updatedCredits, updatedVaultMoney, existing.login_name]
+    );
+    if (vaultZenDelta !== 0) {
+      await client.query("SAVEPOINT sp_openmu_vault_zen");
+      try {
+        await client.query(
+          `UPDATE data."ItemStorage"
+              SET "Money" = $1
+            WHERE "Id" = (
+              SELECT "VaultId"
+                FROM data."Account"
+               WHERE LOWER("LoginName") = LOWER($2)
+                 AND "VaultId" IS NOT NULL
+               LIMIT 1
+            )`,
+          [updatedVaultMoney, existing.login_name]
+        );
+        await client.query("RELEASE SAVEPOINT sp_openmu_vault_zen");
+      } catch {
+        await client.query("ROLLBACK TO SAVEPOINT sp_openmu_vault_zen");
+      }
+    }
+    await recordAuditLog(
+      {
+        accountId: existing.login_name,
+        ipAddress: params.ipAddress,
+        action: creditsDelta !== 0 ? "ADMIN_ADJUST_CREDITS" : "ADMIN_ADJUST_VAULT_ZEN",
+        status: "COMMITTED",
+        creditsDelta,
+        details: creditsDelta !== 0 ? `Admin "${params.adminLoginName}" adjusted ${existing.login_name}'s credits by ${creditsDelta >= 0 ? `+${creditsDelta.toLocaleString()}` : creditsDelta.toLocaleString()} (Total: ${updatedCredits.toLocaleString()} Cr)` : `Admin "${params.adminLoginName}" adjusted ${existing.login_name}'s Vault Zen by ${vaultZenDelta >= 0 ? `+${vaultZenDelta.toLocaleString()}` : vaultZenDelta.toLocaleString()} (Total: ${updatedVaultMoney.toLocaleString()} Zen)`
+      },
+      client
+    );
+    await client.query("COMMIT");
+    const row = updRes.rows[0];
+    const isAdmin = Boolean(
+      adminAccounts.has(row.login_name.toLowerCase()) || row.is_master_admin || row.role === "ADMIN" || row.role === "SUPER_ADMIN"
+    );
+    return {
+      username: row.login_name,
+      credits: Number(row.credits),
+      vaultMoney: Number(row.vault_money),
+      wCoinC: Number(row.wcoinc),
+      vipUntil: row.vip_until ? new Date(row.vip_until).toISOString() : null,
+      isAdmin,
+      role: isAdmin ? "ADMIN" : "USER",
+      isOnline: false
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+async function redeemAccountOnlineHours(params) {
+  const cleanLogin = (params.loginName || "").trim();
+  const hours = Math.trunc(Number(params.hoursToRedeem));
+  if (!cleanLogin) {
+    throw new TransactionDomainError("UNAUTHORIZED", 401, "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E01\u0E48\u0E2D\u0E19\u0E17\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23");
+  }
+  if (!Number.isInteger(hours) || hours < 1 || hours > 1e3) {
+    throw new TransactionDomainError(
+      "INVALID_HOURS",
+      400,
+      "\u0E08\u0E33\u0E19\u0E27\u0E19\u0E0A\u0E31\u0E48\u0E27\u0E42\u0E21\u0E07\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E41\u0E25\u0E01\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E08\u0E33\u0E19\u0E27\u0E19\u0E40\u0E15\u0E47\u0E21\u0E15\u0E31\u0E49\u0E07\u0E41\u0E15\u0E48 1 \u0E0A\u0E31\u0E48\u0E27\u0E42\u0E21\u0E07\u0E02\u0E36\u0E49\u0E19\u0E44\u0E1B"
+    );
+  }
+  const minutesRequired = hours * 60;
+  const creditsReward = hours * ONLINE_HOUR_REWARD_CREDITS;
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanLogin, async () => {
+      const mem = memoryAccounts.get(cleanLogin.toLowerCase());
+      if (!mem) {
+        throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A");
+      }
+      const availableHours = Math.floor((mem.onlineMinutes || 0) / 60);
+      if (hours > availableHours || mem.onlineMinutes < minutesRequired) {
+        throw new TransactionDomainError(
+          "INSUFFICIENT_ONLINE_HOURS",
+          400,
+          `\u0E40\u0E27\u0E25\u0E32\u0E2D\u0E2D\u0E19\u0E44\u0E25\u0E19\u0E4C\u0E2A\u0E30\u0E2A\u0E21\u0E44\u0E21\u0E48\u0E40\u0E1E\u0E35\u0E22\u0E07\u0E1E\u0E2D (\u0E21\u0E35 ${availableHours} \u0E0A\u0E31\u0E48\u0E27\u0E42\u0E21\u0E07\u0E40\u0E15\u0E47\u0E21 \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 ${hours} \u0E0A\u0E31\u0E48\u0E27\u0E42\u0E21\u0E07)`
+        );
+      }
+      mem.onlineMinutes = Math.max(0, mem.onlineMinutes - minutesRequired);
+      mem.exchangedOnlineHours = (mem.exchangedOnlineHours || 0) + hours;
+      mem.credits += creditsReward;
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: "ONLINE_TIME_EXCHANGE",
+        status: "COMMITTED",
+        creditsDelta: creditsReward,
+        details: `Exchanged ${hours} online hour(s) (${minutesRequired} mins) for +${creditsReward} Credits (Remaining: ${mem.onlineMinutes} mins)`
+      });
+      return {
+        ok: true,
+        hoursRedeemed: hours,
+        creditsAdded: creditsReward,
+        credits: mem.credits,
+        onlineMinutes: mem.onlineMinutes,
+        exchangedOnlineHours: mem.exchangedOnlineHours
+      };
+    });
+  }
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    const lockRes = await client.query(
+      `SELECT login_name, credits, online_minutes, exchanged_online_hours
+         FROM webshop_accounts
+        WHERE LOWER(login_name) = LOWER($1)
+        FOR UPDATE`,
+      [cleanLogin]
+    );
+    const acc = lockRes.rows[0];
+    if (!acc) {
+      throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A");
+    }
+    const availableHours = Math.floor(Number(acc.online_minutes || 0) / 60);
+    if (hours > availableHours || Number(acc.online_minutes || 0) < minutesRequired) {
+      throw new TransactionDomainError(
+        "INSUFFICIENT_ONLINE_HOURS",
+        400,
+        `\u0E40\u0E27\u0E25\u0E32\u0E2D\u0E2D\u0E19\u0E44\u0E25\u0E19\u0E4C\u0E2A\u0E30\u0E2A\u0E21\u0E44\u0E21\u0E48\u0E40\u0E1E\u0E35\u0E22\u0E07\u0E1E\u0E2D (\u0E21\u0E35 ${availableHours} \u0E0A\u0E31\u0E48\u0E27\u0E42\u0E21\u0E07\u0E40\u0E15\u0E47\u0E21 \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 ${hours} \u0E0A\u0E31\u0E48\u0E27\u0E42\u0E21\u0E07)`
+      );
+    }
+    const updRes = await client.query(
+      `UPDATE webshop_accounts
+          SET online_minutes = online_minutes - $1,
+              exchanged_online_hours = exchanged_online_hours + $2,
+              credits = credits + $3,
+              updated_at = NOW()
+        WHERE login_name = $4
+          AND online_minutes >= $1
+        RETURNING credits, online_minutes, exchanged_online_hours`,
+      [minutesRequired, hours, creditsReward, acc.login_name]
+    );
+    const row = updRes.rows[0];
+    if (!row) {
+      throw new TransactionDomainError(
+        "INSUFFICIENT_ONLINE_HOURS",
+        409,
+        "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E41\u0E25\u0E01\u0E40\u0E27\u0E25\u0E32\u0E2D\u0E2D\u0E19\u0E44\u0E25\u0E19\u0E4C\u0E44\u0E14\u0E49 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07"
+      );
+    }
+    await recordAuditLog(
+      {
+        accountId: acc.login_name,
+        ipAddress: params.ipAddress,
+        action: "ONLINE_TIME_EXCHANGE",
+        status: "COMMITTED",
+        creditsDelta: creditsReward,
+        details: `Exchanged ${hours} online hour(s) (${minutesRequired} mins) for +${creditsReward} Credits`
+      },
+      client
+    );
+    await client.query("COMMIT");
+    return {
+      ok: true,
+      hoursRedeemed: hours,
+      creditsAdded: creditsReward,
+      credits: Number(row.credits),
+      onlineMinutes: Number(row.online_minutes),
+      exchangedOnlineHours: Number(row.exchanged_online_hours)
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+async function getAccountCharacters(loginName) {
+  const cleanLogin = (loginName || "").trim();
+  if (!cleanLogin) return [];
+  if (!pgPool || !pgHealthy) {
+    return Array.from(memoryCharacters.values()).filter(
+      (c) => c.accountId.toLowerCase() === cleanLogin.toLowerCase()
+    );
+  }
+  const byName = /* @__PURE__ */ new Map();
+  try {
+    const wsRes = await pgPool.query(
+      `SELECT name, account_login, class_code, class_id, level, resets, level_up_points,
+              strength, agility, vitality, energy, command, money, ctl_code
+         FROM webshop_characters
+        WHERE LOWER(account_login) = LOWER($1)
+        ORDER BY level DESC, name ASC`,
+      [cleanLogin]
+    );
+    for (const r of wsRes.rows) {
+      byName.set(r.name.toLowerCase(), {
+        name: r.name,
+        accountId: r.account_login,
+        classCode: r.class_code || "bm",
+        classId: Number(r.class_id || 18),
+        level: Number(r.level || 400),
+        resets: Number(r.resets || 0),
+        levelUpPoints: Number(r.level_up_points || 0),
+        strength: Number(r.strength || 28),
+        agility: Number(r.agility || 20),
+        vitality: Number(r.vitality || 25),
+        energy: Number(r.energy || 10),
+        command: Number(r.command || 0),
+        money: Number(r.money || 0),
+        ctlCode: Number(r.ctl_code || 0),
+        isOnline: false
+      });
+    }
+  } catch {
+  }
+  try {
+    const omuRes = await pgPool.query(
+      `SELECT c."Name",
+              a."LoginName",
+              COALESCE(c."CharacterStatus", 0)::int AS "CharacterStatus",
+              COALESCE(c."LevelUpPoints", 0)::int AS "LevelUpPoints",
+              cc."Number" AS "ClassNumber",
+              COALESCE(
+                (SELECT MAX(sa."Value")::int
+                   FROM data."StatAttribute" sa
+                   JOIN config."AttributeDefinition" ad ON ad."Id" = sa."DefinitionId"
+                  WHERE sa."CharacterId" = c."Id"
+                    AND LOWER(ad."Designation") LIKE '%level%'),
+                400
+              ) AS "Level",
+              COALESCE(inv."Money", 0)::bigint AS "Money"
+         FROM data."Character" c
+         JOIN data."Account" a ON a."Id" = c."AccountId"
+         LEFT JOIN config."CharacterClass" cc ON cc."Id" = c."CharacterClassId"
+         LEFT JOIN data."ItemStorage" inv ON inv."Id" = c."InventoryId"
+        WHERE LOWER(a."LoginName") = LOWER($1)
+        ORDER BY c."CharacterSlot" ASC`,
+      [cleanLogin]
+    );
+    for (const r of omuRes.rows) {
+      const matchedClass = MU_CLASSES.find((m) => m.id === Number(r.ClassNumber)) || MU_CLASSES[2];
+      const level = Math.max(1, Math.min(400, Number(r.Level || 400)));
+      const calc = calculateClassStatPoints(matchedClass.code, level);
+      byName.set(r.Name.toLowerCase(), {
+        name: r.Name,
+        accountId: r.LoginName,
+        classCode: matchedClass.code,
+        classId: matchedClass.id,
+        level,
+        resets: 0,
+        levelUpPoints: Number(r.LevelUpPoints ?? calc.totalPoints),
+        strength: calc.classDef.baseStr,
+        agility: calc.classDef.baseAgi,
+        vitality: calc.classDef.baseVit,
+        energy: calc.classDef.baseEne,
+        command: calc.classDef.baseCmd,
+        money: Number(r.Money || 0),
+        ctlCode: Number(r.CharacterStatus || 0),
+        isOnline: false
+      });
+    }
+  } catch {
+  }
+  return Array.from(byName.values());
+}
+async function buyCharacter400Tx(params) {
+  const cleanLogin = (params.loginName || "").trim();
+  const cleanCharName = (params.characterName || "").trim();
+  if (!cleanLogin) {
+    throw new TransactionDomainError("UNAUTHORIZED", 401, "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E01\u0E48\u0E2D\u0E19\u0E17\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23");
+  }
+  if (!/^[a-zA-Z0-9_-]{2,10}$/.test(cleanCharName)) {
+    throw new TransactionDomainError(
+      "INVALID_CHAR_NAME",
+      400,
+      "\u0E0A\u0E37\u0E48\u0E2D\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E20\u0E32\u0E29\u0E32\u0E2D\u0E31\u0E07\u0E01\u0E24\u0E29\u0E2B\u0E23\u0E37\u0E2D\u0E15\u0E31\u0E27\u0E40\u0E25\u0E02 \u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E27 2\u201310 \u0E15\u0E31\u0E27\u0E2D\u0E31\u0E01\u0E29\u0E23"
+    );
+  }
+  const calc = calculateClassStatPoints(params.classCode, 400);
+  if (!calc.classDef.s3) {
+    throw new TransactionDomainError(
+      "INVALID_CLASS",
+      400,
+      "\u0E2D\u0E19\u0E38\u0E0D\u0E32\u0E15\u0E43\u0E2B\u0E49\u0E0B\u0E37\u0E49\u0E2D\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E2A\u0E32\u0E22\u0E2D\u0E32\u0E0A\u0E35\u0E1E Class 3 \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19"
+    );
+  }
+  const cost = BUY_CHAR_400_CREDITS;
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanLogin, async () => {
+      const mem = memoryAccounts.get(cleanLogin.toLowerCase());
+      if (!mem) {
+        throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A");
+      }
+      if (memoryMembStat.get(cleanLogin.toLowerCase())?.ConnectStat === 1) {
+        throw new TransactionDomainError(
+          "ACCOUNT_ONLINE",
+          409,
+          "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E15\u0E49\u0E2D\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E2D\u0E2D\u0E1F\u0E44\u0E25\u0E19\u0E4C (Offline) \u0E01\u0E48\u0E2D\u0E19\u0E0B\u0E37\u0E49\u0E2D\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E43\u0E2B\u0E21\u0E48"
+        );
+      }
+      const existingChars = Array.from(memoryCharacters.values()).filter(
+        (c) => c.accountId.toLowerCase() === cleanLogin.toLowerCase()
+      );
+      if (existingChars.length >= 5) {
+        throw new TransactionDomainError(
+          "MAX_CHARACTERS_REACHED",
+          400,
+          "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E21\u0E35\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E04\u0E23\u0E1A\u0E2A\u0E39\u0E07\u0E2A\u0E38\u0E14 5 \u0E15\u0E31\u0E27\u0E41\u0E25\u0E49\u0E27"
+        );
+      }
+      if (memoryCharacters.has(cleanCharName.toLowerCase())) {
+        throw new TransactionDomainError(
+          "CHAR_NAME_TAKEN",
+          409,
+          `\u0E0A\u0E37\u0E48\u0E2D\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 "${cleanCharName}" \u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27`
+        );
+      }
+      if (mem.credits < cost) {
+        throw new TransactionDomainError(
+          "INSUFFICIENT_CREDITS",
+          402,
+          `\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E44\u0E21\u0E48\u0E40\u0E1E\u0E35\u0E22\u0E07\u0E1E\u0E2D (\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 ${cost.toLocaleString()} Credits)`
+        );
+      }
+      const newChar = {
+        name: cleanCharName,
+        accountId: mem.loginName,
+        classCode: calc.classDef.code,
+        classId: calc.classDef.id,
+        level: 400,
+        resets: 0,
+        levelUpPoints: calc.totalPoints,
+        strength: calc.classDef.baseStr,
+        agility: calc.classDef.baseAgi,
+        vitality: calc.classDef.baseVit,
+        energy: calc.classDef.baseEne,
+        command: calc.classDef.baseCmd,
+        money: 0,
+        ctlCode: 0,
+        isOnline: false
+      };
+      mem.credits -= cost;
+      memoryCharacters.set(cleanCharName.toLowerCase(), newChar);
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: "BUY_CHARACTER_400",
+        status: "COMMITTED",
+        creditsDelta: -cost,
+        details: `Purchased Lv.400 character "${cleanCharName}" (${calc.classDef.name}) for ${cost} Credits`
+      });
+      return {
+        ok: true,
+        character: newChar,
+        remainingCredits: mem.credits,
+        characters: await getAccountCharacters(mem.loginName)
+      };
+    });
+  }
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    const membRes = await client.query(
+      `SELECT "ConnectStat" FROM "MEMB_STAT" WHERE LOWER("memb___id") = LOWER($1) FOR SHARE`,
+      [cleanLogin]
+    );
+    if (membRes.rows[0]?.ConnectStat === 1) {
+      throw new TransactionDomainError(
+        "ACCOUNT_ONLINE",
+        409,
+        "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E15\u0E49\u0E2D\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E2D\u0E2D\u0E1F\u0E44\u0E25\u0E19\u0E4C (Offline) \u0E01\u0E48\u0E2D\u0E19\u0E0B\u0E37\u0E49\u0E2D\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E43\u0E2B\u0E21\u0E48"
+      );
+    }
+    const lockAcc = await client.query(
+      `SELECT login_name, credits FROM webshop_accounts WHERE LOWER(login_name) = LOWER($1) FOR UPDATE`,
+      [cleanLogin]
+    );
+    const acc = lockAcc.rows[0];
+    if (!acc) {
+      throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A");
+    }
+    if (acc.credits < cost) {
+      throw new TransactionDomainError(
+        "INSUFFICIENT_CREDITS",
+        402,
+        `\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E44\u0E21\u0E48\u0E40\u0E1E\u0E35\u0E22\u0E07\u0E1E\u0E2D (\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 ${cost.toLocaleString()} Credits)`
+      );
+    }
+    const cntRes = await client.query(
+      `SELECT COUNT(*)::text AS cnt FROM webshop_characters WHERE LOWER(account_login) = LOWER($1)`,
+      [acc.login_name]
+    );
+    if (Number(cntRes.rows[0]?.cnt || 0) >= 5) {
+      throw new TransactionDomainError(
+        "MAX_CHARACTERS_REACHED",
+        400,
+        "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E21\u0E35\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E04\u0E23\u0E1A\u0E2A\u0E39\u0E07\u0E2A\u0E38\u0E14 5 \u0E15\u0E31\u0E27\u0E41\u0E25\u0E49\u0E27"
+      );
+    }
+    const dupRes = await client.query(
+      `SELECT name FROM webshop_characters WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+      [cleanCharName]
+    );
+    if (dupRes.rows[0]) {
+      throw new TransactionDomainError(
+        "CHAR_NAME_TAKEN",
+        409,
+        `\u0E0A\u0E37\u0E48\u0E2D\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 "${cleanCharName}" \u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27`
+      );
+    }
+    const updAcc = await client.query(
+      `UPDATE webshop_accounts SET credits = credits - $1, updated_at = NOW()
+        WHERE login_name = $2 AND credits >= $1 RETURNING credits`,
+      [cost, acc.login_name]
+    );
+    await client.query(
+      `INSERT INTO webshop_characters (
+         name, account_login, class_code, class_id, level, resets, level_up_points,
+         strength, agility, vitality, energy, command, money, ctl_code
+       ) VALUES ($1, $2, $3, $4, 400, 0, $5, $6, $7, $8, $9, $10, 0, 0)`,
+      [
+        cleanCharName,
+        acc.login_name,
+        calc.classDef.code,
+        calc.classDef.id,
+        calc.totalPoints,
+        calc.classDef.baseStr,
+        calc.classDef.baseAgi,
+        calc.classDef.baseVit,
+        calc.classDef.baseEne,
+        calc.classDef.baseCmd
+      ]
+    );
+    await recordAuditLog(
+      {
+        accountId: acc.login_name,
+        ipAddress: params.ipAddress,
+        action: "BUY_CHARACTER_400",
+        status: "COMMITTED",
+        creditsDelta: -cost,
+        details: `Purchased Lv.400 character "${cleanCharName}" (${calc.classDef.name}) for ${cost} Credits`
+      },
+      client
+    );
+    await client.query("COMMIT");
+    const newChar = {
+      name: cleanCharName,
+      accountId: acc.login_name,
+      classCode: calc.classDef.code,
+      classId: calc.classDef.id,
+      level: 400,
+      resets: 0,
+      levelUpPoints: calc.totalPoints,
+      strength: calc.classDef.baseStr,
+      agility: calc.classDef.baseAgi,
+      vitality: calc.classDef.baseVit,
+      energy: calc.classDef.baseEne,
+      command: calc.classDef.baseCmd,
+      money: 0,
+      ctlCode: 0,
+      isOnline: false
+    };
+    return {
+      ok: true,
+      character: newChar,
+      remainingCredits: Number(updAcc.rows[0]?.credits ?? 0),
+      characters: await getAccountCharacters(acc.login_name)
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+async function deleteCharacter400ForCredits(params) {
+  const cleanLogin = (params.loginName || "").trim();
+  const cleanCharName = (params.characterName || "").trim();
+  const cleanCode = (params.deleteCode || "").trim();
+  if (!cleanLogin) {
+    throw new TransactionDomainError("UNAUTHORIZED", 401, "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E01\u0E48\u0E2D\u0E19\u0E17\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23");
+  }
+  if (!cleanCharName) {
+    throw new TransactionDomainError("INVALID_CHAR_NAME", 400, "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E25\u0E1A");
+  }
+  if (!cleanCode || cleanCode.length < 4 || cleanCode.length > 32) {
+    throw new TransactionDomainError(
+      "INVALID_DELETE_CODE",
+      400,
+      "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E01\u0E23\u0E2D\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 (Security Code) \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19"
+    );
+  }
+  const reward = DELETE_CHAR_400_REWARD_CREDITS;
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanLogin, async () => {
+      const mem = memoryAccounts.get(cleanLogin.toLowerCase());
+      if (!mem) {
+        throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A");
+      }
+      if (memoryMembStat.get(cleanLogin.toLowerCase())?.ConnectStat === 1) {
+        throw new TransactionDomainError(
+          "ACCOUNT_ONLINE",
+          409,
+          "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E15\u0E49\u0E2D\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E2D\u0E2D\u0E1F\u0E44\u0E25\u0E19\u0E4C (Offline) \u0E01\u0E48\u0E2D\u0E19\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23"
+        );
+      }
+      const codeMatchesSecurity = !mem.securityCode || mem.securityCode === "0000000" || mem.securityCode === cleanCode;
+      const codeMatchesPassword = verifyAccountPassword(
+        mem.passwordHash,
+        mem.passwordPlainOrSimulatedBcrypt,
+        cleanCode
+      );
+      if (!codeMatchesSecurity && !codeMatchesPassword) {
+        throw new TransactionDomainError(
+          "INVALID_DELETE_CODE",
+          403,
+          "\u0E23\u0E2B\u0E31\u0E2A\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 (\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35) \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07"
+        );
+      }
+      const targetChar = memoryCharacters.get(cleanCharName.toLowerCase());
+      if (!targetChar || targetChar.accountId.toLowerCase() !== cleanLogin.toLowerCase()) {
+        throw new TransactionDomainError(
+          "CHAR_NOT_FOUND",
+          404,
+          "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E19\u0E35\u0E49\u0E43\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13"
+        );
+      }
+      if (targetChar.ctlCode !== 0) {
+        throw new TransactionDomainError(
+          "CHAR_BANNED",
+          403,
+          "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E17\u0E35\u0E48\u0E15\u0E34\u0E14\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E41\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E41\u0E25\u0E01\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E44\u0E14\u0E49"
+        );
+      }
+      if (targetChar.level !== 400) {
+        throw new TransactionDomainError(
+          "CHAR_LEVEL_NOT_400",
+          400,
+          `\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 "${targetChar.name}" \u0E21\u0E35\u0E40\u0E25\u0E40\u0E27\u0E25 ${targetChar.level} (\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E25\u0E40\u0E27\u0E25 400 \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19)`
+        );
+      }
+      memoryCharacters.delete(cleanCharName.toLowerCase());
+      mem.credits += reward;
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: "DELETE_CHARACTER_400",
+        status: "COMMITTED",
+        creditsDelta: reward,
+        details: `Deleted Lv.400 character "${targetChar.name}" in exchange for +${reward} Credits`
+      });
+      return {
+        ok: true,
+        deletedCharacterName: targetChar.name,
+        rewardCredits: reward,
+        remainingCredits: mem.credits,
+        characters: await getAccountCharacters(mem.loginName)
+      };
+    });
+  }
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    const membRes = await client.query(
+      `SELECT "ConnectStat" FROM "MEMB_STAT" WHERE LOWER("memb___id") = LOWER($1) FOR SHARE`,
+      [cleanLogin]
+    );
+    if (membRes.rows[0]?.ConnectStat === 1) {
+      throw new TransactionDomainError(
+        "ACCOUNT_ONLINE",
+        409,
+        "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E15\u0E49\u0E2D\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E2D\u0E2D\u0E1F\u0E44\u0E25\u0E19\u0E4C (Offline) \u0E01\u0E48\u0E2D\u0E19\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23"
+      );
+    }
+    const lockAcc = await client.query(
+      `SELECT login_name, security_code, credits
+         FROM webshop_accounts
+        WHERE LOWER(login_name) = LOWER($1)
+        FOR UPDATE`,
+      [cleanLogin]
+    );
+    const acc = lockAcc.rows[0];
+    if (!acc) {
+      throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A");
+    }
+    let codeVerified = false;
+    if (acc.security_code && acc.security_code !== "0000000" && acc.security_code === cleanCode) {
+      codeVerified = true;
+    }
+    await client.query("SAVEPOINT sp_verify_openmu_code");
+    try {
+      const omuAccRes = await client.query(
+        `SELECT "SecurityCode", "PasswordHash"
+           FROM data."Account"
+          WHERE LOWER("LoginName") = LOWER($1)
+          LIMIT 1`,
+        [cleanLogin]
+      );
+      const omuAcc = omuAccRes.rows[0];
+      if (omuAcc) {
+        if (omuAcc.SecurityCode && omuAcc.SecurityCode.trim() !== "") {
+          if (omuAcc.SecurityCode.trim() === cleanCode) {
+            codeVerified = true;
+          }
+        } else if (!acc.security_code || acc.security_code === "0000000") {
+          codeVerified = true;
+        }
+        if (!codeVerified && omuAcc.PasswordHash) {
+          if (await bcrypt.compare(cleanCode, omuAcc.PasswordHash)) {
+            codeVerified = true;
+          }
+        }
+      } else if (!acc.security_code || acc.security_code === "0000000") {
+        codeVerified = true;
+      }
+      await client.query("RELEASE SAVEPOINT sp_verify_openmu_code");
+    } catch {
+      await client.query("ROLLBACK TO SAVEPOINT sp_verify_openmu_code");
+      if (!acc.security_code || acc.security_code === "0000000") {
+        codeVerified = true;
+      }
+    }
+    if (!codeVerified) {
+      throw new TransactionDomainError(
+        "INVALID_DELETE_CODE",
+        403,
+        "\u0E23\u0E2B\u0E31\u0E2A\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 (Security Code \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35) \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07"
+      );
+    }
+    let deletedCharName = "";
+    const wsCharRes = await client.query(
+      `SELECT name, level, ctl_code
+         FROM webshop_characters
+        WHERE LOWER(account_login) = LOWER($1)
+          AND LOWER(name) = LOWER($2)
+        FOR UPDATE`,
+      [acc.login_name, cleanCharName]
+    );
+    if (wsCharRes.rows[0]) {
+      const ch = wsCharRes.rows[0];
+      if (Number(ch.ctl_code) !== 0) {
+        throw new TransactionDomainError(
+          "CHAR_BANNED",
+          403,
+          "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E17\u0E35\u0E48\u0E15\u0E34\u0E14\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E41\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E41\u0E25\u0E01\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E44\u0E14\u0E49"
+        );
+      }
+      if (Number(ch.level) !== 400) {
+        throw new TransactionDomainError(
+          "CHAR_LEVEL_NOT_400",
+          400,
+          `\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 "${ch.name}" \u0E21\u0E35\u0E40\u0E25\u0E40\u0E27\u0E25 ${ch.level} (\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E25\u0E40\u0E27\u0E25 400 \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19)`
+        );
+      }
+      await client.query(`DELETE FROM webshop_characters WHERE name = $1`, [ch.name]);
+      deletedCharName = ch.name;
+    }
+    await client.query("SAVEPOINT sp_delete_openmu_char");
+    try {
+      const omuCharRes = await client.query(
+        `SELECT c."Id",
+                c."Name",
+                COALESCE(c."CharacterStatus", 0)::int AS "CharacterStatus",
+                COALESCE(
+                  (SELECT MAX(sa."Value")::int
+                     FROM data."StatAttribute" sa
+                     JOIN config."AttributeDefinition" ad ON ad."Id" = sa."DefinitionId"
+                    WHERE sa."CharacterId" = c."Id"
+                      AND LOWER(ad."Designation") LIKE '%level%'),
+                  400
+                ) AS "Level"
+           FROM data."Character" c
+           JOIN data."Account" a ON a."Id" = c."AccountId"
+          WHERE LOWER(a."LoginName") = LOWER($1)
+            AND LOWER(c."Name") = LOWER($2)
+          LIMIT 1`,
+        [acc.login_name, cleanCharName]
+      );
+      const omuChar = omuCharRes.rows[0];
+      if (omuChar) {
+        if (Number(omuChar.CharacterStatus) !== 0) {
+          throw new TransactionDomainError(
+            "CHAR_BANNED",
+            403,
+            "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E17\u0E35\u0E48\u0E15\u0E34\u0E14\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E41\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E41\u0E25\u0E01\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E44\u0E14\u0E49"
+          );
+        }
+        if (Number(omuChar.Level) < 400) {
+          throw new TransactionDomainError(
+            "CHAR_LEVEL_NOT_400",
+            400,
+            `\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23 "${omuChar.Name}" \u0E21\u0E35\u0E40\u0E25\u0E40\u0E27\u0E25 ${omuChar.Level} (\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E25\u0E40\u0E27\u0E25 400 \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19)`
+          );
+        }
+        await client.query(`DELETE FROM data."Character" WHERE "Id" = $1`, [omuChar.Id]);
+        deletedCharName = omuChar.Name;
+      }
+      await client.query("RELEASE SAVEPOINT sp_delete_openmu_char");
+    } catch (innerErr) {
+      await client.query("ROLLBACK TO SAVEPOINT sp_delete_openmu_char");
+      if (innerErr instanceof TransactionDomainError) {
+        throw innerErr;
+      }
+    }
+    if (!deletedCharName) {
+      throw new TransactionDomainError(
+        "CHAR_NOT_FOUND",
+        404,
+        "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E40\u0E25\u0E40\u0E27\u0E25 400 \u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E43\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13"
+      );
+    }
+    const updAcc = await client.query(
+      `UPDATE webshop_accounts
+          SET credits = credits + $1,
+              updated_at = NOW()
+        WHERE login_name = $2
+        RETURNING credits`,
+      [reward, acc.login_name]
+    );
+    await recordAuditLog(
+      {
+        accountId: acc.login_name,
+        ipAddress: params.ipAddress,
+        action: "DELETE_CHARACTER_400",
+        status: "COMMITTED",
+        creditsDelta: reward,
+        details: `Deleted Lv.400 character "${deletedCharName}" in exchange for +${reward} Credits`
+      },
+      client
+    );
+    await client.query("COMMIT");
+    return {
+      ok: true,
+      deletedCharacterName: deletedCharName,
+      rewardCredits: reward,
+      remainingCredits: Number(updAcc.rows[0]?.credits ?? 0),
+      characters: await getAccountCharacters(acc.login_name)
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 async function reserveCreditExchange(loginName, credits, wCoinC, idempotencyKey) {
   if (!pgPool || !pgHealthy) {
@@ -15248,6 +16356,19 @@ async function invalidateCatalogCache() {
   ]);
 }
 async function upsertCatalogItem(item) {
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `INSERT INTO webshop_catalog_openmu_mappings
+         (item_uid, package_sequence, price_sequence, item_json, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (item_uid) DO UPDATE SET
+         package_sequence = EXCLUDED.package_sequence,
+         price_sequence = EXCLUDED.price_sequence,
+         item_json = EXCLUDED.item_json,
+         updated_at = NOW()`,
+      [item.uid, item.openMuPackageSequence ?? null, item.openMuPriceSequence ?? null, item]
+    );
+  }
   const idx = serverCatalog.findIndex((c) => c.uid === item.uid);
   if (idx >= 0) {
     serverCatalog[idx] = { ...item };
@@ -15258,6 +16379,12 @@ async function upsertCatalogItem(item) {
   return item;
 }
 async function deleteCatalogItem(uid) {
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      "DELETE FROM webshop_catalog_openmu_mappings WHERE item_uid = $1",
+      [uid]
+    );
+  }
   const before = serverCatalog.length;
   serverCatalog = serverCatalog.filter((c) => c.uid !== uid);
   if (serverCatalog.length !== before) {
@@ -15295,8 +16422,8 @@ function buildDefaultPromotionConfig() {
       amountThb: 50,
       bonusPercent: 0,
       code: "PKG_50",
-      name: "Egis Explorer Pack",
-      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E19\u0E31\u0E01\u0E1C\u0E08\u0E0D\u0E20\u0E31\u0E22 Egis",
+      name: "Mu Origins Explorer Pack",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E19\u0E31\u0E01\u0E1C\u0E08\u0E0D\u0E20\u0E31\u0E22 Mu Origins",
       bonusTextTh: "\u0E40\u0E23\u0E17\u0E21\u0E32\u0E15\u0E23\u0E10\u0E32\u0E19",
       bonusTextEn: "Standard Rate"
     },
@@ -15304,8 +16431,8 @@ function buildDefaultPromotionConfig() {
       amountThb: 100,
       bonusPercent: 3,
       code: "PKG_100",
-      name: "Egis Starter Pack",
-      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E1C\u0E39\u0E49\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 Egis",
+      name: "Mu Origins Starter Pack",
+      nameTh: "\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E1C\u0E39\u0E49\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 Mu Origins",
       bonusTextTh: "\u0E42\u0E1A\u0E19\u0E31\u0E2A +3%",
       bonusTextEn: "+3% Bonus"
     },
@@ -15437,8 +16564,8 @@ function sanitizePromotionConfig(raw, updatedBy) {
     const cleanCode = String(p.code || `PKG_${priceThb}_${idx + 1}`).trim().replace(/[^a-zA-Z0-9_-]/g, "_").toUpperCase() || `PKG_${idx + 1}`;
     return {
       code: cleanCode,
-      name: String(p.name || `Egis Pack ${priceThb} THB`).trim(),
-      nameTh: String(p.nameTh || `\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08 Egis ${priceThb} \u0E1A\u0E32\u0E17`).trim(),
+      name: String(p.name || `Mu Origins Pack ${priceThb} THB`).trim(),
+      nameTh: String(p.nameTh || `\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08 Mu Origins ${priceThb} \u0E1A\u0E32\u0E17`).trim(),
       priceUsd,
       priceThb,
       bonusPercent,
@@ -15584,526 +16711,215 @@ async function setMembStatConnectionState(loginName, connectStat, ipAddress, ser
   }
   return updated;
 }
-function getMemoryAccount(loginName) {
-  return memoryAccounts.get(loginName.trim().toLowerCase()) || null;
-}
-function getRecentCoinGrants(limit = 25, loginName) {
-  if (!loginName) return memoryGrantsList.slice(0, limit);
-  const lower = loginName.toLowerCase();
-  return memoryGrantsList.filter((g) => g.accountLoginName.toLowerCase() === lower).slice(0, limit);
-}
-async function registerAccountRecord(loginName, password, email, characterDeleteCode, ipAddress) {
-  const cleanName = loginName.trim();
-  const key = cleanName.toLowerCase();
-  const cleanDeleteCode = (characterDeleteCode || "").trim();
-  if (!/^\d{4,8}$/.test(cleanDeleteCode)) {
+function validateAuthoritativeOrderReference(reference) {
+  const clean = reference.trim();
+  if (!/^webshop:order:[A-Za-z0-9-]{8,100}$/.test(clean)) {
     throw new TransactionDomainError(
-      "INVALID_DELETE_CODE",
+      "INVALID_IDEMPOTENCY_KEY",
       400,
-      "\u0E23\u0E2B\u0E31\u0E2A\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E15\u0E31\u0E27\u0E40\u0E25\u0E02\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 (\u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E27 4\u20138 \u0E2B\u0E25\u0E31\u0E01)"
+      "A valid immutable Idempotency-Key is required."
     );
   }
-  if (memoryAccounts.has(key)) {
+  return clean;
+}
+function getAuthoritativeCatalogItem(itemUid) {
+  const item = serverCatalog.find((candidate) => candidate.uid === itemUid);
+  if (!item) {
+    throw new TransactionDomainError("ITEM_NOT_FOUND", 404, "Catalog item not found.");
+  }
+  if (!Number.isInteger(item.openMuPackageSequence) || item.openMuPackageSequence < 0) {
     throw new TransactionDomainError(
-      "ACCOUNT_EXISTS",
-      409,
-      `\u0E0A\u0E37\u0E48\u0E2D\u0E1A\u0E31\u0E0D\u0E0A\u0E35 "${cleanName}" \u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A data."Account" \u0E41\u0E25\u0E49\u0E27 (409 Conflict)`
+      "AUTHORITATIVE_OFFER_NOT_MAPPED",
+      422,
+      "This item is not mapped to an authoritative OpenMU cash shop offer."
     );
   }
-  const passwordHash = hashSimulatedBcrypt(password);
-  const newAcc = {
-    id: crypto4.randomUUID(),
-    loginName: cleanName,
-    passwordPlainOrSimulatedBcrypt: password,
-    passwordHash,
-    securityCode: cleanDeleteCode,
-    email: email || `${cleanName}@egis-mu.com`,
-    state: "Normal",
-    role: "USER",
-    isMasterAdmin: false,
-    registrationDate: (/* @__PURE__ */ new Date()).toISOString(),
-    credits: 0,
-    vaultMoney: 0,
-    wCoinC: 0,
-    wCoinP: 0,
-    goblinPoints: 0,
-    vipUntil: null,
-    vaultItems: []
-  };
+  if (!Number.isInteger(item.credits) || item.credits <= 0) {
+    throw new TransactionDomainError("ITEM_NOT_FOR_SALE", 422, "This item is not for sale.");
+  }
+  return item;
+}
+async function reserveAuthoritativeItemOrder(params) {
+  const accountLogin = params.accountLogin.trim();
+  const reference = validateAuthoritativeOrderReference(params.reference);
+  const item = getAuthoritativeCatalogItem(params.itemUid);
+  const packageSequence = item.openMuPackageSequence;
+  const priceSequence = item.openMuPriceSequence ?? null;
+  const chargedCredits = item.credits;
+  if (pgPool && pgHealthy) {
+    const client = await pgPool.connect();
+    try {
+      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      const existingResult = await client.query(
+        `SELECT o.*, a.credits
+         FROM webshop_item_orders o
+         JOIN webshop_accounts a ON LOWER(a.login_name) = LOWER(o.account_login)
+         WHERE o.reference = $1
+         FOR UPDATE OF o`,
+        [reference]
+      );
+      const existing = existingResult.rows[0];
+      if (existing) {
+        if (existing.account_login.toLowerCase() !== accountLogin.toLowerCase() || existing.item_uid !== item.uid || existing.package_sequence !== packageSequence || existing.price_sequence !== priceSequence || existing.charged_credits !== chargedCredits) {
+          throw new TransactionDomainError(
+            "IDEMPOTENCY_CONFLICT",
+            409,
+            "The Idempotency-Key is already bound to another order."
+          );
+        }
+        await client.query("COMMIT");
+        return {
+          reference: existing.reference,
+          accountLogin: existing.account_login,
+          itemUid: existing.item_uid,
+          packageSequence: existing.package_sequence,
+          priceSequence: existing.price_sequence,
+          chargedCredits: existing.charged_credits,
+          status: existing.status,
+          openMuGrantId: existing.openmu_grant_id,
+          failureCode: existing.failure_code,
+          remainingCredits: existing.credits
+        };
+      }
+      const accountResult = await client.query(
+        `SELECT login_name, credits
+         FROM webshop_accounts
+         WHERE LOWER(login_name) = LOWER($1)
+         FOR UPDATE`,
+        [accountLogin]
+      );
+      const account = accountResult.rows[0];
+      if (!account) {
+        throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "Account not found.");
+      }
+      if (account.credits < chargedCredits) {
+        throw new TransactionDomainError("INSUFFICIENT_CREDITS", 402, "Insufficient credits.");
+      }
+      const remainingCredits = account.credits - chargedCredits;
+      await client.query(
+        `UPDATE webshop_accounts SET credits = $2, updated_at = NOW() WHERE login_name = $1`,
+        [account.login_name, remainingCredits]
+      );
+      await client.query(
+        `INSERT INTO webshop_item_orders
+           (reference, account_login, item_uid, package_sequence, price_sequence,
+            charged_credits, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+        [reference, account.login_name, item.uid, packageSequence, priceSequence, chargedCredits]
+      );
+      await client.query("COMMIT");
+      return {
+        reference,
+        accountLogin: account.login_name,
+        itemUid: item.uid,
+        packageSequence,
+        priceSequence,
+        chargedCredits,
+        status: "pending",
+        openMuGrantId: null,
+        failureCode: null,
+        remainingCredits
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {
+      });
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  return withAccountMutex(accountLogin, async () => {
+    const existing = memoryAuthoritativeItemOrders.get(reference);
+    if (existing) {
+      if (existing.accountLogin.toLowerCase() !== accountLogin.toLowerCase() || existing.itemUid !== item.uid || existing.packageSequence !== packageSequence || existing.priceSequence !== priceSequence || existing.chargedCredits !== chargedCredits) {
+        throw new TransactionDomainError(
+          "IDEMPOTENCY_CONFLICT",
+          409,
+          "The Idempotency-Key is already bound to another order."
+        );
+      }
+      return { ...existing };
+    }
+    const account = memoryAccounts.get(accountLogin.toLowerCase());
+    if (!account) throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "Account not found.");
+    if (account.credits < chargedCredits) {
+      throw new TransactionDomainError("INSUFFICIENT_CREDITS", 402, "Insufficient credits.");
+    }
+    account.credits -= chargedCredits;
+    const order = {
+      reference,
+      accountLogin: account.loginName,
+      itemUid: item.uid,
+      packageSequence,
+      priceSequence,
+      chargedCredits,
+      status: "pending",
+      openMuGrantId: null,
+      failureCode: null,
+      remainingCredits: account.credits
+    };
+    memoryAuthoritativeItemOrders.set(reference, order);
+    return { ...order };
+  });
+}
+async function completeAuthoritativeItemOrder(reference, openMuGrantId) {
+  if (pgPool && pgHealthy) {
+    await pgPool.query(
+      `UPDATE webshop_item_orders
+       SET status = 'delivered', openmu_grant_id = $2, failure_code = NULL,
+           updated_at = NOW()
+       WHERE reference = $1 AND status IN ('pending', 'delivered')`,
+      [reference, openMuGrantId]
+    );
+    return;
+  }
+  const order = memoryAuthoritativeItemOrders.get(reference);
+  if (order && (order.status === "pending" || order.status === "delivered")) {
+    order.status = "delivered";
+    order.openMuGrantId = openMuGrantId;
+    order.failureCode = null;
+  }
+}
+async function failAuthoritativeItemOrder(reference, failureCode, refund) {
   if (pgPool && pgHealthy) {
     const client = await pgPool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(
-        `INSERT INTO webshop_accounts (
-          id, login_name, password_hash, security_code, email, state, role, is_master_admin,
-          credits, vault_money, wcoinc, wcoinp, goblin_points
-        ) VALUES ($1, $2, $3, $4, $5, 'Normal', 'USER', FALSE, 0, 0, 0, 0, 0)`,
-        [newAcc.id, cleanName, passwordHash, cleanDeleteCode, newAcc.email]
+      const result = await client.query(
+        `UPDATE webshop_item_orders
+         SET status = $2, failure_code = $3, updated_at = NOW()
+         WHERE reference = $1 AND status = 'pending'
+         RETURNING account_login, charged_credits`,
+        [reference, refund ? "rejected" : "manual_review", failureCode]
       );
-      await client.query(
-        `INSERT INTO "MEMB_STAT" ("memb___id", "ConnectStat", "ServerName", "IP")
-         VALUES ($1, 0, 'Offline', $2)
-         ON CONFLICT ("memb___id") DO NOTHING`,
-        [cleanName, ipAddress]
-      );
-      await recordAuditLog(
-        {
-          accountId: cleanName,
-          ipAddress,
-          action: "ACCOUNT_REGISTER",
-          status: "COMMITTED",
-          details: `Registered new account "${cleanName}" (numeric Character Delete Code configured)`
-        },
-        client
-      );
+      if (refund && result.rows[0]) {
+        await client.query(
+          `UPDATE webshop_accounts
+           SET credits = credits + $2, updated_at = NOW()
+           WHERE LOWER(login_name) = LOWER($1)`,
+          [result.rows[0].account_login, result.rows[0].charged_credits]
+        );
+      }
       await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {
+      });
+      throw error;
     } finally {
       client.release();
     }
-  } else {
-    await recordAuditLog({
-      accountId: cleanName,
-      ipAddress,
-      action: "ACCOUNT_REGISTER",
-      status: "COMMITTED",
-      details: `Registered new account "${cleanName}" (numeric Character Delete Code configured)`
-    });
+    return;
   }
-  memoryAccounts.set(key, newAcc);
-  memoryMembStat.set(key, {
-    memb___id: cleanName,
-    ConnectStat: 0,
-    ServerName: "Offline",
-    IP: ipAddress,
-    ConnectTM: null,
-    DisConnectTM: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  return newAcc;
-}
-async function executePurchaseSingleItemTx(req) {
-  const cleanAccount = (req.accountId || "").trim();
-  if (!cleanAccount) {
-    throw new TransactionDomainError("INVALID_ACCOUNT", 400, "Account ID is required.");
-  }
-  const idemKey = req.idempotencyKey?.trim();
-  if (idemKey) {
-    const claim = await claimIdempotencyKey("purchase", `${cleanAccount}:${idemKey}`, 3600);
-    if (claim.state === "COMPLETED") {
-      return {
-        ...claim.cachedResponse,
-        idempotentReplay: true
-      };
+  const order = memoryAuthoritativeItemOrders.get(reference);
+  if (!order || order.status !== "pending") return;
+  order.status = refund ? "rejected" : "manual_review";
+  order.failureCode = failureCode;
+  if (refund) {
+    const account = memoryAccounts.get(order.accountLogin.toLowerCase());
+    if (account) {
+      account.credits += order.chargedCredits;
+      order.remainingCredits = account.credits;
     }
-    if (claim.state === "IN_PROGRESS") {
-      throw new TransactionDomainError(
-        "DUPLICATE_IN_FLIGHT",
-        409,
-        "Duplicate purchase request is currently being processed. Please wait."
-      );
-    }
-  }
-  try {
-    const { bundle } = await getCatalogBundleCached();
-    const catalogItem = bundle.items.find((it) => it.uid === Number(req.itemUid));
-    if (!catalogItem) {
-      throw new TransactionDomainError(
-        "ITEM_NOT_FOUND",
-        404,
-        `Catalog item UID #${req.itemUid} does not exist.`
-      );
-    }
-    const sanitized = sanitizeAndPriceSingleItem(
-      catalogItem,
-      {
-        level: req.level,
-        option: req.option,
-        luck: req.luck,
-        skill: req.skill,
-        exlOptions: req.exlOptions,
-        ancientStamina: req.ancientStamina,
-        fenrirVariant: req.fenrirVariant
-      },
-      serverConfig
-    );
-    const useWCoin = req.currency === "WCoinC";
-    const requiredCredits = useWCoin ? 0 : sanitized.totalCredits;
-    const requiredWCoinC = useWCoin ? sanitized.totalCredits : 0;
-    if (pgPool && pgHealthy) {
-      const client = await pgPool.connect();
-      try {
-        await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
-        const membRes = await client.query(
-          `SELECT "ConnectStat", "ServerName"
-           FROM "MEMB_STAT"
-           WHERE LOWER("memb___id") = LOWER($1)
-           FOR SHARE`,
-          [cleanAccount]
-        );
-        if (membRes.rows[0]?.ConnectStat === 1) {
-          throw new TransactionDomainError(
-            "ACCOUNT_ONLINE_MEMB_STAT",
-            409,
-            `Rejected by MEMB_STAT Anti-Dupe Guard: Account "${cleanAccount}" is currently online (${membRes.rows[0].ServerName}, ConnectStat = 1). Please log out completely before purchasing items.`
-          );
-        }
-        const accRes = await client.query(
-          `SELECT login_name, credits, wcoinc
-           FROM webshop_accounts
-           WHERE LOWER(login_name) = LOWER($1)
-           FOR UPDATE`,
-          [cleanAccount]
-        );
-        const dbAcc = accRes.rows[0];
-        if (!dbAcc) {
-          throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "Account not found.");
-        }
-        if (useWCoin && dbAcc.wcoinc < requiredWCoinC) {
-          throw new TransactionDomainError(
-            "INSUFFICIENT_WCOINC",
-            402,
-            `Insufficient WCoinC balance (need ${requiredWCoinC}, have ${dbAcc.wcoinc}).`
-          );
-        }
-        if (!useWCoin && dbAcc.credits < requiredCredits) {
-          throw new TransactionDomainError(
-            "INSUFFICIENT_CREDITS",
-            402,
-            "You do not have enough credits to do that."
-          );
-        }
-        const whRes = await client.query(
-          `SELECT * FROM webshop_warehouse_items
-           WHERE LOWER(account_login) = LOWER($1)
-           FOR UPDATE`,
-          [dbAcc.login_name]
-        );
-        const currentVault = whRes.rows.map((r) => ({
-          instanceId: r.instance_id,
-          serial: r.serial,
-          itemHex: r.item_hex,
-          slotIndex: r.slot_index,
-          itemUid: r.item_uid,
-          itemId: r.item_id,
-          itemType: r.item_type,
-          name: r.name,
-          X: r.width,
-          Y: r.height,
-          level: r.item_level,
-          option: r.item_option,
-          luck: r.luck,
-          skill: r.skill,
-          exlOptions: Array.from({ length: 6 }, (_, i) => Boolean(r.exl_mask & 1 << i)),
-          ancientStamina: r.ancient_stamina === 5 || r.ancient_stamina === 10 ? r.ancient_stamina : 0,
-          fenrirVariant: r.fenrir_variant >= 0 && r.fenrir_variant <= 3 ? r.fenrir_variant : 0,
-          durability: r.durability,
-          paidCredits: r.paid_credits,
-          canSellBack: r.can_sell_back,
-          purchasedAt: Number(r.purchased_at)
-        }));
-        const freeSlot = locateFreeWarehouseSlot(currentVault, catalogItem.X, catalogItem.Y);
-        if (freeSlot === 1337 || !verifySlotPlacement(currentVault, freeSlot, catalogItem.X, catalogItem.Y)) {
-          throw new TransactionDomainError(
-            "WAREHOUSE_FULL",
-            409,
-            "You do not have free slots in your vault to add this item."
-          );
-        }
-        const seqRes = await client.query(
-          `SELECT nextval('webshop_item_serial_seq') AS seq`
-        );
-        const seqNum = (Number(seqRes.rows[0].seq) & 4294967295) >>> 0 || 1;
-        const serial = seqNum.toString(16).toUpperCase().padStart(8, "0");
-        const itemHex = encodeSeason6ItemHex({
-          itemId: catalogItem.id,
-          itemType: catalogItem.type,
-          level: sanitized.level,
-          option: sanitized.option,
-          luck: sanitized.luck,
-          skill: sanitized.skill,
-          durability: 255,
-          serial,
-          exlOptions: sanitized.exlOptions,
-          ancientStamina: sanitized.ancientStamina,
-          fenrirVariant: sanitized.fenrirVariant
-        });
-        const deductRes = await client.query(
-          `UPDATE webshop_accounts
-           SET credits = credits - $1,
-               wcoinc = wcoinc - $2,
-               updated_at = NOW()
-           WHERE login_name = $3
-             AND credits >= $1
-             AND wcoinc >= $2
-           RETURNING credits, wcoinc`,
-          [requiredCredits, requiredWCoinC, dbAcc.login_name]
-        );
-        if (deductRes.rowCount !== 1) {
-          throw new TransactionDomainError(
-            "BALANCE_RACE_ABORTED",
-            409,
-            "Concurrent balance update detected; transaction rolled back."
-          );
-        }
-        const purchasedAt = Math.floor(Date.now() / 1e3);
-        const instanceId = `${serial}_${Date.now()}`;
-        const exlMask = sanitized.exlOptions.reduce(
-          (acc, on, idx) => on ? acc | 1 << idx : acc,
-          0
-        );
-        await client.query(
-          `INSERT INTO webshop_warehouse_items (
-            instance_id, account_login, slot_index, serial, item_hex,
-            item_uid, item_id, item_type, name, width, height,
-            item_level, item_option, luck, skill, exl_mask,
-            ancient_stamina, fenrir_variant, durability, paid_credits,
-            can_sell_back, purchased_at
-          ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16,
-            $17, $18, 255, $19,
-            $20, $21
-          )`,
-          [
-            instanceId,
-            dbAcc.login_name,
-            freeSlot,
-            serial,
-            itemHex,
-            catalogItem.uid,
-            catalogItem.id,
-            catalogItem.type,
-            catalogItem.name,
-            catalogItem.X,
-            catalogItem.Y,
-            sanitized.level,
-            sanitized.option,
-            sanitized.luck,
-            sanitized.skill,
-            exlMask,
-            sanitized.ancientStamina,
-            sanitized.fenrirVariant,
-            sanitized.totalCredits,
-            catalogItem.cansellitem === 1,
-            purchasedAt
-          ]
-        );
-        const newInstance = {
-          instanceId,
-          serial,
-          itemHex,
-          slotIndex: freeSlot,
-          itemUid: catalogItem.uid,
-          itemId: catalogItem.id,
-          itemType: catalogItem.type,
-          name: catalogItem.name,
-          X: catalogItem.X,
-          Y: catalogItem.Y,
-          level: sanitized.level,
-          option: sanitized.option,
-          luck: sanitized.luck,
-          skill: sanitized.skill,
-          exlOptions: sanitized.exlOptions,
-          ancientStamina: sanitized.ancientStamina,
-          fenrirVariant: sanitized.fenrirVariant,
-          durability: 255,
-          paidCredits: sanitized.totalCredits,
-          canSellBack: catalogItem.cansellitem === 1,
-          purchasedAt
-        };
-        await recordAuditLog(
-          {
-            accountId: dbAcc.login_name,
-            ipAddress: req.ipAddress,
-            action: "PURCHASE_SINGLE_ITEM",
-            status: "COMMITTED",
-            itemHex,
-            itemSerial: serial,
-            creditsDelta: -requiredCredits,
-            wCoinCDelta: -requiredWCoinC,
-            idempotencyKey: idemKey || null,
-            details: `Bought ${sanitized.exlOptions.some(Boolean) ? "Excellent " : ""}${catalogItem.name}${sanitized.level > 0 ? ` +${sanitized.level}` : ""} [Slot #${freeSlot}, Serial: ${serial}, Hex: ${itemHex}] for ${sanitized.totalCredits} ${useWCoin ? "WCoinC" : "credits"}`
-          },
-          client
-        );
-        await client.query("COMMIT");
-        const updatedVault = [...currentVault, newInstance];
-        const responsePayload = {
-          ok: true,
-          chargedCredits: requiredCredits,
-          chargedWCoinC: requiredWCoinC,
-          remainingCredits: deductRes.rows[0].credits,
-          remainingWCoinC: deductRes.rows[0].wcoinc,
-          addedItems: [newInstance],
-          warehouseHex3840: encodeWarehouseHex3840(updatedVault),
-          message: `Successfully added ${catalogItem.name} (Serial: ${serial}) to Vault Slot #${freeSlot} (Col ${freeSlot % 8 + 1}, Row ${Math.floor(freeSlot / 8) + 1})! Charged ${sanitized.totalCredits.toLocaleString()} ${useWCoin ? "WCoinC" : "credits"}.`
-        };
-        if (idemKey) {
-          await finalizeIdempotencyKey(
-            "purchase",
-            `${cleanAccount}:${idemKey}`,
-            responsePayload,
-            3600
-          );
-        }
-        return responsePayload;
-      } catch (txErr) {
-        await client.query("ROLLBACK").catch(() => {
-        });
-        throw txErr;
-      } finally {
-        client.release();
-      }
-    }
-    return await withAccountMutex(cleanAccount, async () => {
-      const key = cleanAccount.toLowerCase();
-      const memAcc = memoryAccounts.get(key);
-      if (!memAcc) {
-        throw new TransactionDomainError(
-          "ACCOUNT_NOT_FOUND",
-          404,
-          "Account not found. Please sign in first."
-        );
-      }
-      if (typeof req.clientCurrentCredits === "number" && Number.isFinite(req.clientCurrentCredits) && req.clientCurrentCredits >= 0) {
-        memAcc.credits = Math.trunc(req.clientCurrentCredits);
-      }
-      if (Array.isArray(req.clientVaultItems)) {
-        memAcc.vaultItems = structuredClone(req.clientVaultItems);
-      }
-      const snapshot = structuredClone(memAcc);
-      try {
-        const stat = memoryMembStat.get(key);
-        if (stat && stat.ConnectStat === 1) {
-          throw new TransactionDomainError(
-            "ACCOUNT_ONLINE_MEMB_STAT",
-            409,
-            `Rejected by MEMB_STAT Anti-Dupe Guard: Account "${memAcc.loginName}" is currently online (${stat.ServerName}, ConnectStat = 1). Please log out completely before adding items to the vault.`
-          );
-        }
-        if (useWCoin && memAcc.wCoinC < requiredWCoinC) {
-          throw new TransactionDomainError(
-            "INSUFFICIENT_WCOINC",
-            402,
-            `You do not have enough WCoinC (need ${requiredWCoinC}, have ${memAcc.wCoinC}).`
-          );
-        }
-        if (!useWCoin && memAcc.credits < requiredCredits) {
-          throw new TransactionDomainError(
-            "INSUFFICIENT_CREDITS",
-            402,
-            "You do not have enough credits to do that."
-          );
-        }
-        const freeSlot = locateFreeWarehouseSlot(
-          memAcc.vaultItems,
-          catalogItem.X,
-          catalogItem.Y
-        );
-        if (freeSlot === 1337 || !verifySlotPlacement(memAcc.vaultItems, freeSlot, catalogItem.X, catalogItem.Y)) {
-          throw new TransactionDomainError(
-            "WAREHOUSE_FULL",
-            409,
-            "You do not have free slots in your vault to add this item."
-          );
-        }
-        const serial = generateUniqueItemSerial();
-        const itemHex = encodeSeason6ItemHex({
-          itemId: catalogItem.id,
-          itemType: catalogItem.type,
-          level: sanitized.level,
-          option: sanitized.option,
-          luck: sanitized.luck,
-          skill: sanitized.skill,
-          durability: 255,
-          serial,
-          exlOptions: sanitized.exlOptions,
-          ancientStamina: sanitized.ancientStamina,
-          fenrirVariant: sanitized.fenrirVariant
-        });
-        const newInstance = {
-          instanceId: `${serial}_${Date.now()}`,
-          serial,
-          itemHex,
-          slotIndex: freeSlot,
-          itemUid: catalogItem.uid,
-          itemId: catalogItem.id,
-          itemType: catalogItem.type,
-          name: catalogItem.name,
-          X: catalogItem.X,
-          Y: catalogItem.Y,
-          level: sanitized.level,
-          option: sanitized.option,
-          luck: sanitized.luck,
-          skill: sanitized.skill,
-          exlOptions: sanitized.exlOptions,
-          ancientStamina: sanitized.ancientStamina,
-          fenrirVariant: sanitized.fenrirVariant,
-          durability: 255,
-          paidCredits: sanitized.totalCredits,
-          canSellBack: catalogItem.cansellitem === 1,
-          purchasedAt: Math.floor(Date.now() / 1e3)
-        };
-        memAcc.credits -= requiredCredits;
-        memAcc.wCoinC -= requiredWCoinC;
-        memAcc.vaultItems.push(newInstance);
-        await recordAuditLog({
-          accountId: memAcc.loginName,
-          ipAddress: req.ipAddress,
-          action: "PURCHASE_SINGLE_ITEM",
-          status: "COMMITTED",
-          itemHex,
-          itemSerial: serial,
-          creditsDelta: -requiredCredits,
-          wCoinCDelta: -requiredWCoinC,
-          idempotencyKey: idemKey || null,
-          details: `Bought ${sanitized.exlOptions.some(Boolean) ? "Excellent " : ""}${catalogItem.name}${sanitized.level > 0 ? ` +${sanitized.level}` : ""} [Slot #${freeSlot}, Serial: ${serial}, Hex: ${itemHex}] for ${sanitized.totalCredits} ${useWCoin ? "WCoinC" : "credits"}`
-        });
-        const responsePayload = {
-          ok: true,
-          chargedCredits: requiredCredits,
-          chargedWCoinC: requiredWCoinC,
-          remainingCredits: memAcc.credits,
-          remainingWCoinC: memAcc.wCoinC,
-          addedItems: [newInstance],
-          warehouseHex3840: encodeWarehouseHex3840(memAcc.vaultItems),
-          message: `Successfully added ${catalogItem.name} (Serial: ${serial}) to Vault Slot #${freeSlot} (Col ${freeSlot % 8 + 1}, Row ${Math.floor(freeSlot / 8) + 1})! Charged ${sanitized.totalCredits.toLocaleString()} ${useWCoin ? "WCoinC" : "credits"}.`
-        };
-        if (idemKey) {
-          await finalizeIdempotencyKey(
-            "purchase",
-            `${cleanAccount}:${idemKey}`,
-            responsePayload,
-            3600
-          );
-        }
-        return responsePayload;
-      } catch (innerErr) {
-        memoryAccounts.set(key, snapshot);
-        throw innerErr;
-      }
-    });
-  } catch (err) {
-    if (idemKey) {
-      await releaseIdempotencyKey("purchase", `${cleanAccount}:${idemKey}`);
-    }
-    const statusLabel = err instanceof TransactionDomainError ? "REJECTED" : "ROLLED_BACK";
-    await recordAuditLog(
-      {
-        accountId: cleanAccount,
-        ipAddress: req.ipAddress,
-        action: "PURCHASE_SINGLE_ITEM",
-        status: statusLabel,
-        idempotencyKey: idemKey || null,
-        details: `Purchase failed (${statusLabel}): ${err instanceof Error ? err.message : String(err)}`
-      },
-      getPgPool()
-    );
-    throw err;
   }
 }
 async function executePurchaseGroupSetTx(req) {
@@ -16378,12 +17194,6 @@ async function executePurchaseGroupSetTx(req) {
           "Account not found. Please sign in first."
         );
       }
-      if (typeof req.clientCurrentCredits === "number" && Number.isFinite(req.clientCurrentCredits) && req.clientCurrentCredits >= 0) {
-        memAcc.credits = Math.trunc(req.clientCurrentCredits);
-      }
-      if (Array.isArray(req.clientVaultItems)) {
-        memAcc.vaultItems = structuredClone(req.clientVaultItems);
-      }
       const snapshot = structuredClone(memAcc);
       try {
         const stat = memoryMembStat.get(key);
@@ -16603,12 +17413,6 @@ async function executeRefundVaultItemTx(params) {
       const memAcc = memoryAccounts.get(key);
       if (!memAcc) {
         throw new TransactionDomainError("ACCOUNT_NOT_FOUND", 404, "Account not found.");
-      }
-      if (typeof params.clientCurrentCredits === "number" && Number.isFinite(params.clientCurrentCredits) && params.clientCurrentCredits >= 0) {
-        memAcc.credits = Math.trunc(params.clientCurrentCredits);
-      }
-      if (Array.isArray(params.clientVaultItems)) {
-        memAcc.vaultItems = structuredClone(params.clientVaultItems);
       }
       const snapshot = structuredClone(memAcc);
       try {
@@ -16917,6 +17721,113 @@ async function executePaymentGrantTx(input) {
   }
 }
 
+// src/server/openMuInventoryApi.ts
+var OpenMuInventoryApiError = class extends Error {
+  constructor(code, retryable, message, status) {
+    super(message);
+    this.code = code;
+    this.retryable = retryable;
+    this.status = status;
+    this.name = "OpenMuInventoryApiError";
+  }
+};
+function requireConfiguration() {
+  const baseUrl = process.env.OPENMU_API_URL?.trim().replace(/\/$/, "");
+  const apiKey = process.env.OPENMU_API_KEY?.trim();
+  if (!baseUrl || !apiKey) {
+    throw new OpenMuInventoryApiError(
+      "UNAVAILABLE",
+      true,
+      "The authoritative OpenMU Inventory API is not configured."
+    );
+  }
+  return { baseUrl, apiKey };
+}
+function requestSignal(signal) {
+  return signal ?? AbortSignal.timeout(Number(process.env.OPENMU_API_TIMEOUT_MS) || 8e3);
+}
+async function fetchOpenMu(input, init) {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    throw new OpenMuInventoryApiError(
+      "UNAVAILABLE",
+      true,
+      `The authoritative OpenMU Inventory API could not be reached: ${error instanceof Error ? error.message : "network failure"}`
+    );
+  }
+}
+async function getOpenMuCashShopCatalog(signal) {
+  const { baseUrl, apiKey } = requireConfiguration();
+  const response = await fetchOpenMu(`${baseUrl}/api/cash-shop/catalog`, {
+    headers: { "X-Api-Key": apiKey },
+    signal: requestSignal(signal)
+  });
+  if (!response.ok) {
+    throw new OpenMuInventoryApiError(
+      response.status >= 500 ? "UNAVAILABLE" : "REJECTED",
+      response.status >= 500,
+      `The authoritative OpenMU catalog request was rejected (${response.status}).`,
+      response.status
+    );
+  }
+  return await response.json();
+}
+async function grantOpenMuInventoryItem(request, signal) {
+  const { baseUrl, apiKey } = requireConfiguration();
+  const response = await fetchOpenMu(
+    `${baseUrl}/api/accounts/${encodeURIComponent(request.loginName)}/cash-shop/item-grants`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": apiKey
+      },
+      body: JSON.stringify({
+        packageSequence: request.packageSequence,
+        priceSequence: request.priceSequence ?? null,
+        reference: request.reference,
+        reason: request.reason
+      }),
+      signal: requestSignal(signal)
+    }
+  );
+  if (response.ok) {
+    return await response.json();
+  }
+  const status = response.status;
+  if (status === 404) {
+    throw new OpenMuInventoryApiError(
+      "ACCOUNT_NOT_FOUND",
+      false,
+      "The OpenMU account does not exist.",
+      status
+    );
+  }
+  if (status === 409) {
+    throw new OpenMuInventoryApiError(
+      "REFERENCE_CONFLICT",
+      false,
+      "The order reference conflicts with an existing OpenMU grant.",
+      status
+    );
+  }
+  if (status === 422) {
+    throw new OpenMuInventoryApiError(
+      "INVALID_OFFER",
+      false,
+      "The mapped OpenMU cash shop offer is unavailable.",
+      status
+    );
+  }
+  throw new OpenMuInventoryApiError(
+    status >= 500 ? "UNAVAILABLE" : "REJECTED",
+    status >= 500,
+    `The authoritative OpenMU Inventory API rejected the request (${status}).`,
+    status
+  );
+}
+
 // src/server/security.ts
 import crypto5 from "crypto";
 var SESSION_COOKIE = "__Host-openmu_shop";
@@ -17016,7 +17927,6 @@ function validateProductionConfiguration() {
   new URL(process.env.OPENMU_DATABASE_URL);
   const origin = new URL(process.env.PUBLIC_ORIGIN);
   if (origin.protocol !== "https:") throw new Error("PUBLIC_ORIGIN must use HTTPS in production.");
-  if (process.env.PAYMENTS_ENABLED === "true" && !process.env.CF_TURNSTILE_SECRET_KEY) throw new Error("CF_TURNSTILE_SECRET_KEY is required when payments are enabled.");
   if (process.env.PAYMENTS_ENABLED === "true" && process.env.PAYPAL_CLIENT_ID && !process.env.PAYPAL_WEBHOOK_ID) throw new Error("PAYPAL_WEBHOOK_ID is required when PayPal is enabled.");
   if (process.env.PAYPAL_USE_SANDBOX === "false" && process.env.PAYPAL_LIVE_ENABLED !== "true") throw new Error("Set PAYPAL_LIVE_ENABLED=true only after completing the sandbox activation gates.");
   if (process.env.TRUEMONEY_ENABLED === "true") throw new Error("TrueMoney must remain disabled until an authenticated provider adapter is implemented.");
@@ -17201,24 +18111,11 @@ async function forwardGrantToExternalOpenMu(loginName, coinType, amount, reason,
     return false;
   }
 }
-function verifyWebhookHmacSignature(rawBodyBuf, signatureHeader, secret2) {
-  if (!secret2 || !secret2.trim()) {
-    return false;
-  }
-  if (!rawBodyBuf || !signatureHeader) {
-    return false;
-  }
-  const normalizedProvided = signatureHeader.replace(/^sha256=/i, "").trim();
-  const computedHex = crypto7.createHmac("sha256", secret2.trim()).update(rawBodyBuf).digest("hex");
-  const a = Buffer.from(normalizedProvided, "utf8");
-  const b = Buffer.from(computedHex, "utf8");
-  return a.length === b.length && crypto7.timingSafeEqual(a, b);
-}
 async function startServer() {
   validateProductionConfiguration();
   await initializeDatabaseLayer();
   const app = express();
-  const PORT = Number(process.env.PORT) || 3e3;
+  const PORT = 3e3;
   app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
   app.disable("x-powered-by");
   app.use((_req, res, next) => {
@@ -17231,7 +18128,7 @@ async function startServer() {
     }
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; connect-src 'self' ws: wss: https: https://api-m.sandbox.paypal.com https://api-m.paypal.com; base-uri 'self'; form-action 'self'"
+      "default-src 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; frame-src 'self'; connect-src 'self' ws: wss: https: https://api-m.sandbox.paypal.com https://api-m.paypal.com; base-uri 'self'; form-action 'self'"
     );
     next();
   });
@@ -17274,7 +18171,14 @@ async function startServer() {
   });
   app.use("/api", apiGeneralLimiter);
   app.use((req, res, next) => {
-    if (req.path.includes("legacy-disabled") || req.path.startsWith("/api/openmu/memb-stat")) {
+    const decodedPath = (() => {
+      try {
+        return decodeURIComponent(req.path);
+      } catch {
+        return req.path;
+      }
+    })();
+    if (decodedPath.includes("legacy-disabled") || decodedPath.startsWith("/api/openmu/memb-stat")) {
       res.status(404).json({ ok: false, message: "Not found." });
       return;
     }
@@ -17286,7 +18190,12 @@ async function startServer() {
     res.status(410).json({ ok: false, message: "Use the authoritative OpenMU CashShop API." });
   });
   app.use("/api/accounts/:loginName", (req, res, next) => {
-    if (!req.session?.admin && req.params.loginName.toLowerCase() !== req.session?.loginName.toLowerCase()) {
+    const param = (req.params.loginName || "").toLowerCase();
+    if (param === "characters" || param === "online-reward") {
+      next();
+      return;
+    }
+    if (!req.session?.admin && param !== req.session?.loginName.toLowerCase()) {
       res.status(403).json({ ok: false, message: "Account access denied." });
       return;
     }
@@ -17298,7 +18207,7 @@ async function startServer() {
   app.use("/api/accounts", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
   app.use("/api/payments", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
   app.use("/api/admin", (req, res, next) => req.method === "GET" ? next() : requireCsrf(req, res, next));
-  app.use(["/api/shop/purchase", "/api/shop/purchase-group", "/api/shop/refund"], (_req, res) => {
+  app.use(["/api/shop/purchase-group", "/api/shop/refund"], (_req, res) => {
     res.status(503).json({ ok: false, message: "Direct item delivery is disabled until an authoritative OpenMU inventory API is configured." });
   });
   function requireOpenMuApiKey(req, res, next) {
@@ -17327,57 +18236,6 @@ async function startServer() {
   }
   function requireAdmin(req, res, next) {
     requireAdminSession(req, res, next);
-  }
-  async function verifyCloudflareTurnstile(token, remoteIp) {
-    if (!token || !token.trim()) {
-      return {
-        ok: false,
-        reason: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E04\u0E27\u0E32\u0E21\u0E1B\u0E25\u0E2D\u0E14\u0E20\u0E31\u0E22 Cloudflare Turnstile \u0E01\u0E48\u0E2D\u0E19\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A (Turnstile verification required)"
-      };
-    }
-    const secretKey = process.env.CF_TURNSTILE_SECRET_KEY;
-    if (!secretKey) return { ok: false, reason: "Cloudflare Turnstile is not configured." };
-    if (process.env.NODE_ENV !== "production" && (token.startsWith("TEST_TOKEN_") || token === "mock_turnstile_pass" || token === "1x00000000000000000000AA")) {
-      return { ok: true };
-    }
-    try {
-      const formData = new URLSearchParams();
-      formData.append("secret", secretKey);
-      formData.append("response", token.trim());
-      if (remoteIp) {
-        formData.append("remoteip", remoteIp);
-      }
-      const cfRes = await fetch(
-        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-        {
-          method: "POST",
-          body: formData,
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded"
-          }
-        }
-      );
-      if (!cfRes.ok) {
-        return {
-          ok: false,
-          reason: `Cloudflare Turnstile API HTTP Error (${cfRes.status})`
-        };
-      }
-      const cfData = await cfRes.json();
-      if (!cfData.success) {
-        const errorList = (cfData["error-codes"] || ["invalid-input-response"]).join(", ");
-        return {
-          ok: false,
-          reason: `\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E04\u0E27\u0E32\u0E21\u0E1B\u0E25\u0E2D\u0E14\u0E20\u0E31\u0E22 Cloudflare Turnstile \u0E44\u0E21\u0E48\u0E1C\u0E48\u0E32\u0E19 (${errorList})`
-        };
-      }
-      return { ok: true };
-    } catch {
-      return {
-        ok: false,
-        reason: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E15\u0E34\u0E14\u0E15\u0E48\u0E2D\u0E40\u0E0B\u0E34\u0E23\u0E4C\u0E1F\u0E40\u0E27\u0E2D\u0E23\u0E4C Cloudflare Turnstile \u0E44\u0E14\u0E49 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07"
-      };
-    }
   }
   app.get("/health/live", (_req, res) => res.json({ status: "ok" }));
   app.get("/health/ready", (_req, res) => {
@@ -17415,15 +18273,20 @@ async function startServer() {
       next(err);
     }
   });
-  app.get("/api/openmu/memb-stat/:loginName", async (req, res, next) => {
+  app.get("/api/openmu/memb-stat/:loginName", requireSession, async (req, res, next) => {
     try {
-      const row = await queryMembStatOnlineStatus(req.params.loginName || "");
+      const target = (req.params.loginName || "").trim();
+      if (!req.session?.admin && target.toLowerCase() !== req.session?.loginName.toLowerCase()) {
+        res.status(403).json({ ok: false, message: "Account access denied." });
+        return;
+      }
+      const row = await queryMembStatOnlineStatus(target);
       res.json({ ok: true, membStat: row });
     } catch (err) {
       next(err);
     }
   });
-  app.post("/api/openmu/memb-stat", async (req, res, next) => {
+  app.post("/api/openmu/memb-stat", requireSession, requireAdminSession, requireCsrf, async (req, res, next) => {
     try {
       const { loginName, connectStat, serverName } = req.body;
       if (!loginName || !loginName.trim()) {
@@ -17459,23 +18322,102 @@ async function startServer() {
       const headerIdem = req.headers["idempotency-key"];
       const body = req.body;
       const idempotencyKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : body.idempotencyKey;
-      const result = await executePurchaseSingleItemTx({
-        accountId: body.accountId || "",
-        ipAddress: clientIp,
-        idempotencyKey,
-        currency: body.currency || "credits",
-        clientCurrentCredits: body.clientCurrentCredits,
-        clientVaultItems: body.clientVaultItems,
+      if (!idempotencyKey || body.currency === "WCoinC") {
+        throw new TransactionDomainError(
+          body.currency === "WCoinC" ? "WCOIN_PURCHASE_NOT_AUTHORITATIVE" : "IDEMPOTENCY_KEY_REQUIRED",
+          422,
+          body.currency === "WCoinC" ? "WCoin purchases remain disabled until OpenMU can debit WCoin and deliver the item atomically." : "Idempotency-Key is required."
+        );
+      }
+      if (Number(body.level) !== 0 || Number(body.option) !== 0 || Boolean(body.luck) || Boolean(body.skill) || Array.isArray(body.exlOptions) && body.exlOptions.some(Boolean) || body.ancientStamina === 5 || body.ancientStamina === 10 || body.fenrirVariant === 1 || body.fenrirVariant === 2 || body.fenrirVariant === 3) {
+        throw new TransactionDomainError(
+          "CLIENT_ITEM_OPTIONS_REJECTED",
+          422,
+          "Item options are controlled by the authoritative OpenMU offer and cannot be selected by the browser."
+        );
+      }
+      const reference = `webshop:order:${idempotencyKey}`;
+      const order = await reserveAuthoritativeItemOrder({
+        accountLogin: req.session?.loginName || "",
         itemUid: Number(body.itemUid),
-        level: Number(body.level) || 0,
-        option: Number(body.option) || 0,
-        luck: Boolean(body.luck),
-        skill: Boolean(body.skill),
-        exlOptions: Array.isArray(body.exlOptions) ? body.exlOptions : [],
-        ancientStamina: body.ancientStamina === 5 || body.ancientStamina === 10 ? body.ancientStamina : 0,
-        fenrirVariant: body.fenrirVariant === 1 || body.fenrirVariant === 2 || body.fenrirVariant === 3 ? body.fenrirVariant : 0
+        reference
       });
-      res.status(result.idempotentReplay ? 200 : 201).json(result);
+      if (order.status === "delivered") {
+        res.json({
+          ok: true,
+          idempotentReplay: true,
+          orderStatus: order.status,
+          reference,
+          chargedCredits: order.chargedCredits,
+          chargedWCoinC: 0,
+          remainingCredits: order.remainingCredits,
+          remainingWCoinC: 0,
+          addedItems: [],
+          message: "The item was already delivered to your in-game Cash Shop storage."
+        });
+        return;
+      }
+      if (order.status !== "pending") {
+        throw new TransactionDomainError(
+          "ORDER_REQUIRES_REVIEW",
+          409,
+          `Order ${reference} is ${order.status} and cannot be submitted again.`
+        );
+      }
+      try {
+        const grant = await grantOpenMuInventoryItem({
+          loginName: order.accountLogin,
+          packageSequence: order.packageSequence,
+          priceSequence: order.priceSequence,
+          reference,
+          reason: `WebShop Credits purchase, item UID ${order.itemUid}`
+        });
+        await completeAuthoritativeItemOrder(reference, grant.id);
+        await recordAuditLog(
+          {
+            accountId: order.accountLogin,
+            ipAddress: clientIp,
+            action: "AUTHORITATIVE_ITEM_PURCHASE",
+            status: "COMMITTED",
+            creditsDelta: -order.chargedCredits,
+            idempotencyKey,
+            details: `Delivered OpenMU package ${order.packageSequence}, price ${order.priceSequence ?? "bundle"}, grant ${grant.id}, reference ${reference}`
+          },
+          getPgPool()
+        );
+        res.status(201).json({
+          ok: true,
+          orderStatus: "delivered",
+          reference,
+          openMuGrantId: grant.id,
+          chargedCredits: order.chargedCredits,
+          chargedWCoinC: 0,
+          remainingCredits: order.remainingCredits,
+          remainingWCoinC: 0,
+          addedItems: [],
+          message: "Item delivered to your in-game Cash Shop storage."
+        });
+      } catch (error) {
+        if (!(error instanceof OpenMuInventoryApiError)) throw error;
+        if (error.retryable) {
+          res.status(503).json({
+            ok: false,
+            pending: true,
+            reference,
+            idempotencyKey,
+            remainingCredits: order.remainingCredits,
+            message: "Delivery is pending. Retry the same purchase; do not create a new order."
+          });
+          return;
+        }
+        const refund = error.code !== "REFERENCE_CONFLICT";
+        await failAuthoritativeItemOrder(reference, error.code, refund);
+        throw new TransactionDomainError(
+          error.code,
+          error.status || 409,
+          refund ? `${error.message} Reserved credits were returned.` : `${error.message} The order requires manual review; credits were not changed again.`
+        );
+      }
     } catch (err) {
       next(err);
     }
@@ -17487,11 +18429,9 @@ async function startServer() {
       const body = req.body;
       const idempotencyKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : body.idempotencyKey;
       const result = await executePurchaseGroupSetTx({
-        accountId: body.accountId || "",
+        accountId: req.session?.loginName || "",
         ipAddress: clientIp,
         idempotencyKey,
-        clientCurrentCredits: body.clientCurrentCredits,
-        clientVaultItems: body.clientVaultItems,
         groupId: Number(body.groupId),
         level: Number(body.level) || 0,
         option: Number(body.option) || 0,
@@ -17509,12 +18449,10 @@ async function startServer() {
       const clientIp = extractClientIp(req);
       const body = req.body;
       const result = await executeRefundVaultItemTx({
-        accountId: body.accountId || "",
+        accountId: req.session?.loginName || "",
         ipAddress: clientIp,
         instanceId: body.instanceId || "",
-        serial: body.serial || "",
-        clientCurrentCredits: body.clientCurrentCredits,
-        clientVaultItems: body.clientVaultItems
+        serial: body.serial || ""
       });
       res.json(result);
     } catch (err) {
@@ -17556,112 +18494,6 @@ async function startServer() {
   });
   app.post("/api/webhooks/payment", (_req, res) => {
     res.status(410).json({ ok: false, message: "Generic payment webhooks are disabled. Use a verified provider-specific endpoint." });
-  });
-  app.post("/api/webhooks/payment-legacy-disabled", paymentLimiter, async (req, res, next) => {
-    try {
-      const clientIp = extractClientIp(req);
-      const headerIdem = req.headers["idempotency-key"] || req.headers["x-idempotency-key"];
-      const signatureHeader = req.headers["x-webhook-signature"] || req.headers["x-truemoney-signature"];
-      const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET || process.env.TRUEMONEY_WEBHOOK_SECRET;
-      if (!verifyWebhookHmacSignature(req.rawBody, signatureHeader, webhookSecret)) {
-        await recordAuditLog(
-          {
-            accountId: "webhook",
-            ipAddress: clientIp,
-            action: "PAYMENT_WEBHOOK_SIGNATURE_INVALID",
-            status: "REJECTED",
-            details: "Rejected payment webhook due to invalid HMAC-SHA256 signature."
-          },
-          getPgPool()
-        );
-        res.status(401).json({
-          ok: false,
-          code: "INVALID_WEBHOOK_SIGNATURE",
-          message: "Webhook HMAC-SHA256 signature verification failed."
-        });
-        return;
-      }
-      const {
-        eventId,
-        idempotencyKey: bodyIdem,
-        provider = "PaymentGateway",
-        loginName,
-        coinType = "WCoinC",
-        coinAmount,
-        creditsAdded,
-        reference,
-        reason
-      } = req.body;
-      const resolvedIdemKey = ((typeof headerIdem === "string" ? headerIdem : "") || bodyIdem || eventId || "").trim();
-      if (!resolvedIdemKey) {
-        res.status(400).json({
-          ok: false,
-          code: "MISSING_IDEMPOTENCY_KEY",
-          message: "Missing required Idempotency-Key header (or eventId) for Payment Gateway Webhook."
-        });
-        return;
-      }
-      if (!loginName || !/^[a-zA-Z0-9_-]{3,20}$/.test(loginName.trim())) {
-        res.status(400).json({
-          ok: false,
-          code: "INVALID_ACCOUNT",
-          message: "Valid loginName (3..20 chars) is required in webhook payload."
-        });
-        return;
-      }
-      if (!["WCoinC", "WCoinP", "GoblinPoints"].includes(coinType)) {
-        res.status(400).json({ ok: false, message: "Invalid coinType." });
-        return;
-      }
-      const safeCoinAmount = Math.max(0, Math.trunc(Number(coinAmount) || 0));
-      const safeCredits = Math.max(0, Math.trunc(Number(creditsAdded) || 0));
-      if (safeCoinAmount === 0 && safeCredits === 0) {
-        res.status(400).json({
-          ok: false,
-          message: "At least one positive credit or coin amount is required."
-        });
-        return;
-      }
-      if (safeCoinAmount > 5e5 || safeCredits > 1e6) {
-        res.status(400).json({
-          ok: false,
-          message: "Webhook grant exceeds maximum permitted single-event cap."
-        });
-        return;
-      }
-      const txReference = (reference || `${provider.toLowerCase()}:${resolvedIdemKey}`).trim();
-      const txReason = (reason || `${provider} Webhook Settlement`).slice(0, 160);
-      const txResult = await executePaymentGrantTx({
-        idempotencyKey: resolvedIdemKey,
-        loginName: loginName.trim(),
-        ipAddress: clientIp,
-        coinType,
-        coinAmount: safeCoinAmount,
-        creditsAdded: safeCredits,
-        reason: txReason,
-        reference: txReference,
-        clientName: provider.slice(0, 48)
-      });
-      if (!txResult.idempotentReplay && safeCoinAmount > 0) {
-        await forwardGrantToExternalOpenMu(
-          loginName.trim(),
-          coinType,
-          safeCoinAmount,
-          txReason,
-          txReference
-        );
-      }
-      res.status(txResult.idempotentReplay ? 200 : 201).json({
-        ok: true,
-        status: txResult.status,
-        idempotentReplay: txResult.idempotentReplay,
-        idempotencyKey: resolvedIdemKey,
-        grant: txResult.grant,
-        balances: txResult.balances
-      });
-    } catch (err) {
-      next(err);
-    }
   });
   app.get("/api/openmu/status", (_req, res) => {
     const hasExternalApi = Boolean(process.env.OPENMU_API_URL) && !process.env.OPENMU_API_URL?.includes("localhost:5000");
@@ -17746,20 +18578,9 @@ async function startServer() {
     try {
       const {
         loginName,
-        password,
-        turnstileToken,
-        "cf-turnstile-response": cfResponse
+        password
       } = req.body;
-      const token = turnstileToken || cfResponse;
       const clientIp = extractClientIp(req);
-      const turnstileResult = await verifyCloudflareTurnstile(token, clientIp);
-      if (!turnstileResult.ok) {
-        res.status(403).json({
-          ok: false,
-          message: turnstileResult.reason || "Cloudflare verification failed"
-        });
-        return;
-      }
       if (!loginName || !loginName.trim()) {
         res.status(400).json({ ok: false, message: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38\u0E0A\u0E37\u0E48\u0E2D\u0E1A\u0E31\u0E0D\u0E0A\u0E35 (LoginName)" });
         return;
@@ -17794,7 +18615,7 @@ async function startServer() {
         });
         return;
       }
-      const isAdmin = new Set((process.env.ADMIN_ACCOUNTS ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)).has(acc.loginName.toLowerCase());
+      const isAdmin = Boolean(acc.isAdmin);
       const session = createSession(acc.loginName, isAdmin);
       await recordAuditLog(
         {
@@ -17818,8 +18639,10 @@ async function startServer() {
           role: isAdmin ? "ADMIN" : "USER",
           isMasterAdmin: isAdmin,
           credits: acc.credits,
-          vaultMoney: 0,
-          vipUntil: null,
+          vaultMoney: acc.vaultMoney,
+          onlineMinutes: acc.onlineMinutes,
+          exchangedOnlineHours: acc.exchangedOnlineHours,
+          vipUntil: acc.vipUntil,
           vaultItems: [],
           wCoinC: acc.wCoinC,
           wCoinP: acc.wCoinP,
@@ -17831,7 +18654,7 @@ async function startServer() {
       next(err);
     }
   });
-  app.post("/api/openmu/logout", requireSession, requireCsrf, (req, res) => {
+  app.post("/api/openmu/logout", requireSession, requireCsrf, (_req, res) => {
     res.setHeader("Set-Cookie", clearSessionCookie());
     res.json({ ok: true });
   });
@@ -17847,116 +18670,103 @@ async function startServer() {
       res.status(401).json({ ok: false });
       return;
     }
+    const isAdmin = Boolean(session.admin || account.isAdmin);
     res.json({ ok: true, csrfToken: session.csrf, account: {
       id: account.id,
       loginName: account.loginName,
       email: account.email,
       state: account.state,
-      role: session.admin ? "ADMIN" : "USER",
-      isAdmin: session.admin,
-      isMasterAdmin: session.admin,
+      role: isAdmin ? "ADMIN" : "USER",
+      isAdmin,
+      isMasterAdmin: isAdmin,
       credits: account.credits,
-      vaultMoney: 0,
-      vipUntil: null,
+      vaultMoney: account.vaultMoney,
+      onlineMinutes: account.onlineMinutes,
+      exchangedOnlineHours: account.exchangedOnlineHours,
+      vipUntil: account.vipUntil,
       vaultItems: [],
       wCoinC: account.wCoinC,
       wCoinP: account.wCoinP,
       goblinPoints: account.goblinPoints
     } });
   });
-  app.post("/api/openmu/register", authLimiter, async (_req, res) => {
-    res.status(410).json({ ok: false, message: "Registration is handled by the main player website." });
-  });
-  app.post("/api/openmu/register-legacy-disabled", authLimiter, async (req, res, next) => {
+  app.get("/api/accounts/characters", async (req, res, next) => {
     try {
-      const {
-        loginName,
-        password,
-        email,
-        characterDeleteCode,
-        turnstileToken,
-        "cf-turnstile-response": cfResponse
-      } = req.body;
-      const token = turnstileToken || cfResponse;
-      const clientIp = extractClientIp(req);
-      const turnstileResult = await verifyCloudflareTurnstile(token, clientIp);
-      if (!turnstileResult.ok) {
-        res.status(403).json({
-          ok: false,
-          message: turnstileResult.reason || "Cloudflare verification failed"
-        });
+      if (!req.session) {
+        res.status(401).json({ ok: false, message: "Authentication required." });
         return;
       }
-      if (!loginName || loginName.trim().length < 3 || loginName.trim().length > 10) {
-        res.status(400).json({
-          ok: false,
-          message: "LoginName \u0E15\u0E49\u0E2D\u0E07\u0E21\u0E35\u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E27 3\u201310 \u0E15\u0E31\u0E27\u0E2D\u0E31\u0E01\u0E29\u0E23"
-        });
-        return;
-      }
-      if (!password || password.length < 6) {
-        res.status(400).json({
-          ok: false,
-          message: "Password \u0E15\u0E49\u0E2D\u0E07\u0E21\u0E35\u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E19\u0E49\u0E2D\u0E22 6 \u0E15\u0E31\u0E27\u0E2D\u0E31\u0E01\u0E29\u0E23"
-        });
-        return;
-      }
-      const cleanDeleteCode = String(characterDeleteCode || "").trim();
-      if (!/^\d{4,8}$/.test(cleanDeleteCode)) {
-        res.status(400).json({
-          ok: false,
-          message: "\u0E23\u0E2B\u0E31\u0E2A\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E25\u0E30\u0E04\u0E23\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E15\u0E31\u0E27\u0E40\u0E25\u0E02 0-9 \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 (\u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E27 4\u20138 \u0E2B\u0E25\u0E31\u0E01)"
-        });
-        return;
-      }
-      const newAcc = await registerAccountRecord(
-        loginName.trim(),
-        password,
-        email || `${loginName.trim()}@openmu.local`,
-        cleanDeleteCode,
-        clientIp
-      );
-      res.status(201).json({
-        ok: true,
-        message: `Account "${newAcc.loginName}" registered successfully.`,
-        account: {
-          id: newAcc.id,
-          loginName: newAcc.loginName,
-          email: newAcc.email,
-          characterDeleteCode: newAcc.securityCode,
-          state: newAcc.state,
-          role: newAcc.role,
-          isMasterAdmin: false,
-          credits: newAcc.credits,
-          vaultMoney: newAcc.vaultMoney,
-          vipUntil: newAcc.vipUntil,
-          vaultItems: newAcc.vaultItems,
-          wCoinC: newAcc.wCoinC,
-          wCoinP: newAcc.wCoinP,
-          goblinPoints: newAcc.goblinPoints,
-          isAdmin: false
-        }
-      });
+      const characters = await getAccountCharacters(req.session.loginName);
+      res.json({ ok: true, characters });
     } catch (err) {
       next(err);
     }
   });
-  app.get("/api/accounts/:loginName/cash-shop", (req, res) => {
-    const loginName = req.params.loginName || "";
-    const acc = getMemoryAccount(loginName);
-    if (!acc) {
-      res.status(404).json({ message: "Account not found" });
-      return;
+  app.post(
+    "/api/accounts/online-reward/redeem",
+    purchaseLimiter,
+    async (req, res, next) => {
+      try {
+        if (!req.session) {
+          res.status(401).json({ ok: false, message: "Authentication required." });
+          return;
+        }
+        const hoursToRedeem = Number(req.body?.hoursToRedeem);
+        const result = await redeemAccountOnlineHours({
+          loginName: req.session.loginName,
+          hoursToRedeem,
+          ipAddress: extractClientIp(req)
+        });
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
     }
-    const grants = getRecentCoinGrants(20, loginName);
-    res.json({
-      loginName: acc.loginName,
-      wCoinC: acc.wCoinC,
-      wCoinP: acc.wCoinP,
-      goblinPoints: acc.goblinPoints,
-      grants
-    });
-  });
+  );
+  app.post(
+    "/api/accounts/characters/buy-400",
+    purchaseLimiter,
+    async (req, res, next) => {
+      try {
+        if (!req.session) {
+          res.status(401).json({ ok: false, message: "Authentication required." });
+          return;
+        }
+        const { characterName, classCode } = req.body;
+        const result = await buyCharacter400Tx({
+          loginName: req.session.loginName,
+          characterName: characterName || "",
+          classCode: classCode || "bm",
+          ipAddress: extractClientIp(req)
+        });
+        res.status(201).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+  app.post(
+    "/api/accounts/characters/delete-400",
+    purchaseLimiter,
+    async (req, res, next) => {
+      try {
+        if (!req.session) {
+          res.status(401).json({ ok: false, message: "Authentication required." });
+          return;
+        }
+        const { characterName, deleteCode } = req.body;
+        const result = await deleteCharacter400ForCredits({
+          loginName: req.session.loginName,
+          characterName: characterName || "",
+          deleteCode: deleteCode || "",
+          ipAddress: extractClientIp(req)
+        });
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
   app.post(
     "/api/accounts/:loginName/cash-shop/grants",
     requireOpenMuApiKey,
@@ -18023,105 +18833,6 @@ async function startServer() {
   app.post("/api/payments/truemoney/redeem", (_req, res) => {
     res.status(503).json({ ok: false, message: "TrueMoney is not connected. No credit has been granted." });
   });
-  app.post("/api/payments/truemoney/redeem-legacy-disabled", paymentLimiter, async (req, res, next) => {
-    try {
-      const clientIp = extractClientIp(req);
-      const headerIdem = req.headers["idempotency-key"];
-      const {
-        loginName,
-        method,
-        voucherUrlOrPin,
-        selectedTierThb
-      } = req.body;
-      if (!loginName) {
-        res.status(400).json({ ok: false, message: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E01\u0E48\u0E2D\u0E19\u0E17\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E40\u0E15\u0E34\u0E21\u0E40\u0E07\u0E34\u0E19" });
-        return;
-      }
-      const rawInput = (voucherUrlOrPin || "").trim();
-      let voucherCode = "";
-      if (method === "angpao") {
-        const match = rawInput.match(/[?&]v=([a-zA-Z0-9_-]{8,64})/);
-        voucherCode = match ? match[1] : rawInput.replace(/[^a-zA-Z0-9]/g, "");
-        if (voucherCode.length < 8) {
-          res.status(400).json({
-            ok: false,
-            message: "\u0E25\u0E34\u0E07\u0E01\u0E4C\u0E0B\u0E2D\u0E07\u0E2D\u0E31\u0E48\u0E07\u0E40\u0E1B\u0E32 TrueMoney \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 (\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07: https://gift.truemoney.com/campaign/?v=0192837465abcdef)"
-          });
-          return;
-        }
-      } else if (method === "cashcard") {
-        const digits = rawInput.replace(/\D/g, "");
-        if (digits.length !== 14) {
-          res.status(400).json({
-            ok: false,
-            message: "\u0E23\u0E2B\u0E31\u0E2A\u0E1A\u0E31\u0E15\u0E23\u0E40\u0E07\u0E34\u0E19\u0E2A\u0E14 TrueMoney \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E15\u0E31\u0E27\u0E40\u0E25\u0E02 14 \u0E2B\u0E25\u0E31\u0E01\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19"
-          });
-          return;
-        }
-        voucherCode = `PIN${digits}`;
-      } else {
-        voucherCode = rawInput || `QR${Date.now()}`;
-      }
-      const { config: promoCfg, effectiveTrueMoneyTiers } = getEffectivePromotions();
-      const tier = effectiveTrueMoneyTiers.find(
-        (t) => t.amountThb === Number(selectedTierThb)
-      );
-      if (!tier) {
-        res.status(400).json({
-          ok: false,
-          message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E23\u0E32\u0E04\u0E32 TrueMoney \u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01 \u0E2B\u0E23\u0E37\u0E2D\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E16\u0E39\u0E01\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E0A\u0E31\u0E48\u0E27\u0E04\u0E23\u0E32\u0E27"
-        });
-        return;
-      }
-      const reference = `truemoney:${voucherCode}`;
-      const idemKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : reference;
-      const promoNote = promoCfg.campaignActive && promoCfg.extraBonusPercent > 0 ? ` [Event +${promoCfg.extraBonusPercent}%]` : "";
-      const reason = `TrueMoney ${method === "angpao" ? "Angpao Voucher" : method === "cashcard" ? "Cash Card 14-Pin" : "QR PromptPay"} (${tier.amountThb} THB \xB7 +${tier.bonusPercent}%${promoNote})`;
-      const txResult = await executePaymentGrantTx({
-        idempotencyKey: idemKey,
-        loginName,
-        ipAddress: clientIp,
-        coinType: "WCoinC",
-        coinAmount: tier.wCoinC,
-        creditsAdded: tier.credits,
-        reason,
-        reference,
-        clientName: "TrueMoneyWallet"
-      });
-      if (txResult.status === "AlreadyGranted") {
-        res.status(409).json({
-          ok: false,
-          status: txResult.status,
-          idempotentReplay: true,
-          message: `\u0E0B\u0E2D\u0E07\u0E2D\u0E31\u0E48\u0E07\u0E40\u0E1B\u0E32\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E2D\u0E49\u0E32\u0E07\u0E2D\u0E34\u0E07 (${reference}) \u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27 (Idempotent Protection)`,
-          grant: txResult.grant
-        });
-        return;
-      }
-      await forwardGrantToExternalOpenMu(
-        loginName,
-        "WCoinC",
-        tier.wCoinC,
-        reason,
-        reference
-      );
-      res.status(201).json({
-        ok: true,
-        status: txResult.status,
-        message: `\u0E40\u0E15\u0E34\u0E21\u0E40\u0E07\u0E34\u0E19 TrueMoney ${tier.amountThb.toLocaleString()} \u0E1A\u0E32\u0E17 \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08! \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A +${tier.credits.toLocaleString()} WebShop Credits \u0E41\u0E25\u0E30 +${tier.wCoinC.toLocaleString()} WCoinC \u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E1A\u0E31\u0E0D\u0E0A\u0E35 ${loginName}`,
-        creditsAdded: tier.credits,
-        wCoinCAdded: tier.wCoinC,
-        grant: txResult.grant,
-        balances: {
-          wCoinC: txResult.balances.wCoinC,
-          wCoinP: txResult.balances.wCoinP,
-          goblinPoints: txResult.balances.goblinPoints
-        }
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
   app.post("/api/payments/paypal/create-order", paymentLimiter, async (req, res, next) => {
     try {
       if (process.env.PAYMENTS_ENABLED !== "true" || !process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
@@ -18139,22 +18850,6 @@ async function startServer() {
     } catch (error) {
       next(error);
     }
-  });
-  app.post("/api/payments/paypal/create-order-legacy-disabled", paymentLimiter, async (req, res) => {
-    const { loginName, packageCode } = req.body;
-    const { effectivePayPalPackages } = getEffectivePromotions();
-    const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
-    if (!pkg || !loginName) {
-      res.status(400).json({ ok: false, message: "Invalid package or account" });
-      return;
-    }
-    const orderToken = `PAYPAL_${crypto7.randomBytes(5).toString("hex").toUpperCase()}`;
-    res.json({
-      ok: true,
-      orderToken,
-      package: pkg,
-      mode: process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET ? "live_rest_api" : "sandbox_interactive"
-    });
   });
   app.post("/api/payments/paypal/capture-order", (_req, res) => {
     res.status(503).json({ ok: false, message: "PayPal capture is disabled. No credit has been granted." });
@@ -18197,61 +18892,30 @@ async function startServer() {
       res.redirect("/?payment=invalid");
     }
   });
-  app.post("/api/payments/paypal/capture-order-legacy-disabled", paymentLimiter, async (req, res, next) => {
+  app.get("/api/admin/accounts", requireAdmin, async (req, res, next) => {
     try {
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 250));
+      const accounts = await listAdminAccounts(limit);
+      res.json({ ok: true, count: accounts.length, accounts });
+    } catch (err) {
+      next(err);
+    }
+  });
+  app.post("/api/admin/accounts/adjust-balance", requireAdmin, async (req, res, next) => {
+    try {
+      const adminAcc = getRequesterAccount(req);
       const clientIp = extractClientIp(req);
-      const headerIdem = req.headers["idempotency-key"];
-      const { loginName, packageCode, orderToken, payerEmail } = req.body;
-      const { config: promoCfg, effectivePayPalPackages } = getEffectivePromotions();
-      const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
-      if (!pkg || !loginName || !orderToken) {
-        res.status(400).json({
-          ok: false,
-          message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E04\u0E33\u0E2A\u0E31\u0E48\u0E07\u0E0B\u0E37\u0E49\u0E2D PayPal \u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A\u0E16\u0E49\u0E27\u0E19 \u0E2B\u0E23\u0E37\u0E2D\u0E41\u0E1E\u0E47\u0E01\u0E40\u0E01\u0E08\u0E16\u0E39\u0E01\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19"
-        });
-        return;
-      }
-      const reference = `paypal:${orderToken}`;
-      const idemKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : reference;
-      const promoNote = promoCfg.campaignActive && promoCfg.extraBonusPercent > 0 ? ` [Event +${promoCfg.extraBonusPercent}%]` : "";
-      const reason = `PayPal purchase ${pkg.code} ($${pkg.priceUsd.toFixed(
-        2
-      )} / ${pkg.priceThb} THB \xB7 +${pkg.bonusPercent}%${promoNote})${payerEmail ? ` by ${payerEmail}` : ""}`;
-      const txResult = await executePaymentGrantTx({
-        idempotencyKey: idemKey,
-        loginName,
-        ipAddress: clientIp,
-        coinType: "WCoinC",
-        coinAmount: pkg.wCoinC,
-        creditsAdded: pkg.credits,
-        reason,
-        reference,
-        clientName: "PayPal"
+      const { username, creditsDelta, vaultZenDelta } = req.body;
+      const updated = await adminAdjustAccountBalance({
+        targetLoginName: username || "",
+        creditsDelta: typeof creditsDelta === "number" ? creditsDelta : void 0,
+        vaultZenDelta: typeof vaultZenDelta === "number" ? vaultZenDelta : void 0,
+        adminLoginName: adminAcc?.loginName || "admin",
+        ipAddress: clientIp
       });
-      if (!txResult.idempotentReplay) {
-        await forwardGrantToExternalOpenMu(
-          loginName,
-          "WCoinC",
-          pkg.wCoinC,
-          reason,
-          reference
-        );
-      }
-      res.status(txResult.status === "Created" ? 201 : 200).json({
+      res.json({
         ok: true,
-        status: txResult.status,
-        idempotentReplay: txResult.idempotentReplay,
-        message: `\u0E0A\u0E33\u0E23\u0E30\u0E40\u0E07\u0E34\u0E19\u0E1C\u0E48\u0E32\u0E19 PayPal ($${pkg.priceUsd.toFixed(
-          2
-        )} / \u0E3F${pkg.priceThb.toLocaleString()}) \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08! \u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A +${pkg.credits.toLocaleString()} WebShop Credits \u0E41\u0E25\u0E30 +${pkg.wCoinC.toLocaleString()} WCoinC`,
-        creditsAdded: txResult.status === "Created" ? pkg.credits : 0,
-        wCoinCAdded: txResult.status === "Created" ? pkg.wCoinC : 0,
-        grant: txResult.grant,
-        balances: {
-          wCoinC: txResult.balances.wCoinC,
-          wCoinP: txResult.balances.wCoinP,
-          goblinPoints: txResult.balances.goblinPoints
-        }
+        account: updated
       });
     } catch (err) {
       next(err);
@@ -18266,9 +18930,35 @@ async function startServer() {
   app.post("/api/admin/catalog/items", requireAdmin, async (req, res, next) => {
     try {
       const item = req.body?.item;
-      if (!item || typeof item.uid !== "number" || !item.name) {
+      if (!item || !Number.isInteger(item.uid) || !item.name || !Number.isInteger(item.credits) || item.credits < 0) {
         res.status(400).json({ ok: false, message: "Valid WebShopItem payload required." });
         return;
+      }
+      if (item.openMuPackageSequence !== void 0) {
+        if (!Number.isInteger(item.openMuPackageSequence) || item.openMuPackageSequence < 0) {
+          throw new TransactionDomainError("INVALID_OPENMU_MAPPING", 422, "OpenMU package sequence must be a non-negative integer.");
+        }
+        const catalog = await getOpenMuCashShopCatalog();
+        const offer = catalog.find((entry) => entry.packageSequence === item.openMuPackageSequence);
+        if (!offer) {
+          throw new TransactionDomainError("INVALID_OPENMU_MAPPING", 422, "The OpenMU package is not enabled in the authoritative catalog.");
+        }
+        if (offer.isBundle) {
+          if (item.openMuPriceSequence !== void 0 && item.openMuPriceSequence !== null) {
+            throw new TransactionDomainError("INVALID_OPENMU_MAPPING", 422, "An OpenMU bundle must not specify a price sequence.");
+          }
+          item.openMuPriceSequence = null;
+        } else {
+          if (!Number.isInteger(item.openMuPriceSequence)) {
+            throw new TransactionDomainError("INVALID_OPENMU_MAPPING", 422, "A non-bundle OpenMU package requires a price sequence.");
+          }
+          const product = offer.products.find((entry) => entry.priceSequence === item.openMuPriceSequence);
+          if (!product || product.itemGroup !== item.type || product.itemNumber !== item.id) {
+            throw new TransactionDomainError("INVALID_OPENMU_MAPPING", 422, "The OpenMU product does not match this WebShop item type and number.");
+          }
+        }
+      } else {
+        delete item.openMuPriceSequence;
       }
       const saved = await upsertCatalogItem(item);
       const adminAcc = getRequesterAccount(req);
