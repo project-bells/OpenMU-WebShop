@@ -140,20 +140,51 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
 
   return (
     <div
-      className={`w-full ${
+      className={`relative w-full ${
         isModal
           ? 'max-w-xl mx-auto p-4 sm:p-6'
-          : 'max-w-4xl mx-auto py-8 px-4 sm:px-6'
+          : 'max-w-5xl mx-auto py-8 sm:py-12 px-4 sm:px-6'
       }`}
     >
-      <div className="relative rounded-xl border border-zinc-800 bg-zinc-950/95 shadow-2xl overflow-hidden backdrop-blur-xl">
-        <div className="h-1 w-full bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600" />
+      {/* Hero Header matching muorigins.online */}
+      {!isModal && (
+        <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
+          <div className="text-xs font-semibold tracking-widest text-amber-400/90">
+            {L(lang, {
+              en: 'Season 6 Episode 3 · Player Portal & WebShop',
+              th: 'Season 6 Episode 3 · ระบบจัดการบัญชีและคลังไอเทม',
+              pt: 'Season 6 Episode 3 · Portal do Jogador',
+              ru: 'Season 6 Episode 3 · Портал Игрока',
+              es: 'Season 6 Episode 3 · Portal del Jugador',
+              bg: 'Season 6 Episode 3 · Портал на Играча',
+            })}
+          </div>
+          <h1
+            className="font-display mt-3 text-4xl font-black tracking-tight text-white sm:text-5xl"
+            style={{ textWrap: 'balance' }}
+          >
+            MU <span className="text-gradient-gold">ORIGINS</span>
+          </h1>
+          <p className="mt-3 text-sm text-white/65 sm:text-base leading-relaxed">
+            {L(lang, {
+              en: 'Legends Never Die — Authenticate with your OpenMU game account to access your 8×15 Warehouse Vault, Character Services, and Credits.',
+              th: 'ตำนานไม่มีวันตาย — เข้าสู่ระบบด้วยไอดีเกม OpenMU เพื่อใช้งานคลังเก็บของ 8×15 จัดการตัวละคร และระบบเครดิต',
+              pt: 'Lendas Nunca Morrem — Entre com sua conta OpenMU para acessar seu Baú 8×15, Personagens e Créditos.',
+              ru: 'Легенды не умирают — Войдите с помощью аккаунта OpenMU для доступа к сундуку 8×15 и персонажам.',
+              es: 'Las Leyendas Nunca Mueren — Inicia sesión con tu cuenta OpenMU para acceder a tu Baúl 8×15 y Personajes.',
+              bg: 'Легендите не умират — Влезте с вашия OpenMU акаунт за достъп до сандъка 8×15 и героите.',
+            })}
+          </p>
+        </div>
+      )}
 
+      {/* Main Fantasy Glass Card matching muorigins.online */}
+      <div className="fantasy-panel gold-border relative mx-auto max-w-xl rounded-3xl p-6 sm:p-10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.85)]">
         {isModal && onCancel && (
           <button
             type="button"
             onClick={onCancel}
-            className="absolute top-4 right-4 p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer z-10"
+            className="absolute top-5 right-5 p-2 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer z-10"
             aria-label={L(lang, {
               en: 'Close',
               th: 'ปิดหน้าต่าง',
@@ -167,27 +198,27 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
           </button>
         )}
 
-        <div className="p-6 sm:p-8 space-y-6">
-          {/* Header Section (No Logo) */}
-          <div className="text-center space-y-2">
-            <h1 className="text-xl sm:text-2xl font-bold font-display text-white tracking-wide">
+        <div className="space-y-6">
+          {/* Card Title */}
+          <div className="text-center space-y-1.5">
+            <h2 className="text-xl sm:text-2xl font-black font-display text-white tracking-wide">
               {L(lang, {
-                en: 'Sign In to Mu Origins',
-                th: 'เข้าสู่ระบบ Mu Origins',
-                pt: 'Entrar no Mu Origins',
-                ru: 'Вход в Mu Origins',
-                es: 'Iniciar Sesión en Mu Origins',
-                bg: 'Вход в Mu Origins',
+                en: 'Account Sign In',
+                th: 'เข้าสู่ระบบบัญชีผู้เล่น',
+                pt: 'Entrar na Conta',
+                ru: 'Вход в Аккаунт',
+                es: 'Iniciar Sesión',
+                bg: 'Вход в Акаунта',
               })}
-            </h1>
-            <p className="text-xs text-zinc-400 max-w-md mx-auto">
+            </h2>
+            <p className="text-xs text-white/55">
               {L(lang, {
-                en: 'Continent of Mu Origins S6E3 · Protected by BCrypt Authentication',
-                th: 'Continent of Mu Origins S6E3 · ระบบยืนยันตัวตนความปลอดภัยสูงด้วย BCrypt',
-                pt: 'Continent of Mu Origins S6E3 · Protegido por Autenticação BCrypt',
-                ru: 'Continent of Mu Origins S6E3 · Защита BCrypt',
-                es: 'Continent of Mu Origins S6E3 · Protegido por Autenticación BCrypt',
-                bg: 'Continent of Mu Origins S6E3 · Защита с BCrypt',
+                en: 'Connect to OpenMU S6E3 Core via BCrypt Gateway',
+                th: 'เชื่อมต่อฐานข้อมูล OpenMU S6E3 ด้วยการเข้ารหัส BCrypt',
+                pt: 'Conecte-se ao núcleo OpenMU S6E3 via BCrypt',
+                ru: 'Подключение к ядру OpenMU S6E3 через BCrypt',
+                es: 'Conéctate al núcleo OpenMU S6E3 mediante BCrypt',
+                bg: 'Свързване към OpenMU S6E3 чрез BCrypt',
               })}
             </p>
           </div>
@@ -195,28 +226,29 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
           {/* Status Banners */}
           {statusMessage && (
             <div
-              className={`p-3.5 rounded-lg border text-xs flex items-start gap-2.5 transition-all ${
+              role="alert"
+              className={`flex items-start gap-3 rounded-2xl border p-4 text-xs font-medium transition-all ${
                 statusMessage.type === 'error'
-                  ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                  ? 'border-red-500/30 bg-red-500/10 text-red-200'
                   : statusMessage.type === 'success'
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                  : 'border-blue-500/40 bg-blue-500/10 text-blue-200'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
               }`}
             >
               {statusMessage.type === 'error' && (
-                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               )}
               {statusMessage.type === 'success' && (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               )}
               {statusMessage.type === 'info' && (
-                <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               )}
               <div className="flex-1 leading-relaxed">{statusMessage.text}</div>
               <button
                 type="button"
                 onClick={() => setStatusMessage(null)}
-                className="text-zinc-400 hover:text-white cursor-pointer"
+                className="text-white/50 hover:text-white cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -224,29 +256,28 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Username Field */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <label className="text-zinc-300 font-medium flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-zinc-400" />
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-white/85">
+                  <User className="w-3.5 h-3.5 text-amber-400" />
                   <span>
                     {L(lang, {
                       en: 'Account ID (LoginName)',
-                      th: 'ชื่อบัญชี (Account ID)',
+                      th: 'ไอดีผู้เล่น (Account ID)',
                       pt: 'ID da Conta (Login)',
                       ru: 'Логин аккаунта (ID)',
                       es: 'ID de Cuenta (Login)',
                       bg: 'Потребителско име (ID)',
                     })}
                   </span>
-                  <span className="text-rose-400">*</span>
                 </label>
                 <span
-                  className={`text-[10px] font-mono-tabular ${
+                  className={`font-mono-tabular text-[11px] ${
                     username.length >= 3 && username.length <= 10
                       ? 'text-emerald-400'
-                      : 'text-zinc-500'
+                      : 'text-white/40'
                   }`}
                 >
                   {username.length}/10
@@ -260,8 +291,8 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
                   value={username}
                   onChange={(e) => setUsername(e.target.value.toLowerCase().trim())}
                   placeholder={L(lang, {
-                    en: 'Enter your game account ID',
-                    th: 'กรอกชื่อบัญชีผู้ใช้ 3–10 ตัวอักษร',
+                    en: 'Enter your 3–10 character ID',
+                    th: 'กรอกไอดีเกม 3–10 ตัวอักษร',
                     pt: 'Digite seu login (3–10 caracteres)',
                     ru: 'Введите логин (3–10 символов)',
                     es: 'Ingresa tu ID de cuenta (3–10 caracteres)',
@@ -269,37 +300,25 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
                   })}
                   required
                   disabled={isSubmitting}
-                  className={`w-full pl-3.5 pr-9 py-2.5 rounded-lg bg-zinc-900 border text-xs text-white placeholder-zinc-500 transition-colors focus:outline-none focus:ring-1 ${
+                  className={`w-full pl-4 pr-10 py-3 rounded-xl bg-[#090d16]/90 border text-sm text-white placeholder-white/35 transition-colors focus:outline-none focus:ring-1 ${
                     username && !isUsernameValid
-                      ? 'border-rose-500 focus:ring-rose-500'
+                      ? 'border-red-500/70 focus:ring-red-500'
                       : username && isUsernameValid
                       ? 'border-emerald-500/60 focus:ring-emerald-500'
-                      : 'border-zinc-700 focus:border-amber-500 focus:ring-amber-500'
+                      : 'border-white/15 focus:border-[#d4af37] focus:ring-[#d4af37]/50'
                   }`}
                 />
                 {username && isUsernameValid && (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 absolute right-3 top-3 pointer-events-none" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 absolute right-3.5 top-3.5 pointer-events-none" />
                 )}
-              </div>
-              <div className="text-[11px] text-zinc-500 flex items-center gap-1">
-                <span>
-                  {L(lang, {
-                    en: '3–10 alphanumeric characters (a-z, 0-9)',
-                    th: 'ความยาว 3–10 ตัวอักษรภาษาอังกฤษหรือตัวเลข (a-z, 0-9)',
-                    pt: '3 a 10 caracteres alfanuméricos (a-z, 0-9)',
-                    ru: 'От 3 до 10 латинских символов или цифр (a-z, 0-9)',
-                    es: '3 a 10 caracteres alfanuméricos (a-z, 0-9)',
-                    bg: '3–10 латински букви или цифри (a-z, 0-9)',
-                  })}
-                </span>
               </div>
             </div>
 
             {/* Password Field */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <label className="text-zinc-300 font-medium flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-zinc-400" />
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-white/85">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
                   <span>
                     {L(lang, {
                       en: 'Password',
@@ -310,7 +329,6 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
                       bg: 'Парола',
                     })}
                   </span>
-                  <span className="text-rose-400">*</span>
                 </label>
               </div>
               <div className="relative">
@@ -322,18 +340,18 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
                   placeholder="••••••••"
                   required
                   disabled={isSubmitting}
-                  className={`w-full pl-3.5 pr-10 py-2.5 rounded-lg bg-zinc-900 border text-xs text-white placeholder-zinc-500 transition-colors focus:outline-none focus:ring-1 ${
+                  className={`w-full pl-4 pr-11 py-3 rounded-xl bg-[#090d16]/90 border text-sm text-white placeholder-white/35 transition-colors focus:outline-none focus:ring-1 ${
                     password && !isPasswordValid
-                      ? 'border-rose-500 focus:ring-rose-500'
+                      ? 'border-red-500/70 focus:ring-red-500'
                       : password && isPasswordValid
                       ? 'border-emerald-500/60 focus:ring-emerald-500'
-                      : 'border-zinc-700 focus:border-amber-500 focus:ring-amber-500'
+                      : 'border-white/15 focus:border-[#d4af37] focus:ring-[#d4af37]/50'
                   }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2.5 top-2.5 p-1 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                  className="absolute right-3 top-3 p-1 text-white/45 hover:text-white transition-colors cursor-pointer"
                   tabIndex={-1}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
@@ -346,28 +364,28 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
               </div>
             </div>
 
-            {/* Submit Button */}
+            {/* Submit Button — Exact muorigins.online Gold Gradient CTA */}
             <div className="pt-2">
               <button
                 type="submit"
                 disabled={!isFormValid || isSubmitting}
-                className={`w-full py-3 px-4 rounded-lg font-semibold text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 ${
+                className={`btn-shine relative flex w-full items-center justify-center gap-2 rounded-2xl px-6 py-4 text-sm font-black transition-all whitespace-nowrap ${
                   !isFormValid || isSubmitting
-                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700/50'
-                    : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-zinc-950 hover:brightness-110 shadow-lg shadow-amber-500/20 cursor-pointer font-bold'
+                    ? 'bg-white/5 text-white/35 cursor-not-allowed border border-white/10'
+                    : 'bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] shadow-[0_12px_40px_-8px_rgba(212,175,55,0.45)] hover:brightness-110 cursor-pointer'
                 }`}
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin text-zinc-950" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     <span>
                       {L(lang, {
-                        en: 'Authenticating...',
-                        th: 'กำลังตรวจสอบข้อมูล...',
-                        pt: 'Autenticando...',
-                        ru: 'Авторизация...',
-                        es: 'Autenticando...',
-                        bg: 'Удостоверяване...',
+                        en: 'Connecting to OpenMU Core…',
+                        th: 'กำลังเชื่อมต่อระบบ OpenMU Core…',
+                        pt: 'Conectando ao OpenMU Core…',
+                        ru: 'Подключение к OpenMU Core…',
+                        es: 'Conectando a OpenMU Core…',
+                        bg: 'Свързване към OpenMU Core…',
                       })}
                     </span>
                   </>
@@ -375,12 +393,12 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
                   <>
                     <span>
                       {L(lang, {
-                        en: 'Sign In',
-                        th: 'เข้าสู่ระบบ',
-                        pt: 'Entrar na Conta',
-                        ru: 'Войти в аккаунт',
-                        es: 'Iniciar Sesión',
-                        bg: 'Вход в Акаунта',
+                        en: 'Sign In to Mu Origins',
+                        th: 'เข้าสู่ระบบ Mu Origins',
+                        pt: 'Entrar no Mu Origins',
+                        ru: 'Войти в Mu Origins',
+                        es: 'Iniciar Sesión en Mu Origins',
+                        bg: 'Вход в Mu Origins',
                       })}
                     </span>
                     <ArrowRight className="w-4 h-4" />
@@ -390,17 +408,20 @@ export const ModernLoginPage: React.FC<ModernLoginPageProps> = ({
             </div>
           </form>
 
-          {/* Footer Security Certifications */}
-          <div className="pt-4 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 text-[11px] text-zinc-400">
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                BCrypt Security
-              </span>
-            </div>
-            <div className="text-zinc-500 font-mono-tabular">
-              Mu Origins S6E3
-            </div>
+          {/* Footer info matching muorigins.online */}
+          <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs text-white/45">
+            <span className="inline-flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>OpenMU S6E3 · BCrypt Security</span>
+            </span>
+            <a
+              href="https://muorigins.online/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-amber-400/90 hover:text-amber-300 hover:underline font-medium transition-colors"
+            >
+              muorigins.online →
+            </a>
           </div>
         </div>
       </div>

@@ -1584,52 +1584,35 @@ export default function App() {
   ];
 
   const GuestAuthPromptCard = () => (
-    <div className="max-w-2xl p-6 rounded border border-zinc-800 bg-zinc-900/85 space-y-4">
-      <div className="flex items-start gap-3.5">
-        <div className="p-2.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
-          <Lock className="w-5 h-5" />
-        </div>
-        <div className="space-y-1">
-          <h2 className="text-base font-bold text-white">
-            {t('guest_welcome_title', lang)}
-          </h2>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            {t('guest_welcome_desc', lang)}
-          </p>
-        </div>
-      </div>
-
-      <div className="pt-2 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => openAuthModal()}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs transition-colors cursor-pointer"
-        >
-          <LogIn className="w-4 h-4" />
-          <span>{t('login_btn', lang)}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveModule('items')}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-semibold text-xs transition-colors cursor-pointer"
-        >
-          <Package className="w-4 h-4" />
-          <span>{t('nav_items', lang)}</span>
-        </button>
-      </div>
+    <div className="py-2 sm:py-4">
+      <ModernLoginPage
+        lang={lang}
+        onLoginSuccess={(clean, data) => {
+          handleAuthSuccess(clean, data);
+          setLoginModalOpen(false);
+        }}
+      />
     </div>
   );
 
   return (
     <div
-      className={`min-h-screen flex flex-col ${
+      className={`min-h-screen flex flex-col relative overflow-x-hidden ${
         classicMode
           ? 'classic-theme bg-[#CCCCCC] text-zinc-900'
-          : 'bg-[#0b0d13] text-zinc-100'
+          : 'bg-[#090d16] text-zinc-100'
       }`}
     >
-      {/* Top Bar: Brand Wordmark (No Front Logo, No Top Nav Menu — Navigation via Left Sidebar Only) */}
-      <header className="flex items-center justify-between gap-8 px-6 py-3 border-b border-zinc-800 bg-[#090b10]">
+      {/* Ambient Background Grid & Radial Glow matching muorigins.online */}
+      {!classicMode && (
+        <>
+          <div className="pointer-events-none fixed inset-0 grid-bg opacity-70" />
+          <div className="pointer-events-none fixed inset-x-0 top-0 h-[520px] bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.09),rgba(139,92,246,0.04)_45%,transparent_75%)]" />
+        </>
+      )}
+
+      {/* Top Bar: Brand Wordmark matching muorigins.online */}
+      <header className="relative z-20 flex items-center justify-between gap-8 px-6 py-4 border-b border-white/10 bg-[#090d16]/90 backdrop-blur-xl">
         <a
           href="#home"
           onClick={(e) => {
@@ -1638,38 +1621,30 @@ export default function App() {
           }}
           className="inline-flex items-center whitespace-nowrap shrink-0"
         >
-          <span className="text-lg font-display font-bold tracking-wider text-amber-400">
-            Mu Origins
+          <span className="font-display text-xl font-black tracking-wider text-white">
+            MU <span className="text-gradient-gold">ORIGINS</span>
           </span>
         </a>
 
         {/* Primary Action */}
         <div className="flex items-center gap-3 shrink-0">
-          {currentAccount ? (
+          {currentAccount && (
             <button
               type="button"
               onClick={() => setActiveModule('howto')}
-              className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="btn-shine px-4 py-2 text-xs font-extrabold text-[#090d16] bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] rounded-xl shadow-[0_8px_25px_-6px_rgba(212,175,55,0.45)] hover:brightness-110 transition-all whitespace-nowrap shrink-0 cursor-pointer"
             >
               {currentAccount.credits.toLocaleString()} Credits ·{' '}
               {(wCoinCByAccount[currentAccount.username.toLowerCase()] ?? 0).toLocaleString()} WCoinC ·{' '}
               {t('nav_topup', lang)}
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => openAuthModal()}
-              className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              {t('login_btn', lang)}
-            </button>
           )}
         </div>
       </header>
 
-      {/* Secondary Workspace Status & Language/Auth Bar (Auth button placed at the FAR RIGHT) */}
-      <div className="px-6 py-2.5 border-b border-zinc-800/80 bg-zinc-900/90 flex flex-wrap items-center justify-between gap-4 text-xs">
-        <div className="flex flex-wrap items-center gap-3 text-zinc-300">
+      {/* Secondary Workspace Status & Language/Auth Bar */}
+      <div className="relative z-20 px-6 py-2.5 border-b border-white/10 bg-[#0d1322]/90 backdrop-blur-md flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div className="flex flex-wrap items-center gap-3 text-white/75">
           {currentAccount ? (
             <>
               <span>
@@ -1706,7 +1681,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setActiveModule('vip')}
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold hover:bg-amber-500/30 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-amber-300 font-bold hover:text-amber-200 hover:underline transition-colors cursor-pointer"
                 >
                   <Crown className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                   <span>
@@ -1734,21 +1709,21 @@ export default function App() {
               )}
             </>
           ) : (
-            <span className="text-zinc-400">
+            <span className="text-white/60">
               {t('logged_in_as', lang)}{' '}
-              <strong className="text-zinc-200">{t('guest_label', lang)}</strong>
+              <strong className="text-white/90">{t('guest_label', lang)}</strong>
+              <span aria-hidden="true" className="mx-2">·</span>
+              <span className="text-amber-300/90">Season 6 Episode 3</span>
             </span>
           )}
         </div>
 
-        {/* Rightmost Workspace Controls — Sign In / Sign Out anchored at the FAR RIGHT */}
+        {/* Rightmost Workspace Controls */}
         <div className="flex flex-wrap items-center gap-2.5 ml-auto">
           {currentAccount && (
             <span
-              className={`px-2.5 py-1 rounded border text-[11px] font-medium whitespace-nowrap ${
-                currentAccount.isOnline
-                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-300'
-                  : 'border-zinc-700 bg-zinc-950 text-zinc-300'
+              className={`text-[11px] font-medium whitespace-nowrap ${
+                currentAccount.isOnline ? 'text-amber-300' : 'text-white/65'
               }`}
             >
               {t('ingame_status', lang)}{' '}
@@ -1759,29 +1734,29 @@ export default function App() {
           )}
 
           {/* Language Selector (6 Languages) */}
-          <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-700 rounded px-2 py-1">
-            <Globe className="w-3.5 h-3.5 text-zinc-400" />
+          <div className="flex items-center gap-1.5 bg-[#090d16]/90 border border-white/15 rounded-lg px-2.5 py-1">
+            <Globe className="w-3.5 h-3.5 text-amber-400" />
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value as LanguageCode)}
-              className="bg-transparent text-[11px] text-zinc-200 focus:outline-none cursor-pointer"
+              className="bg-transparent text-[11px] text-white/90 focus:outline-none cursor-pointer"
             >
-              <option value="Thai" className="bg-zinc-900">
+              <option value="Thai" className="bg-[#090d16]">
                 ภาษาไทย (Thai)
               </option>
-              <option value="English" className="bg-zinc-900">
+              <option value="English" className="bg-[#090d16]">
                 English
               </option>
-              <option value="Portuguese_BR" className="bg-zinc-900">
+              <option value="Portuguese_BR" className="bg-[#090d16]">
                 Português (Brasil)
               </option>
-              <option value="Russian" className="bg-zinc-900">
+              <option value="Russian" className="bg-[#090d16]">
                 Русский (Russian)
               </option>
-              <option value="Spanish" className="bg-zinc-900">
+              <option value="Spanish" className="bg-[#090d16]">
                 Español (Spanish)
               </option>
-              <option value="Bulgarian" className="bg-zinc-900">
+              <option value="Bulgarian" className="bg-[#090d16]">
                 Български (Bulgarian)
               </option>
             </select>
@@ -1791,111 +1766,68 @@ export default function App() {
           <button
             type="button"
             onClick={() => setClassicMode(!classicMode)}
-            className="px-2.5 py-1 rounded border border-zinc-700 bg-zinc-950 hover:bg-zinc-800 text-[11px] text-zinc-300 cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 rounded-lg border border-white/15 bg-[#090d16]/90 hover:bg-white/10 text-[11px] text-white/80 cursor-pointer whitespace-nowrap transition-colors"
           >
             {classicMode
               ? t('theme_dark', lang)
               : t('theme_classic', lang)}
           </button>
 
-          {/* Far-Right Auth Action: Sign In when logged out, Sign Out when logged in */}
-          {currentAccount ? (
+          {/* Far-Right Auth Action: Sign Out when logged in */}
+          {currentAccount && (
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-[11px] font-semibold text-rose-300 cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-[11px] font-semibold text-rose-300 cursor-pointer whitespace-nowrap transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>{t('logout_btn', lang)}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => openAuthModal()}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded border border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/25 text-[11px] font-semibold text-amber-300 cursor-pointer whitespace-nowrap"
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>{t('login_btn', lang)}</span>
             </button>
           )}
         </div>
       </div>
 
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded border border-amber-500/50 bg-zinc-950/95 text-amber-300 text-xs font-medium shadow-2xl">
+        <div className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-2xl fantasy-panel gold-border text-amber-300 text-xs font-medium shadow-2xl">
           {toastMessage}
         </div>
       )}
 
-      {/* Main Two-Column Layout: Left Menu + Content Area */}
-      <div className="flex-1 max-w-[1440px] w-full mx-auto flex flex-col md:flex-row gap-6 p-6">
-        {/* Left Navigation Menu */}
-        <aside className="w-full md:w-60 shrink-0 space-y-4">
-          {/* Mu Origins Title Card (No Logo) */}
-          <button
-            type="button"
-            onClick={() => setActiveModule('home')}
-            className="w-full rounded border border-zinc-800 bg-zinc-950/95 px-3.5 py-3 text-center hover:border-amber-500/40 transition-colors cursor-pointer block"
-          >
-            <div className="text-sm font-display font-bold tracking-wider text-amber-400">
-              Mu Origins
-            </div>
-            <div className="text-[11px] text-zinc-400 truncate mt-0.5">
-              Continent of Mu Origins S6E3
-            </div>
-          </button>
-
-          <div className="rounded border border-zinc-800 bg-zinc-900/90 overflow-hidden">
-            <div className="px-3.5 py-2.5 bg-zinc-950/80 border-b border-zinc-800 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              {t('nav_player_menu', lang)}
-            </div>
-            <div className="p-1.5 space-y-0.5">
-              {navMenuPlayer.map((item) => {
-                const isActive = activeModule === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveModule(item.id)}
-                    className={`w-full px-3 py-2 rounded text-left text-xs flex items-center gap-2.5 transition-colors cursor-pointer whitespace-nowrap ${
-                      isActive
-                        ? 'bg-amber-500 text-zinc-950 font-semibold'
-                        : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-                    }`}
-                  >
-                    <span className="shrink-0">{item.icon}</span>
-                    <span className="truncate">
-                      {t(item.translationKey, lang)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Admin Menu — Strictly visible ONLY when logged in as an Admin user */}
-          {isAdminUser && (
-            <div className="rounded border border-zinc-800 bg-zinc-900/90 overflow-hidden">
-              <div className="px-3.5 py-2.5 bg-zinc-950/80 border-b border-zinc-800 flex items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
-                  {t('nav_admin_menu', lang)}
-                </span>
-                <span className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                  ADMIN
-                </span>
+      {/* Main Two-Column Layout: Left Menu (visible only after login) + Content Area */}
+      <div className="relative z-10 flex-1 max-w-[1440px] w-full mx-auto flex flex-col md:flex-row gap-6 p-6">
+        {/* Left Navigation Menu — Strictly visible ONLY when logged in */}
+        {currentAccount && (
+          <aside className="w-full md:w-64 shrink-0 space-y-4">
+            {/* Mu Origins Title Card (No Logo) */}
+            <button
+              type="button"
+              onClick={() => setActiveModule('home')}
+              className="w-full fantasy-panel gold-border rounded-2xl px-4 py-3.5 text-center hover:brightness-110 transition-all cursor-pointer block"
+            >
+              <div className="text-sm font-display font-black tracking-wider text-white">
+                MU <span className="text-gradient-gold">ORIGINS</span>
               </div>
-              <div className="p-1.5 space-y-0.5">
-                {navMenuAdmin.map((item) => {
+              <div className="text-[11px] text-white/55 truncate mt-0.5">
+                Season 6 Episode 3 · Portal
+              </div>
+            </button>
+
+            <div className="fantasy-panel gold-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 bg-[#090d16]/60 border-b border-white/10 text-[11px] font-bold tracking-wider text-amber-300/90">
+                {t('nav_player_menu', lang)}
+              </div>
+              <div className="p-2 space-y-1">
+                {navMenuPlayer.map((item) => {
                   const isActive = activeModule === item.id;
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => setActiveModule(item.id)}
-                      className={`w-full px-3 py-2 rounded text-left text-xs flex items-center gap-2.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-left text-xs flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
                         isActive
-                          ? 'bg-emerald-500 text-zinc-950 font-semibold'
-                          : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                          ? 'bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] font-extrabold shadow-md shadow-amber-500/20'
+                          : 'text-white/75 hover:bg-white/10 hover:text-white'
                       }`}
                     >
                       <span className="shrink-0">{item.icon}</span>
@@ -1907,24 +1839,64 @@ export default function App() {
                 })}
               </div>
             </div>
-          )}
-        </aside>
+
+            {/* Admin Menu — Strictly visible ONLY when logged in as an Admin user */}
+            {isAdminUser && (
+              <div className="fantasy-panel gold-border rounded-2xl overflow-hidden">
+                <div className="px-4 py-3 bg-[#090d16]/60 border-b border-white/10 flex items-center justify-between">
+                  <span className="text-[11px] font-bold tracking-wider text-emerald-400">
+                    {t('nav_admin_menu', lang)}
+                  </span>
+                  <span className="text-[10px] font-mono-tabular font-bold text-emerald-300">
+                    ADMIN
+                  </span>
+                </div>
+                <div className="p-2 space-y-1">
+                  {navMenuAdmin.map((item) => {
+                    const isActive = activeModule === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveModule(item.id)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-left text-xs flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                          isActive
+                            ? 'bg-emerald-500 text-[#090d16] font-extrabold shadow-md shadow-emerald-500/20'
+                            : 'text-white/75 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        <span className="shrink-0">{item.icon}</span>
+                        <span className="truncate">
+                          {t(item.translationKey, lang)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
 
         {/* Main Module Viewport */}
         <main className="flex-1 min-w-0">
+          {!currentAccount ? (
+            <GuestAuthPromptCard />
+          ) : (
+            <>
           {activeModule === 'home' &&
             (currentAccount ? (
               <div className="space-y-6">
                 {/* Top Summary Row: My Shop + My Characters */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* My Shop Card */}
-                  <div className="lg:col-span-4 p-5 rounded border border-zinc-800 bg-zinc-900/80 space-y-3">
-                    <h2 className="text-sm font-bold text-amber-400 uppercase tracking-wider border-b border-zinc-800 pb-2">
+                  <div className="lg:col-span-4 p-6 rounded-2xl fantasy-panel gold-border space-y-4">
+                    <h2 className="text-sm font-display font-bold text-amber-400 tracking-wider border-b border-white/10 pb-2.5">
                       {t('my_shop', lang)}
                     </h2>
-                    <div className="space-y-2 text-xs">
+                    <div className="space-y-2.5 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">
+                        <span className="text-white/60">
                           {t('logged_in_as', lang)}
                         </span>
                         <span className="font-bold text-white">
@@ -1932,7 +1904,7 @@ export default function App() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">
+                        <span className="text-white/60">
                           {t('credits', lang)}
                         </span>
                         <span className="font-mono-tabular font-bold text-amber-400">
@@ -1940,15 +1912,15 @@ export default function App() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">
+                        <span className="text-white/60">
                           {t('vault_zen', lang)} (Max 900M)
                         </span>
-                        <span className="font-mono-tabular font-semibold text-zinc-200">
+                        <span className="font-mono-tabular font-semibold text-white/90">
                           {currentAccount.vaultMoney.toLocaleString()} Zen
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">
+                        <span className="text-white/60">
                           {t('online_time', lang)} (1h = 5Cr)
                         </span>
                         <button
@@ -1961,7 +1933,7 @@ export default function App() {
                         </button>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400 flex items-center gap-1">
+                        <span className="text-white/60 flex items-center gap-1">
                           <Crown className="w-3.5 h-3.5 text-amber-400" />
                           {t('vip_status', lang)}
                         </span>
@@ -1970,7 +1942,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => setActiveModule('vip')}
-                            className="font-mono-tabular font-bold text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30 hover:underline cursor-pointer text-[11px]"
+                            className="font-mono-tabular font-bold text-amber-300 hover:underline cursor-pointer text-[11px]"
                           >
                             {t('vip_active', lang)} (
                             {Math.ceil(
@@ -1995,28 +1967,28 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setActiveModule('items')}
-                        className="flex-1 py-2 px-3 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold text-xs transition-colors cursor-pointer whitespace-nowrap"
+                        className="btn-shine flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] font-extrabold text-xs transition-all cursor-pointer whitespace-nowrap"
                       >
                         {t('btn_buy_items', lang)}
                       </button>
                       <button
                         type="button"
                         onClick={() => setActiveModule('buychar')}
-                        className="flex-1 py-2 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 font-semibold text-xs transition-colors cursor-pointer whitespace-nowrap"
+                        className="flex-1 py-2.5 px-3 rounded-xl bg-[#090d16]/80 hover:bg-white/10 text-amber-300 border border-amber-500/30 font-semibold text-xs transition-colors cursor-pointer whitespace-nowrap"
                       >
                         {t('btn_buy_char400', lang)}
                       </button>
                       <button
                         type="button"
                         onClick={() => setActiveModule('howto')}
-                        className="w-full py-2 px-3 rounded bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs transition-colors cursor-pointer whitespace-nowrap"
+                        className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#090d16] font-extrabold text-xs transition-colors cursor-pointer whitespace-nowrap"
                       >
                         {t('btn_topup', lang)}
                       </button>
                       <button
                         type="button"
                         onClick={() => setActiveModule('vip')}
-                        className="w-full py-2 px-3 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                        className="w-full py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                       >
                         <Crown className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                         <span>
@@ -2027,9 +1999,9 @@ export default function App() {
                   </div>
 
                   {/* Account Characters Roster */}
-                  <div className="lg:col-span-8 p-5 rounded border border-zinc-800 bg-zinc-900/80 space-y-3">
-                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                      <h2 className="text-sm font-bold text-zinc-100 uppercase tracking-wider">
+                  <div className="lg:col-span-8 p-6 rounded-2xl fantasy-panel gold-border space-y-4">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                      <h2 className="text-sm font-display font-bold text-white tracking-wider">
                         {t('account_characters', lang)}
                       </h2>
                       <div className="flex items-center gap-3">
@@ -2050,12 +2022,12 @@ export default function App() {
                       </div>
                     </div>
                     {myCharacters.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-zinc-400 space-y-3">
+                      <div className="py-8 text-center text-xs text-white/60 space-y-3">
                         <div>{t('no_characters', lang)}</div>
                         <button
                           type="button"
                           onClick={() => setActiveModule('buychar')}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold cursor-pointer"
                         >
                           <UserPlus className="w-3.5 h-3.5" />
                           <span>{t('btn_buy_char400', lang)}</span>
@@ -2064,39 +2036,39 @@ export default function App() {
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
-                          <thead className="text-zinc-400 border-b border-zinc-800/80">
+                          <thead className="text-white/55 border-b border-white/10">
                             <tr>
-                              <th className="py-2 pr-3">
+                              <th className="py-2.5 pr-3">
                                 {t('table_name', lang)}
                               </th>
-                              <th className="py-2 px-3">
+                              <th className="py-2.5 px-3">
                                 {t('table_class', lang)}
                               </th>
-                              <th className="py-2 px-3 text-center">
+                              <th className="py-2.5 px-3 text-center">
                                 {t('table_level', lang)}
                               </th>
-                              <th className="py-2 px-3 text-right">
+                              <th className="py-2.5 px-3 text-right">
                                 {t('table_stats', lang)}
                               </th>
-                              <th className="py-2 px-3 text-right">
+                              <th className="py-2.5 px-3 text-right">
                                 {t('table_free_pts', lang)}
                               </th>
-                              <th className="py-2 pl-3 text-right">
+                              <th className="py-2.5 pl-3 text-right">
                                 {t('table_action', lang)}
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-800/50">
+                          <tbody className="divide-y divide-white/10">
                             {myCharacters.map((ch) => {
                               const cls = MU_CLASSES.find(
                                 (m) => m.code === ch.classCode
                               );
                               return (
-                                <tr key={ch.name}>
-                                  <td className="py-2 pr-3 font-bold text-white">
+                                <tr key={ch.name} className="hover:bg-white/5 transition-colors">
+                                  <td className="py-2.5 pr-3 font-bold text-white">
                                     {ch.name}
                                   </td>
-                                  <td className="py-2 px-3 text-zinc-300">
+                                  <td className="py-2.5 px-3 text-white/80">
                                     {cls
                                       ? getClassDisplayName(cls, lang)
                                       : ch.classCode}{' '}
@@ -2104,18 +2076,18 @@ export default function App() {
                                       ({cls?.pointsPerLevel || 5}pt/lv)
                                     </span>
                                   </td>
-                                  <td className="py-2 px-3 text-center font-mono-tabular text-amber-400 font-bold">
+                                  <td className="py-2.5 px-3 text-center font-mono-tabular text-amber-400 font-bold">
                                     Lv.{ch.level}
                                   </td>
-                                  <td className="py-2 px-3 text-right font-mono-tabular text-zinc-300 text-[11px]">
+                                  <td className="py-2.5 px-3 text-right font-mono-tabular text-white/75 text-[11px]">
                                     {ch.strength}/{ch.agility}/{ch.vitality}/
                                     {ch.energy}
                                     {ch.command > 0 ? `/${ch.command}` : ''}
                                   </td>
-                                  <td className="py-2 px-3 text-right font-mono-tabular text-emerald-400 font-bold">
+                                  <td className="py-2.5 px-3 text-right font-mono-tabular text-emerald-400 font-bold">
                                     {ch.levelUpPoints.toLocaleString()}
                                   </td>
-                                  <td className="py-2 pl-3 text-right">
+                                  <td className="py-2.5 pl-3 text-right">
                                     {ch.ctlCode === 1 ? (
                                       <button
                                         type="button"
@@ -2135,7 +2107,7 @@ export default function App() {
                                         {t('delete_refund_label', lang)}
                                       </button>
                                     ) : (
-                                      <span className="text-zinc-400">
+                                      <span className="text-white/50">
                                         {t('active_label', lang)}
                                       </span>
                                     )}
@@ -2151,20 +2123,20 @@ export default function App() {
                 </div>
 
                 {/* My Current Items — Authentic 8x15 Warehouse Grid */}
-                <div className="p-5 rounded border border-zinc-800 bg-zinc-900/80 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-800">
+                <div className="p-6 rounded-2xl fantasy-panel gold-border space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/10">
                     <div>
-                      <h2 className="text-sm font-bold text-zinc-100 uppercase tracking-wider">
+                      <h2 className="text-sm font-display font-bold text-white tracking-wider">
                         {t('vault_grid_title', lang)}
                       </h2>
-                      <p className="text-xs text-zinc-400 mt-0.5">
+                      <p className="text-xs text-white/60 mt-0.5">
                         {t('vault_grid_desc', lang)}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setActiveModule('items')}
-                      className="px-3.5 py-1.5 rounded text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer self-start"
+                      className="btn-shine px-4 py-2 rounded-xl text-xs font-extrabold bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] transition-all cursor-pointer self-start whitespace-nowrap"
                     >
                       {t('open_item_adder', lang)}
                     </button>
@@ -2626,14 +2598,26 @@ export default function App() {
               }}
             />
           )}
+            </>
+          )}
         </main>
       </div>
 
-      {/* Footer */}
-      <footer className="mt-auto py-4 px-6 border-t border-zinc-800/80 bg-[#090b10] text-center text-xs text-zinc-400">
-        <div>
-          (c) 2026 - Mu Origins [
-          <span className="text-zinc-200">Continent of Mu Origins S6E3</span>]
+      {/* Footer matching muorigins.online */}
+      <footer className="relative z-20 mt-auto py-5 px-6 border-t border-white/10 bg-[#090d16]/95 text-center text-xs text-white/50">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div>
+            © 2026 <span className="text-white font-semibold">MuOrigins</span> ·{' '}
+            <span className="text-amber-300/90">Season 6 Episode 3</span>
+          </div>
+          <a
+            href="https://muorigins.online/"
+            target="_blank"
+            rel="noreferrer"
+            className="text-amber-400 hover:text-amber-300 hover:underline transition-colors"
+          >
+            muorigins.online
+          </a>
         </div>
       </footer>
 

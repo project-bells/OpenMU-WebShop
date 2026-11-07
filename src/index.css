@@ -3,17 +3,34 @@
 
 @layer base {
   :root {
-    --font-display: 'Cinzel', Georgia, serif;
-    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Cinzel', 'Kanit', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', 'Kanit', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
   }
 
   body {
     font-family: var(--font-sans);
+    background-color: #090d16;
+    color: #f4f4f5;
     margin: 0;
     padding: 0;
     -webkit-font-smoothing: antialiased;
   }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(#1e2640, #997b1a);
+  border: 2px solid #090d16;
+  border-radius: 8px;
 }
 
 .font-display {
@@ -25,16 +42,128 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* MuOrigins.online Theme Utilities */
+.glow-gold {
+  box-shadow: 0 0 25px -4px #d4af3766;
+}
+
+.glow-purple {
+  box-shadow: 0 0 25px -4px #8b5cf666;
+}
+
+.glow-crimson {
+  box-shadow: 0 0 25px -4px #e11d4866;
+}
+
+.border-gold-subtle {
+  border: 1px solid #d4af3740;
+}
+
+.fantasy-panel {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: linear-gradient(145deg, #131a2ed9, #0e1424f2);
+  border: 1px solid #d4af3733;
+}
+
+.glass {
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  background: linear-gradient(135deg, #ffffff14, #ffffff05);
+  border: 1px solid #ffffff1a;
+}
+
+.glass-strong {
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+  background: linear-gradient(135deg, #12142deb, #0a0c1ce0);
+  border: 1px solid #ffffff1a;
+}
+
+.text-gradient-gold {
+  color: transparent;
+  background: linear-gradient(105deg, #fff6d8, #f5c451 28%, #ffdf8a, #c28a1e 72%, #ffe9a8) 0 0 / 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: 5s linear infinite shimmer;
+}
+
+.text-gradient-arcane {
+  color: transparent;
+  background: linear-gradient(100deg, #c4b5fd, #8b5cf6 30%, #38e1ff 70%, #c4b5fd) 0 0 / 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.gold-border {
+  position: relative;
+}
+
+.gold-border::before {
+  content: "";
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, #f5c45199, #ffffff14 30%, #8b5cf680 70%, #f5c45166);
+  padding: 1px;
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
+  -webkit-mask-position: 0 0, 0 0;
+  -webkit-mask-size: auto, auto;
+  -webkit-mask-repeat: repeat, repeat;
+  -webkit-mask-clip: content-box, border-box;
+  -webkit-mask-origin: content-box, border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.btn-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-shine::after {
+  content: "";
+  background: linear-gradient(100deg, transparent, #ffffff59, transparent);
+  width: 60%;
+  height: 100%;
+  transition: left 0.6s;
+  position: absolute;
+  top: 0;
+  left: -80%;
+  transform: skew(-20deg);
+}
+
+.btn-shine:hover::after {
+  left: 130%;
+}
+
+.grid-bg {
+  background-image: linear-gradient(#ffffff09 1px, transparent 1px), linear-gradient(90deg, #ffffff09 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(80% 70% at 50% 30%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(80% 70% at 50% 30%, #000 30%, transparent 75%);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
 /* Authentic MU Online Vault Grid & Classic Savoy WebShop Styles */
 .vault-cell {
   width: 34px;
   height: 34px;
-  border-right: 1px solid #18181b;
-  border-bottom: 1px solid #18181b;
-  border-left: 1px solid #52525b;
-  border-top: 1px solid #52525b;
-  background-color: #27272a;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  border-right: 1px solid #090d16;
+  border-bottom: 1px solid #090d16;
+  border-left: 1px solid #2e3856;
+  border-top: 1px solid #2e3856;
+  background-color: #131a2e;
+  background-image: radial-gradient(rgba(212, 175, 55, 0.06) 1px, transparent 0);
   background-size: 8px 8px;
 }
 
