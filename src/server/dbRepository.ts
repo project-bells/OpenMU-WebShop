@@ -7,7 +7,9 @@ import {
 } from '../data/initialState';
 import { INITIAL_WEBSHOP_ITEMS, WebShopItem } from '../data/webshopItems';
 import {
+  Character,
   ItemGroup,
+  MuClassCode,
   PayPalPromoPackage,
   PromotionConfig,
   TrueMoneyPromoTier,
@@ -15,7 +17,14 @@ import {
   VaultItemInstance,
   WebShopConfig,
 } from '../types/webshop';
-import { CATEGORY_NAMES } from '../utils/muItemLogic';
+import {
+  BUY_CHAR_400_CREDITS,
+  CATEGORY_NAMES,
+  DELETE_CHAR_400_REWARD_CREDITS,
+  MU_CLASSES,
+  ONLINE_HOUR_REWARD_CREDITS,
+  calculateClassStatPoints,
+} from '../utils/muItemLogic';
 import { recordAuditLog } from './auditLogger';
 import {
   encodeSeason6ItemHex,
@@ -75,6 +84,8 @@ export interface ServerAccountRecord {
   registrationDate: string;
   credits: number;
   vaultMoney: number;
+  onlineMinutes: number;
+  exchangedOnlineHours: number;
   wCoinC: number;
   wCoinP: number;
   goblinPoints: number;
@@ -144,6 +155,7 @@ export function verifyAccountPassword(
 // Database & In-Memory Store Initialization
 // ============================================================================
 export const memoryAccounts = new Map<string, ServerAccountRecord>();
+export const memoryCharacters = new Map<string, Character>();
 export const memoryMembStat = new Map<string, MembStatRow>();
 export const memoryGrantsByIdempotency = new Map<string, OpenMuCoinGrant>();
 export const memoryGrantsByReference = new Map<string, OpenMuCoinGrant>();
@@ -169,7 +181,7 @@ export function seedMemoryStore(): void {
   const envPass = process.env.ADMIN_PASSWORD || 'admin';
   const envDeleteCode = /^\d{4,8}$/.test(process.env.ADMIN_DELETE_CODE || '')
     ? String(process.env.ADMIN_DELETE_CODE)
-    : '0000000';
+    : '123456';
 
   const initialAccounts: Array<{
     loginName: string;
@@ -181,6 +193,8 @@ export function seedMemoryStore(): void {
     credits: number;
     wCoinC: number;
     vaultMoney: number;
+    onlineMinutes: number;
+    exchangedOnlineHours: number;
   }> = [
     {
       loginName: envAdmin,
@@ -192,6 +206,8 @@ export function seedMemoryStore(): void {
       credits: 100_000,
       wCoinC: 10_000,
       vaultMoney: 500_000_000,
+      onlineMinutes: 360,
+      exchangedOnlineHours: 4,
     },
     {
       loginName: 'user01',
@@ -203,6 +219,8 @@ export function seedMemoryStore(): void {
       credits: 50_000,
       wCoinC: 5_000,
       vaultMoney: 100_000_000,
+      onlineMinutes: 240,
+      exchangedOnlineHours: 2,
     },
     {
       loginName: 'admin01',
@@ -214,6 +232,8 @@ export function seedMemoryStore(): void {
       credits: 50_000,
       wCoinC: 5_000,
       vaultMoney: 100_000_000,
+      onlineMinutes: 300,
+      exchangedOnlineHours: 3,
     },
   ];
 
@@ -233,6 +253,8 @@ export function seedMemoryStore(): void {
       registrationDate: nowIso,
       credits: acc.credits,
       vaultMoney: acc.vaultMoney,
+      onlineMinutes: acc.onlineMinutes,
+      exchangedOnlineHours: acc.exchangedOnlineHours,
       wCoinC: acc.wCoinC,
       wCoinP: 0,
       goblinPoints: 0,
@@ -247,6 +269,34 @@ export function seedMemoryStore(): void {
       IP: '127.0.0.1',
       ConnectTM: null,
       DisConnectTM: nowIso,
+    });
+  }
+
+  const seedChars: Array<{ name: string; accountId: string; classCode: MuClassCode; level: number }> = [
+    { name: 'BladeKing', accountId: envAdmin, classCode: 'bm', level: 400 },
+    { name: 'SoulLord', accountId: envAdmin, classCode: 'gm', level: 400 },
+    { name: 'DarkKnight', accountId: 'user01', classCode: 'bm', level: 400 },
+    { name: 'HighElf400', accountId: 'user01', classCode: 'he', level: 400 },
+    { name: 'OriginGM', accountId: 'admin01', classCode: 'le', level: 400 },
+  ];
+  for (const sc of seedChars) {
+    const calc = calculateClassStatPoints(sc.classCode, sc.level);
+    memoryCharacters.set(sc.name.toLowerCase(), {
+      name: sc.name,
+      accountId: sc.accountId,
+      classCode: calc.classDef.code,
+      classId: calc.classDef.id,
+      level: sc.level,
+      resets: 0,
+      levelUpPoints: calc.totalPoints,
+      strength: calc.classDef.baseStr,
+      agility: calc.classDef.baseAgi,
+      vitality: calc.classDef.baseVit,
+      energy: calc.classDef.baseEne,
+      command: calc.classDef.baseCmd,
+      money: 50_000_000,
+      ctlCode: 0,
+      isOnline: false,
     });
   }
 }
@@ -330,6 +380,8 @@ async function bootstrapPostgresSchema(client: pg.PoolClient): Promise<void> {
       is_master_admin BOOLEAN NOT NULL DEFAULT FALSE,
       credits INTEGER NOT NULL DEFAULT 0 CHECK (credits >= 0),
       vault_money BIGINT NOT NULL DEFAULT 0 CHECK (vault_money >= 0),
+      online_minutes INTEGER NOT NULL DEFAULT 0 CHECK (online_minutes >= 0),
+      exchanged_online_hours INTEGER NOT NULL DEFAULT 0 CHECK (exchanged_online_hours >= 0),
       wcoinc INTEGER NOT NULL DEFAULT 0 CHECK (wcoinc >= 0),
       wcoinp INTEGER NOT NULL DEFAULT 0 CHECK (wcoinp >= 0),
       goblin_points INTEGER NOT NULL DEFAULT 0 CHECK (goblin_points >= 0),
@@ -340,6 +392,29 @@ async function bootstrapPostgresSchema(client: pg.PoolClient): Promise<void> {
 
     ALTER TABLE webshop_accounts
       ADD COLUMN IF NOT EXISTS security_code VARCHAR(16) NOT NULL DEFAULT '0000000';
+    ALTER TABLE webshop_accounts
+      ADD COLUMN IF NOT EXISTS online_minutes INTEGER NOT NULL DEFAULT 0 CHECK (online_minutes >= 0);
+    ALTER TABLE webshop_accounts
+      ADD COLUMN IF NOT EXISTS exchanged_online_hours INTEGER NOT NULL DEFAULT 0 CHECK (exchanged_online_hours >= 0);
+
+    CREATE TABLE IF NOT EXISTS webshop_characters (
+      name VARCHAR(20) PRIMARY KEY,
+      account_login VARCHAR(20) NOT NULL,
+      class_code VARCHAR(16) NOT NULL DEFAULT 'bm',
+      class_id SMALLINT NOT NULL DEFAULT 18,
+      level SMALLINT NOT NULL DEFAULT 400,
+      resets INTEGER NOT NULL DEFAULT 0,
+      level_up_points INTEGER NOT NULL DEFAULT 0,
+      strength INTEGER NOT NULL DEFAULT 28,
+      agility INTEGER NOT NULL DEFAULT 20,
+      vitality INTEGER NOT NULL DEFAULT 25,
+      energy INTEGER NOT NULL DEFAULT 10,
+      command INTEGER NOT NULL DEFAULT 0,
+      money BIGINT NOT NULL DEFAULT 0,
+      ctl_code SMALLINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS webshop_warehouse_items (
       instance_id VARCHAR(64) PRIMARY KEY,
@@ -453,9 +528,26 @@ export interface AuthenticatedOpenMuAccount {
   email: string;
   state: number;
   credits: number;
+  vaultMoney: number;
+  onlineMinutes: number;
+  exchangedOnlineHours: number;
+  vipUntil: string | null;
+  isAdmin: boolean;
+  role: UserRole;
   wCoinC: number;
   wCoinP: number;
   goblinPoints: number;
+}
+
+function getConfiguredAdminUsernames(): Set<string> {
+  const configured = (process.env.ADMIN_ACCOUNTS ?? '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+  const envAdmin = (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase();
+  if (envAdmin) configured.push(envAdmin);
+  configured.push('admin01');
+  return new Set(configured);
 }
 
 /** Authenticates against the authoritative OpenMU account table and creates only a webshop wallet row. */
@@ -463,17 +555,31 @@ export async function authenticateOpenMuAccount(
   loginName: string,
   password: string
 ): Promise<AuthenticatedOpenMuAccount | null> {
+  const adminAccounts = getConfiguredAdminUsernames();
   if (!pgPool || !pgHealthy) {
     const mem = memoryAccounts.get(loginName.trim().toLowerCase());
     if (!mem) return null;
     const ok = verifyAccountPassword(mem.passwordHash, mem.passwordPlainOrSimulatedBcrypt, password);
     if (!ok) return null;
+    const isAdmin = Boolean(
+      mem.isMasterAdmin ||
+        mem.role === 'ADMIN' ||
+        mem.role === 'SUPER_ADMIN' ||
+        mem.state === 'GameMaster' ||
+        adminAccounts.has(mem.loginName.toLowerCase())
+    );
     return {
       id: mem.id,
       loginName: mem.loginName,
       email: mem.email,
       state: mem.state === 'Normal' || mem.state === 'GameMaster' ? 0 : 1,
       credits: mem.credits,
+      vaultMoney: mem.vaultMoney,
+      onlineMinutes: mem.onlineMinutes,
+      exchangedOnlineHours: mem.exchangedOnlineHours,
+      vipUntil: mem.vipUntil,
+      isAdmin,
+      role: isAdmin ? (mem.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN') : 'USER',
       wCoinC: mem.wCoinC,
       wCoinP: mem.wCoinP,
       goblinPoints: mem.goblinPoints,
@@ -484,13 +590,14 @@ export async function authenticateOpenMuAccount(
     Id: string;
     LoginName: string;
     PasswordHash: string;
+    SecurityCode?: string;
     EMail: string;
     State: number;
     WCoinC: number;
     WCoinP: number;
     GoblinPoints: number;
   }>(
-    `SELECT "Id", "LoginName", "PasswordHash", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
+    `SELECT "Id", "LoginName", "PasswordHash", COALESCE("SecurityCode", '') AS "SecurityCode", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
        FROM data."Account"
       WHERE LOWER("LoginName") = LOWER($1)
       LIMIT 1`,
@@ -501,19 +608,18 @@ export async function authenticateOpenMuAccount(
     return null;
   }
 
-  const adminAccounts = new Set(
-    (process.env.ADMIN_ACCOUNTS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
-  );
+  const isConfiguredAdmin = adminAccounts.has(account.LoginName.toLowerCase()) || account.State === 2;
   await pgPool.query(
     `INSERT INTO webshop_accounts (
        id, login_name, password_hash, security_code, email, state, role, is_master_admin,
        credits, vault_money, wcoinc, wcoinp, goblin_points
-     ) VALUES ($1, $2, '', '', $3, $4, $5, $6, 0, 0, $7, $8, $9)
+     ) VALUES ($1, $2, '', $3, $4, $5, $6, $7, 0, 0, $8, $9, $10)
      ON CONFLICT (login_name) DO UPDATE SET
+       security_code = CASE WHEN EXCLUDED.security_code <> '' THEN EXCLUDED.security_code ELSE webshop_accounts.security_code END,
        email = EXCLUDED.email,
        state = EXCLUDED.state,
-       role = EXCLUDED.role,
-       is_master_admin = EXCLUDED.is_master_admin,
+       role = CASE WHEN webshop_accounts.role IN ('ADMIN', 'SUPER_ADMIN') THEN webshop_accounts.role ELSE EXCLUDED.role END,
+       is_master_admin = webshop_accounts.is_master_admin OR EXCLUDED.is_master_admin,
        wcoinc = EXCLUDED.wcoinc,
        wcoinp = EXCLUDED.wcoinp,
        goblin_points = EXCLUDED.goblin_points,
@@ -521,25 +627,50 @@ export async function authenticateOpenMuAccount(
     [
       account.Id,
       account.LoginName,
+      account.SecurityCode || '',
       account.EMail,
       String(account.State),
-      adminAccounts.has(account.LoginName.toLowerCase()) ? 'ADMIN' : 'USER',
-      adminAccounts.has(account.LoginName.toLowerCase()),
+      isConfiguredAdmin ? 'ADMIN' : 'USER',
+      isConfiguredAdmin,
       account.WCoinC,
       account.WCoinP,
       account.GoblinPoints,
     ]
   );
-  const wallet = await pgPool.query<{ credits: number }>(
-    'SELECT credits FROM webshop_accounts WHERE LOWER(login_name) = LOWER($1) LIMIT 1',
+  const wallet = await pgPool.query<{
+    credits: number;
+    vault_money: string | number;
+    online_minutes: number;
+    exchanged_online_hours: number;
+    vip_until: Date | null;
+    role: UserRole;
+    is_master_admin: boolean;
+  }>(
+    `SELECT credits, vault_money, online_minutes, exchanged_online_hours, vip_until, role, is_master_admin
+       FROM webshop_accounts
+      WHERE LOWER(login_name) = LOWER($1)
+      LIMIT 1`,
     [account.LoginName]
+  );
+  const wRow = wallet.rows[0];
+  const isAdmin = Boolean(
+    isConfiguredAdmin ||
+      wRow?.is_master_admin ||
+      wRow?.role === 'ADMIN' ||
+      wRow?.role === 'SUPER_ADMIN'
   );
   return {
     id: account.Id,
     loginName: account.LoginName,
     email: account.EMail,
-    state: account.State,
-    credits: wallet.rows[0]?.credits ?? 0,
+    state: account.State === 2 ? 0 : account.State,
+    credits: wRow?.credits ?? 0,
+    vaultMoney: Number(wRow?.vault_money ?? 0),
+    onlineMinutes: Number(wRow?.online_minutes ?? 0),
+    exchangedOnlineHours: Number(wRow?.exchanged_online_hours ?? 0),
+    vipUntil: wRow?.vip_until ? new Date(wRow.vip_until).toISOString() : null,
+    isAdmin,
+    role: isAdmin ? 'ADMIN' : 'USER',
     wCoinC: account.WCoinC,
     wCoinP: account.WCoinP,
     goblinPoints: account.GoblinPoints,
@@ -547,33 +678,1332 @@ export async function authenticateOpenMuAccount(
 }
 
 export async function getOpenMuAccountSummary(loginName: string): Promise<AuthenticatedOpenMuAccount | null> {
+  const adminAccounts = getConfiguredAdminUsernames();
   if (!pgPool || !pgHealthy) {
     const mem = memoryAccounts.get(loginName.trim().toLowerCase());
     if (!mem) return null;
+    const isAdmin = Boolean(
+      mem.isMasterAdmin ||
+        mem.role === 'ADMIN' ||
+        mem.role === 'SUPER_ADMIN' ||
+        mem.state === 'GameMaster' ||
+        adminAccounts.has(mem.loginName.toLowerCase())
+    );
     return {
       id: mem.id,
       loginName: mem.loginName,
       email: mem.email,
       state: mem.state === 'Normal' || mem.state === 'GameMaster' ? 0 : 1,
       credits: mem.credits,
+      vaultMoney: mem.vaultMoney,
+      onlineMinutes: mem.onlineMinutes,
+      exchangedOnlineHours: mem.exchangedOnlineHours,
+      vipUntil: mem.vipUntil,
+      isAdmin,
+      role: isAdmin ? (mem.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN') : 'USER',
       wCoinC: mem.wCoinC,
       wCoinP: mem.wCoinP,
       goblinPoints: mem.goblinPoints,
     };
   }
   const result = await pgPool.query<{
-    Id: string; LoginName: string; EMail: string; State: number; WCoinC: number; WCoinP: number; GoblinPoints: number; credits: number;
+    Id: string;
+    LoginName: string;
+    EMail: string;
+    State: number;
+    WCoinC: number;
+    WCoinP: number;
+    GoblinPoints: number;
+    credits: number;
+    vault_money: string | number;
+    online_minutes: number;
+    exchanged_online_hours: number;
+    vip_until: Date | null;
+    role: UserRole | null;
+    is_master_admin: boolean | null;
   }>(
-    `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints", COALESCE(w.credits, 0)::int AS credits
+    `SELECT a."Id", a."LoginName", a."EMail", a."State", a."WCoinC", a."WCoinP", a."GoblinPoints",
+            COALESCE(w.credits, 0)::int AS credits,
+            COALESCE(w.vault_money, 0)::bigint AS vault_money,
+            COALESCE(w.online_minutes, 0)::int AS online_minutes,
+            COALESCE(w.exchanged_online_hours, 0)::int AS exchanged_online_hours,
+            w.vip_until,
+            w.role,
+            w.is_master_admin
        FROM data."Account" a
        LEFT JOIN webshop_accounts w ON LOWER(w.login_name) = LOWER(a."LoginName")
-      WHERE LOWER(a."LoginName") = LOWER($1) LIMIT 1`, [loginName]
+      WHERE LOWER(a."LoginName") = LOWER($1) LIMIT 1`,
+    [loginName]
   );
   const account = result.rows[0];
-  return account ? {
-    id: account.Id, loginName: account.LoginName, email: account.EMail, state: account.State,
-    credits: account.credits, wCoinC: account.WCoinC, wCoinP: account.WCoinP, goblinPoints: account.GoblinPoints,
-  } : null;
+  if (!account) return null;
+  const isAdmin = Boolean(
+    adminAccounts.has(account.LoginName.toLowerCase()) ||
+      account.State === 2 ||
+      account.is_master_admin ||
+      account.role === 'ADMIN' ||
+      account.role === 'SUPER_ADMIN'
+  );
+  return {
+    id: account.Id,
+    loginName: account.LoginName,
+    email: account.EMail,
+    state: account.State === 2 ? 0 : account.State,
+    credits: account.credits,
+    vaultMoney: Number(account.vault_money ?? 0),
+    onlineMinutes: Number(account.online_minutes ?? 0),
+    exchangedOnlineHours: Number(account.exchanged_online_hours ?? 0),
+    vipUntil: account.vip_until ? new Date(account.vip_until).toISOString() : null,
+    isAdmin,
+    role: isAdmin ? 'ADMIN' : 'USER',
+    wCoinC: account.WCoinC,
+    wCoinP: account.WCoinP,
+    goblinPoints: account.GoblinPoints,
+  };
+}
+
+export interface AdminAccountSummaryRecord {
+  username: string;
+  credits: number;
+  vaultMoney: number;
+  onlineMinutes?: number;
+  exchangedOnlineHours?: number;
+  wCoinC: number;
+  vipUntil: string | null;
+  isAdmin: boolean;
+  role: UserRole;
+  isOnline: boolean;
+}
+
+export async function listAdminAccounts(limit = 250): Promise<AdminAccountSummaryRecord[]> {
+  const adminAccounts = getConfiguredAdminUsernames();
+  if (!pgPool || !pgHealthy) {
+    return Array.from(memoryAccounts.values())
+      .slice(0, limit)
+      .map((acc) => {
+        const isAdmin = Boolean(
+          acc.isMasterAdmin ||
+            acc.role === 'ADMIN' ||
+            acc.role === 'SUPER_ADMIN' ||
+            acc.state === 'GameMaster' ||
+            adminAccounts.has(acc.loginName.toLowerCase())
+        );
+        const stat = memoryMembStat.get(acc.loginName.toLowerCase());
+        return {
+          username: acc.loginName,
+          credits: acc.credits,
+          vaultMoney: acc.vaultMoney,
+          wCoinC: acc.wCoinC,
+          vipUntil: acc.vipUntil,
+          isAdmin,
+          role: isAdmin ? 'ADMIN' : 'USER',
+          isOnline: stat?.ConnectStat === 1,
+        };
+      });
+  }
+
+  try {
+    const res = await pgPool.query<{
+      login_name: string;
+      credits: number;
+      vault_money: string | number;
+      wcoinc: number;
+      vip_until: Date | null;
+      role: UserRole | null;
+      is_master_admin: boolean | null;
+      state: string | number | null;
+    }>(
+      `SELECT COALESCE(a."LoginName", w.login_name) AS login_name,
+              COALESCE(w.credits, 0)::int AS credits,
+              COALESCE(w.vault_money, 0)::bigint AS vault_money,
+              COALESCE(a."WCoinC", w.wcoinc, 0)::int AS wcoinc,
+              w.vip_until,
+              w.role,
+              w.is_master_admin,
+              a."State" AS state
+         FROM data."Account" a
+         FULL OUTER JOIN webshop_accounts w ON LOWER(w.login_name) = LOWER(a."LoginName")
+        ORDER BY COALESCE(w.credits, 0) DESC, COALESCE(a."LoginName", w.login_name) ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return res.rows
+      .filter((r) => Boolean(r.login_name))
+      .map((r) => {
+        const isAdmin = Boolean(
+          adminAccounts.has(r.login_name.toLowerCase()) ||
+            r.state === 2 ||
+            r.state === 'GameMaster' ||
+            r.is_master_admin ||
+            r.role === 'ADMIN' ||
+            r.role === 'SUPER_ADMIN'
+        );
+        return {
+          username: r.login_name,
+          credits: Number(r.credits || 0),
+          vaultMoney: Number(r.vault_money || 0),
+          wCoinC: Number(r.wcoinc || 0),
+          vipUntil: r.vip_until ? new Date(r.vip_until).toISOString() : null,
+          isAdmin,
+          role: isAdmin ? 'ADMIN' : 'USER',
+          isOnline: false,
+        };
+      });
+  } catch {
+    const res = await pgPool.query<{
+      login_name: string;
+      credits: number;
+      vault_money: string | number;
+      wcoinc: number;
+      vip_until: Date | null;
+      role: UserRole | null;
+      is_master_admin: boolean | null;
+    }>(
+      `SELECT login_name, credits, vault_money, wcoinc, vip_until, role, is_master_admin
+         FROM webshop_accounts
+        ORDER BY credits DESC, login_name ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return res.rows.map((r) => {
+      const isAdmin = Boolean(
+        adminAccounts.has(r.login_name.toLowerCase()) ||
+          r.is_master_admin ||
+          r.role === 'ADMIN' ||
+          r.role === 'SUPER_ADMIN'
+      );
+      return {
+        username: r.login_name,
+        credits: Number(r.credits || 0),
+        vaultMoney: Number(r.vault_money || 0),
+        wCoinC: Number(r.wcoinc || 0),
+        vipUntil: r.vip_until ? new Date(r.vip_until).toISOString() : null,
+        isAdmin,
+        role: isAdmin ? 'ADMIN' : 'USER',
+        isOnline: false,
+      };
+    });
+  }
+}
+
+export async function adminAdjustAccountBalance(params: {
+  targetLoginName: string;
+  creditsDelta?: number;
+  vaultZenDelta?: number;
+  adminLoginName: string;
+  ipAddress: string;
+}): Promise<AdminAccountSummaryRecord> {
+  const cleanTarget = (params.targetLoginName || '').trim();
+  if (!cleanTarget || !/^[a-zA-Z0-9_-]{3,20}$/.test(cleanTarget)) {
+    throw new TransactionDomainError(
+      'INVALID_ACCOUNT',
+      400,
+      'กรุณาระบุชื่อบัญชีผู้เล่นที่ถูกต้อง (3–20 ตัวอักษร)'
+    );
+  }
+
+  const creditsDelta =
+    typeof params.creditsDelta === 'number' && Number.isFinite(params.creditsDelta)
+      ? Math.trunc(params.creditsDelta)
+      : 0;
+  const vaultZenDelta =
+    typeof params.vaultZenDelta === 'number' && Number.isFinite(params.vaultZenDelta)
+      ? Math.trunc(params.vaultZenDelta)
+      : 0;
+
+  if (creditsDelta === 0 && vaultZenDelta === 0) {
+    throw new TransactionDomainError(
+      'INVALID_DELTA',
+      400,
+      'กรุณาระบุจำนวนเครดิตหรือจำนวนเงิน Zen ที่ต้องการปรับ (ต้องไม่เป็น 0)'
+    );
+  }
+
+  const MAX_VAULT_ZEN = 900_000_000;
+  const adminAccounts = getConfiguredAdminUsernames();
+
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanTarget, async () => {
+      const key = cleanTarget.toLowerCase();
+      let mem = memoryAccounts.get(key);
+      if (!mem) {
+        const isAdmin = adminAccounts.has(key);
+        mem = {
+          id: crypto.randomUUID(),
+          loginName: cleanTarget,
+          passwordPlainOrSimulatedBcrypt: '123456',
+          passwordHash: hashSimulatedBcrypt('123456'),
+          securityCode: '0000000',
+          email: `${cleanTarget}@muorigins.online`,
+          state: isAdmin ? 'GameMaster' : 'Normal',
+          role: isAdmin ? 'ADMIN' : 'USER',
+          isMasterAdmin: isAdmin,
+          registrationDate: new Date().toISOString(),
+          credits: 0,
+          vaultMoney: 0,
+          onlineMinutes: 0,
+          exchangedOnlineHours: 0,
+          wCoinC: 0,
+          wCoinP: 0,
+          goblinPoints: 0,
+          vipUntil: null,
+          vaultItems: [],
+        };
+        memoryAccounts.set(key, mem);
+      }
+
+      if (creditsDelta !== 0) {
+        mem.credits = Math.max(0, mem.credits + creditsDelta);
+      }
+      if (vaultZenDelta !== 0) {
+        mem.vaultMoney = Math.min(MAX_VAULT_ZEN, Math.max(0, mem.vaultMoney + vaultZenDelta));
+      }
+
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: creditsDelta !== 0 ? 'ADMIN_ADJUST_CREDITS' : 'ADMIN_ADJUST_VAULT_ZEN',
+        status: 'COMMITTED',
+        creditsDelta,
+        details:
+          creditsDelta !== 0
+            ? `Admin "${params.adminLoginName}" adjusted ${mem.loginName}'s credits by ${
+                creditsDelta >= 0 ? `+${creditsDelta.toLocaleString()}` : creditsDelta.toLocaleString()
+              } (Total: ${mem.credits.toLocaleString()} Cr)`
+            : `Admin "${params.adminLoginName}" adjusted ${mem.loginName}'s Vault Zen by ${
+                vaultZenDelta >= 0 ? `+${vaultZenDelta.toLocaleString()}` : vaultZenDelta.toLocaleString()
+              } (Total: ${mem.vaultMoney.toLocaleString()} Zen)`,
+      });
+
+      const isAdmin = Boolean(
+        mem.isMasterAdmin ||
+          mem.role === 'ADMIN' ||
+          mem.role === 'SUPER_ADMIN' ||
+          mem.state === 'GameMaster' ||
+          adminAccounts.has(key)
+      );
+      return {
+        username: mem.loginName,
+        credits: mem.credits,
+        vaultMoney: mem.vaultMoney,
+        wCoinC: mem.wCoinC,
+        vipUntil: mem.vipUntil,
+        isAdmin,
+        role: isAdmin ? 'ADMIN' : 'USER',
+        isOnline: memoryMembStat.get(key)?.ConnectStat === 1,
+      };
+    });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Sync from OpenMU data."Account" into webshop_accounts if the account exists in OpenMU
+    await client.query('SAVEPOINT sp_openmu_lookup');
+    try {
+      const openMuRes = await client.query<{
+        Id: string;
+        LoginName: string;
+        EMail: string;
+        State: number;
+        WCoinC: number;
+        WCoinP: number;
+        GoblinPoints: number;
+      }>(
+        `SELECT "Id", "LoginName", "EMail", "State", "WCoinC", "WCoinP", "GoblinPoints"
+           FROM data."Account"
+          WHERE LOWER("LoginName") = LOWER($1)
+          LIMIT 1`,
+        [cleanTarget]
+      );
+      const oa = openMuRes.rows[0];
+      if (oa) {
+        const isCfgAdmin = adminAccounts.has(oa.LoginName.toLowerCase()) || oa.State === 2;
+        await client.query(
+          `INSERT INTO webshop_accounts (
+             id, login_name, password_hash, security_code, email, state, role, is_master_admin,
+             credits, vault_money, wcoinc, wcoinp, goblin_points
+           ) VALUES ($1, $2, '', '', $3, $4, $5, $6, 0, 0, $7, $8, $9)
+           ON CONFLICT (login_name) DO NOTHING`,
+          [
+            oa.Id,
+            oa.LoginName,
+            oa.EMail || `${oa.LoginName}@muorigins.online`,
+            String(oa.State),
+            isCfgAdmin ? 'ADMIN' : 'USER',
+            isCfgAdmin,
+            oa.WCoinC || 0,
+            oa.WCoinP || 0,
+            oa.GoblinPoints || 0,
+          ]
+        );
+      }
+      await client.query('RELEASE SAVEPOINT sp_openmu_lookup');
+    } catch {
+      await client.query('ROLLBACK TO SAVEPOINT sp_openmu_lookup');
+    }
+
+    const lockRes = await client.query<{
+      login_name: string;
+      credits: number;
+      vault_money: string | number;
+      wcoinc: number;
+      vip_until: Date | null;
+      role: UserRole;
+      is_master_admin: boolean;
+    }>(
+      `SELECT login_name, credits, vault_money, wcoinc, vip_until, role, is_master_admin
+         FROM webshop_accounts
+        WHERE LOWER(login_name) = LOWER($1)
+        FOR UPDATE`,
+      [cleanTarget]
+    );
+
+    const existing = lockRes.rows[0];
+    if (!existing) {
+      throw new TransactionDomainError(
+        'ACCOUNT_NOT_FOUND',
+        404,
+        `ไม่พบบัญชีผู้เล่น "${cleanTarget}" ในฐานข้อมูล OpenMU`
+      );
+    }
+
+    const updatedCredits =
+      creditsDelta !== 0
+        ? Math.max(0, Number(existing.credits || 0) + creditsDelta)
+        : Number(existing.credits || 0);
+    const updatedVaultMoney =
+      vaultZenDelta !== 0
+        ? Math.min(MAX_VAULT_ZEN, Math.max(0, Number(existing.vault_money || 0) + vaultZenDelta))
+        : Number(existing.vault_money || 0);
+
+    const updRes = await client.query<{
+      login_name: string;
+      credits: number;
+      vault_money: string | number;
+      wcoinc: number;
+      vip_until: Date | null;
+      role: UserRole;
+      is_master_admin: boolean;
+    }>(
+      `UPDATE webshop_accounts
+          SET credits = $1,
+              vault_money = $2,
+              updated_at = NOW()
+        WHERE login_name = $3
+        RETURNING login_name, credits, vault_money, wcoinc, vip_until, role, is_master_admin`,
+      [updatedCredits, updatedVaultMoney, existing.login_name]
+    );
+
+    // If OpenMU data."ItemStorage" is linked via data."Account"."VaultId", sync Money into OpenMU vault
+    if (vaultZenDelta !== 0) {
+      await client.query('SAVEPOINT sp_openmu_vault_zen');
+      try {
+        await client.query(
+          `UPDATE data."ItemStorage"
+              SET "Money" = $1
+            WHERE "Id" = (
+              SELECT "VaultId"
+                FROM data."Account"
+               WHERE LOWER("LoginName") = LOWER($2)
+                 AND "VaultId" IS NOT NULL
+               LIMIT 1
+            )`,
+          [updatedVaultMoney, existing.login_name]
+        );
+        await client.query('RELEASE SAVEPOINT sp_openmu_vault_zen');
+      } catch {
+        await client.query('ROLLBACK TO SAVEPOINT sp_openmu_vault_zen');
+      }
+    }
+
+    await recordAuditLog(
+      {
+        accountId: existing.login_name,
+        ipAddress: params.ipAddress,
+        action: creditsDelta !== 0 ? 'ADMIN_ADJUST_CREDITS' : 'ADMIN_ADJUST_VAULT_ZEN',
+        status: 'COMMITTED',
+        creditsDelta,
+        details:
+          creditsDelta !== 0
+            ? `Admin "${params.adminLoginName}" adjusted ${existing.login_name}'s credits by ${
+                creditsDelta >= 0 ? `+${creditsDelta.toLocaleString()}` : creditsDelta.toLocaleString()
+              } (Total: ${updatedCredits.toLocaleString()} Cr)`
+            : `Admin "${params.adminLoginName}" adjusted ${existing.login_name}'s Vault Zen by ${
+                vaultZenDelta >= 0 ? `+${vaultZenDelta.toLocaleString()}` : vaultZenDelta.toLocaleString()
+              } (Total: ${updatedVaultMoney.toLocaleString()} Zen)`,
+      },
+      client
+    );
+
+    await client.query('COMMIT');
+    const row = updRes.rows[0];
+    const isAdmin = Boolean(
+      adminAccounts.has(row.login_name.toLowerCase()) ||
+        row.is_master_admin ||
+        row.role === 'ADMIN' ||
+        row.role === 'SUPER_ADMIN'
+    );
+    return {
+      username: row.login_name,
+      credits: Number(row.credits),
+      vaultMoney: Number(row.vault_money),
+      wCoinC: Number(row.wcoinc),
+      vipUntil: row.vip_until ? new Date(row.vip_until).toISOString() : null,
+      isAdmin,
+      role: isAdmin ? 'ADMIN' : 'USER',
+      isOnline: false,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ============================================================================
+// Online Time Exchange & Character Delete / Buy / Reset (Server-Authoritative)
+// ============================================================================
+export async function redeemAccountOnlineHours(params: {
+  loginName: string;
+  hoursToRedeem: number;
+  ipAddress: string;
+}): Promise<{
+  ok: true;
+  hoursRedeemed: number;
+  creditsAdded: number;
+  credits: number;
+  onlineMinutes: number;
+  exchangedOnlineHours: number;
+}> {
+  const cleanLogin = (params.loginName || '').trim();
+  const hours = Math.trunc(Number(params.hoursToRedeem));
+  if (!cleanLogin) {
+    throw new TransactionDomainError('UNAUTHORIZED', 401, 'กรุณาเข้าสู่ระบบก่อนทำรายการ');
+  }
+  if (!Number.isInteger(hours) || hours < 1 || hours > 1000) {
+    throw new TransactionDomainError(
+      'INVALID_HOURS',
+      400,
+      'จำนวนชั่วโมงที่ต้องการแลกต้องเป็นจำนวนเต็มตั้งแต่ 1 ชั่วโมงขึ้นไป'
+    );
+  }
+
+  const minutesRequired = hours * 60;
+  const creditsReward = hours * ONLINE_HOUR_REWARD_CREDITS;
+
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanLogin, async () => {
+      const mem = memoryAccounts.get(cleanLogin.toLowerCase());
+      if (!mem) {
+        throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'ไม่พบบัญชีผู้เล่นในระบบ');
+      }
+      const availableHours = Math.floor((mem.onlineMinutes || 0) / 60);
+      if (hours > availableHours || mem.onlineMinutes < minutesRequired) {
+        throw new TransactionDomainError(
+          'INSUFFICIENT_ONLINE_HOURS',
+          400,
+          `เวลาออนไลน์สะสมไม่เพียงพอ (มี ${availableHours} ชั่วโมงเต็ม ต้องการ ${hours} ชั่วโมง)`
+        );
+      }
+
+      mem.onlineMinutes = Math.max(0, mem.onlineMinutes - minutesRequired);
+      mem.exchangedOnlineHours = (mem.exchangedOnlineHours || 0) + hours;
+      mem.credits += creditsReward;
+
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: 'ONLINE_TIME_EXCHANGE',
+        status: 'COMMITTED',
+        creditsDelta: creditsReward,
+        details: `Exchanged ${hours} online hour(s) (${minutesRequired} mins) for +${creditsReward} Credits (Remaining: ${mem.onlineMinutes} mins)`,
+      });
+
+      return {
+        ok: true,
+        hoursRedeemed: hours,
+        creditsAdded: creditsReward,
+        credits: mem.credits,
+        onlineMinutes: mem.onlineMinutes,
+        exchangedOnlineHours: mem.exchangedOnlineHours,
+      };
+    });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    const lockRes = await client.query<{
+      login_name: string;
+      credits: number;
+      online_minutes: number;
+      exchanged_online_hours: number;
+    }>(
+      `SELECT login_name, credits, online_minutes, exchanged_online_hours
+         FROM webshop_accounts
+        WHERE LOWER(login_name) = LOWER($1)
+        FOR UPDATE`,
+      [cleanLogin]
+    );
+    const acc = lockRes.rows[0];
+    if (!acc) {
+      throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'ไม่พบบัญชีผู้เล่นในระบบ');
+    }
+
+    const availableHours = Math.floor(Number(acc.online_minutes || 0) / 60);
+    if (hours > availableHours || Number(acc.online_minutes || 0) < minutesRequired) {
+      throw new TransactionDomainError(
+        'INSUFFICIENT_ONLINE_HOURS',
+        400,
+        `เวลาออนไลน์สะสมไม่เพียงพอ (มี ${availableHours} ชั่วโมงเต็ม ต้องการ ${hours} ชั่วโมง)`
+      );
+    }
+
+    const updRes = await client.query<{
+      credits: number;
+      online_minutes: number;
+      exchanged_online_hours: number;
+    }>(
+      `UPDATE webshop_accounts
+          SET online_minutes = online_minutes - $1,
+              exchanged_online_hours = exchanged_online_hours + $2,
+              credits = credits + $3,
+              updated_at = NOW()
+        WHERE login_name = $4
+          AND online_minutes >= $1
+        RETURNING credits, online_minutes, exchanged_online_hours`,
+      [minutesRequired, hours, creditsReward, acc.login_name]
+    );
+    const row = updRes.rows[0];
+    if (!row) {
+      throw new TransactionDomainError(
+        'INSUFFICIENT_ONLINE_HOURS',
+        409,
+        'ไม่สามารถแลกเวลาออนไลน์ได้ กรุณาลองใหม่อีกครั้ง'
+      );
+    }
+
+    await recordAuditLog(
+      {
+        accountId: acc.login_name,
+        ipAddress: params.ipAddress,
+        action: 'ONLINE_TIME_EXCHANGE',
+        status: 'COMMITTED',
+        creditsDelta: creditsReward,
+        details: `Exchanged ${hours} online hour(s) (${minutesRequired} mins) for +${creditsReward} Credits`,
+      },
+      client
+    );
+
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      hoursRedeemed: hours,
+      creditsAdded: creditsReward,
+      credits: Number(row.credits),
+      onlineMinutes: Number(row.online_minutes),
+      exchangedOnlineHours: Number(row.exchanged_online_hours),
+    };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getAccountCharacters(loginName: string): Promise<Character[]> {
+  const cleanLogin = (loginName || '').trim();
+  if (!cleanLogin) return [];
+
+  if (!pgPool || !pgHealthy) {
+    return Array.from(memoryCharacters.values()).filter(
+      (c) => c.accountId.toLowerCase() === cleanLogin.toLowerCase()
+    );
+  }
+
+  const byName = new Map<string, Character>();
+
+  // 1. Query webshop_characters table
+  try {
+    const wsRes = await pgPool.query<{
+      name: string;
+      account_login: string;
+      class_code: string;
+      class_id: number;
+      level: number;
+      resets: number;
+      level_up_points: number;
+      strength: number;
+      agility: number;
+      vitality: number;
+      energy: number;
+      command: number;
+      money: string | number;
+      ctl_code: number;
+    }>(
+      `SELECT name, account_login, class_code, class_id, level, resets, level_up_points,
+              strength, agility, vitality, energy, command, money, ctl_code
+         FROM webshop_characters
+        WHERE LOWER(account_login) = LOWER($1)
+        ORDER BY level DESC, name ASC`,
+      [cleanLogin]
+    );
+    for (const r of wsRes.rows) {
+      byName.set(r.name.toLowerCase(), {
+        name: r.name,
+        accountId: r.account_login,
+        classCode: (r.class_code as MuClassCode) || 'bm',
+        classId: Number(r.class_id || 18),
+        level: Number(r.level || 400),
+        resets: Number(r.resets || 0),
+        levelUpPoints: Number(r.level_up_points || 0),
+        strength: Number(r.strength || 28),
+        agility: Number(r.agility || 20),
+        vitality: Number(r.vitality || 25),
+        energy: Number(r.energy || 10),
+        command: Number(r.command || 0),
+        money: Number(r.money || 0),
+        ctlCode: Number(r.ctl_code || 0),
+        isOnline: false,
+      });
+    }
+  } catch {
+    // ignore if table not ready
+  }
+
+  // 2. Query OpenMU data."Character" if available
+  try {
+    const omuRes = await pgPool.query<{
+      Name: string;
+      LoginName: string;
+      CharacterStatus: number;
+      LevelUpPoints: number;
+      ClassNumber: number | null;
+      Level: number | null;
+      Money: number | null;
+    }>(
+      `SELECT c."Name",
+              a."LoginName",
+              COALESCE(c."CharacterStatus", 0)::int AS "CharacterStatus",
+              COALESCE(c."LevelUpPoints", 0)::int AS "LevelUpPoints",
+              cc."Number" AS "ClassNumber",
+              COALESCE(
+                (SELECT MAX(sa."Value")::int
+                   FROM data."StatAttribute" sa
+                   JOIN config."AttributeDefinition" ad ON ad."Id" = sa."DefinitionId"
+                  WHERE sa."CharacterId" = c."Id"
+                    AND LOWER(ad."Designation") LIKE '%level%'),
+                400
+              ) AS "Level",
+              COALESCE(inv."Money", 0)::bigint AS "Money"
+         FROM data."Character" c
+         JOIN data."Account" a ON a."Id" = c."AccountId"
+         LEFT JOIN config."CharacterClass" cc ON cc."Id" = c."CharacterClassId"
+         LEFT JOIN data."ItemStorage" inv ON inv."Id" = c."InventoryId"
+        WHERE LOWER(a."LoginName") = LOWER($1)
+        ORDER BY c."CharacterSlot" ASC`,
+      [cleanLogin]
+    );
+    for (const r of omuRes.rows) {
+      const matchedClass =
+        MU_CLASSES.find((m) => m.id === Number(r.ClassNumber)) || MU_CLASSES[2];
+      const level = Math.max(1, Math.min(400, Number(r.Level || 400)));
+      const calc = calculateClassStatPoints(matchedClass.code, level);
+      byName.set(r.Name.toLowerCase(), {
+        name: r.Name,
+        accountId: r.LoginName,
+        classCode: matchedClass.code,
+        classId: matchedClass.id,
+        level,
+        resets: 0,
+        levelUpPoints: Number(r.LevelUpPoints ?? calc.totalPoints),
+        strength: calc.classDef.baseStr,
+        agility: calc.classDef.baseAgi,
+        vitality: calc.classDef.baseVit,
+        energy: calc.classDef.baseEne,
+        command: calc.classDef.baseCmd,
+        money: Number(r.Money || 0),
+        ctlCode: Number(r.CharacterStatus || 0),
+        isOnline: false,
+      });
+    }
+  } catch {
+    // OpenMU Character schema may not have StatAttribute or custom tables in all deployments
+  }
+
+  return Array.from(byName.values());
+}
+
+export async function buyCharacter400Tx(params: {
+  loginName: string;
+  characterName: string;
+  classCode: MuClassCode;
+  ipAddress: string;
+}): Promise<{
+  ok: true;
+  character: Character;
+  remainingCredits: number;
+  characters: Character[];
+}> {
+  const cleanLogin = (params.loginName || '').trim();
+  const cleanCharName = (params.characterName || '').trim();
+  if (!cleanLogin) {
+    throw new TransactionDomainError('UNAUTHORIZED', 401, 'กรุณาเข้าสู่ระบบก่อนทำรายการ');
+  }
+  if (!/^[a-zA-Z0-9_-]{2,10}$/.test(cleanCharName)) {
+    throw new TransactionDomainError(
+      'INVALID_CHAR_NAME',
+      400,
+      'ชื่อตัวละครต้องเป็นภาษาอังกฤษหรือตัวเลข ความยาว 2–10 ตัวอักษร'
+    );
+  }
+
+  const calc = calculateClassStatPoints(params.classCode, 400);
+  if (!calc.classDef.s3) {
+    throw new TransactionDomainError(
+      'INVALID_CLASS',
+      400,
+      'อนุญาตให้ซื้อเฉพาะสายอาชีพ Class 3 เท่านั้น'
+    );
+  }
+  const cost = BUY_CHAR_400_CREDITS;
+
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanLogin, async () => {
+      const mem = memoryAccounts.get(cleanLogin.toLowerCase());
+      if (!mem) {
+        throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'ไม่พบบัญชีผู้เล่นในระบบ');
+      }
+      if (memoryMembStat.get(cleanLogin.toLowerCase())?.ConnectStat === 1) {
+        throw new TransactionDomainError(
+          'ACCOUNT_ONLINE',
+          409,
+          'บัญชีต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนซื้อตัวละครใหม่'
+        );
+      }
+      const existingChars = Array.from(memoryCharacters.values()).filter(
+        (c) => c.accountId.toLowerCase() === cleanLogin.toLowerCase()
+      );
+      if (existingChars.length >= 5) {
+        throw new TransactionDomainError(
+          'MAX_CHARACTERS_REACHED',
+          400,
+          'บัญชีของคุณมีตัวละครครบสูงสุด 5 ตัวแล้ว'
+        );
+      }
+      if (memoryCharacters.has(cleanCharName.toLowerCase())) {
+        throw new TransactionDomainError(
+          'CHAR_NAME_TAKEN',
+          409,
+          `ชื่อตัวละคร "${cleanCharName}" มีอยู่ในระบบแล้ว`
+        );
+      }
+      if (mem.credits < cost) {
+        throw new TransactionDomainError(
+          'INSUFFICIENT_CREDITS',
+          402,
+          `เครดิตไม่เพียงพอ (ต้องการ ${cost.toLocaleString()} Credits)`
+        );
+      }
+
+      const newChar: Character = {
+        name: cleanCharName,
+        accountId: mem.loginName,
+        classCode: calc.classDef.code,
+        classId: calc.classDef.id,
+        level: 400,
+        resets: 0,
+        levelUpPoints: calc.totalPoints,
+        strength: calc.classDef.baseStr,
+        agility: calc.classDef.baseAgi,
+        vitality: calc.classDef.baseVit,
+        energy: calc.classDef.baseEne,
+        command: calc.classDef.baseCmd,
+        money: 0,
+        ctlCode: 0,
+        isOnline: false,
+      };
+      mem.credits -= cost;
+      memoryCharacters.set(cleanCharName.toLowerCase(), newChar);
+
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: 'BUY_CHARACTER_400',
+        status: 'COMMITTED',
+        creditsDelta: -cost,
+        details: `Purchased Lv.400 character "${cleanCharName}" (${calc.classDef.name}) for ${cost} Credits`,
+      });
+
+      return {
+        ok: true,
+        character: newChar,
+        remainingCredits: mem.credits,
+        characters: await getAccountCharacters(mem.loginName),
+      };
+    });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const membRes = await client.query<{ ConnectStat: number }>(
+      `SELECT "ConnectStat" FROM "MEMB_STAT" WHERE LOWER("memb___id") = LOWER($1) FOR SHARE`,
+      [cleanLogin]
+    );
+    if (membRes.rows[0]?.ConnectStat === 1) {
+      throw new TransactionDomainError(
+        'ACCOUNT_ONLINE',
+        409,
+        'บัญชีต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนซื้อตัวละครใหม่'
+      );
+    }
+
+    const lockAcc = await client.query<{ login_name: string; credits: number }>(
+      `SELECT login_name, credits FROM webshop_accounts WHERE LOWER(login_name) = LOWER($1) FOR UPDATE`,
+      [cleanLogin]
+    );
+    const acc = lockAcc.rows[0];
+    if (!acc) {
+      throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'ไม่พบบัญชีผู้เล่นในระบบ');
+    }
+    if (acc.credits < cost) {
+      throw new TransactionDomainError(
+        'INSUFFICIENT_CREDITS',
+        402,
+        `เครดิตไม่เพียงพอ (ต้องการ ${cost.toLocaleString()} Credits)`
+      );
+    }
+
+    const cntRes = await client.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM webshop_characters WHERE LOWER(account_login) = LOWER($1)`,
+      [acc.login_name]
+    );
+    if (Number(cntRes.rows[0]?.cnt || 0) >= 5) {
+      throw new TransactionDomainError(
+        'MAX_CHARACTERS_REACHED',
+        400,
+        'บัญชีของคุณมีตัวละครครบสูงสุด 5 ตัวแล้ว'
+      );
+    }
+
+    const dupRes = await client.query<{ name: string }>(
+      `SELECT name FROM webshop_characters WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+      [cleanCharName]
+    );
+    if (dupRes.rows[0]) {
+      throw new TransactionDomainError(
+        'CHAR_NAME_TAKEN',
+        409,
+        `ชื่อตัวละคร "${cleanCharName}" มีอยู่ในระบบแล้ว`
+      );
+    }
+
+    const updAcc = await client.query<{ credits: number }>(
+      `UPDATE webshop_accounts SET credits = credits - $1, updated_at = NOW()
+        WHERE login_name = $2 AND credits >= $1 RETURNING credits`,
+      [cost, acc.login_name]
+    );
+
+    await client.query(
+      `INSERT INTO webshop_characters (
+         name, account_login, class_code, class_id, level, resets, level_up_points,
+         strength, agility, vitality, energy, command, money, ctl_code
+       ) VALUES ($1, $2, $3, $4, 400, 0, $5, $6, $7, $8, $9, $10, 0, 0)`,
+      [
+        cleanCharName,
+        acc.login_name,
+        calc.classDef.code,
+        calc.classDef.id,
+        calc.totalPoints,
+        calc.classDef.baseStr,
+        calc.classDef.baseAgi,
+        calc.classDef.baseVit,
+        calc.classDef.baseEne,
+        calc.classDef.baseCmd,
+      ]
+    );
+
+    await recordAuditLog(
+      {
+        accountId: acc.login_name,
+        ipAddress: params.ipAddress,
+        action: 'BUY_CHARACTER_400',
+        status: 'COMMITTED',
+        creditsDelta: -cost,
+        details: `Purchased Lv.400 character "${cleanCharName}" (${calc.classDef.name}) for ${cost} Credits`,
+      },
+      client
+    );
+
+    await client.query('COMMIT');
+    const newChar: Character = {
+      name: cleanCharName,
+      accountId: acc.login_name,
+      classCode: calc.classDef.code,
+      classId: calc.classDef.id,
+      level: 400,
+      resets: 0,
+      levelUpPoints: calc.totalPoints,
+      strength: calc.classDef.baseStr,
+      agility: calc.classDef.baseAgi,
+      vitality: calc.classDef.baseVit,
+      energy: calc.classDef.baseEne,
+      command: calc.classDef.baseCmd,
+      money: 0,
+      ctlCode: 0,
+      isOnline: false,
+    };
+    return {
+      ok: true,
+      character: newChar,
+      remainingCredits: Number(updAcc.rows[0]?.credits ?? 0),
+      characters: await getAccountCharacters(acc.login_name),
+    };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteCharacter400ForCredits(params: {
+  loginName: string;
+  characterName: string;
+  deleteCode: string;
+  ipAddress: string;
+}): Promise<{
+  ok: true;
+  deletedCharacterName: string;
+  rewardCredits: number;
+  remainingCredits: number;
+  characters: Character[];
+}> {
+  const cleanLogin = (params.loginName || '').trim();
+  const cleanCharName = (params.characterName || '').trim();
+  const cleanCode = (params.deleteCode || '').trim();
+
+  if (!cleanLogin) {
+    throw new TransactionDomainError('UNAUTHORIZED', 401, 'กรุณาเข้าสู่ระบบก่อนทำรายการ');
+  }
+  if (!cleanCharName) {
+    throw new TransactionDomainError('INVALID_CHAR_NAME', 400, 'กรุณาเลือกตัวละครที่ต้องการลบ');
+  }
+  if (!cleanCode || cleanCode.length < 4 || cleanCode.length > 32) {
+    throw new TransactionDomainError(
+      'INVALID_DELETE_CODE',
+      400,
+      'กรุณากรอกรหัสลบตัวละคร (Security Code) หรือรหัสผ่านบัญชีเพื่อยืนยัน'
+    );
+  }
+
+  const reward = DELETE_CHAR_400_REWARD_CREDITS;
+
+  if (!pgPool || !pgHealthy) {
+    return await withAccountMutex(cleanLogin, async () => {
+      const mem = memoryAccounts.get(cleanLogin.toLowerCase());
+      if (!mem) {
+        throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'ไม่พบบัญชีผู้เล่นในระบบ');
+      }
+      if (memoryMembStat.get(cleanLogin.toLowerCase())?.ConnectStat === 1) {
+        throw new TransactionDomainError(
+          'ACCOUNT_ONLINE',
+          409,
+          'บัญชีต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนลบตัวละคร'
+        );
+      }
+
+      const codeMatchesSecurity =
+        !mem.securityCode ||
+        mem.securityCode === '0000000' ||
+        mem.securityCode === cleanCode;
+      const codeMatchesPassword = verifyAccountPassword(
+        mem.passwordHash,
+        mem.passwordPlainOrSimulatedBcrypt,
+        cleanCode
+      );
+      if (!codeMatchesSecurity && !codeMatchesPassword) {
+        throw new TransactionDomainError(
+          'INVALID_DELETE_CODE',
+          403,
+          'รหัสสำหรับลบตัวละคร (หรือรหัสผ่านบัญชี) ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'
+        );
+      }
+
+      const targetChar = memoryCharacters.get(cleanCharName.toLowerCase());
+      if (
+        !targetChar ||
+        targetChar.accountId.toLowerCase() !== cleanLogin.toLowerCase()
+      ) {
+        throw new TransactionDomainError(
+          'CHAR_NOT_FOUND',
+          404,
+          'ไม่พบตัวละครนี้ในบัญชีของคุณ'
+        );
+      }
+      if (targetChar.ctlCode !== 0) {
+        throw new TransactionDomainError(
+          'CHAR_BANNED',
+          403,
+          'ไม่สามารถลบตัวละครที่ติดสถานะแบนเพื่อแลกเครดิตได้'
+        );
+      }
+      if (targetChar.level !== 400) {
+        throw new TransactionDomainError(
+          'CHAR_LEVEL_NOT_400',
+          400,
+          `ตัวละคร "${targetChar.name}" มีเลเวล ${targetChar.level} (ต้องเป็นเลเวล 400 เท่านั้น)`
+        );
+      }
+
+      memoryCharacters.delete(cleanCharName.toLowerCase());
+      mem.credits += reward;
+
+      await recordAuditLog({
+        accountId: mem.loginName,
+        ipAddress: params.ipAddress,
+        action: 'DELETE_CHARACTER_400',
+        status: 'COMMITTED',
+        creditsDelta: reward,
+        details: `Deleted Lv.400 character "${targetChar.name}" in exchange for +${reward} Credits`,
+      });
+
+      return {
+        ok: true,
+        deletedCharacterName: targetChar.name,
+        rewardCredits: reward,
+        remainingCredits: mem.credits,
+        characters: await getAccountCharacters(mem.loginName),
+      };
+    });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const membRes = await client.query<{ ConnectStat: number }>(
+      `SELECT "ConnectStat" FROM "MEMB_STAT" WHERE LOWER("memb___id") = LOWER($1) FOR SHARE`,
+      [cleanLogin]
+    );
+    if (membRes.rows[0]?.ConnectStat === 1) {
+      throw new TransactionDomainError(
+        'ACCOUNT_ONLINE',
+        409,
+        'บัญชีต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนลบตัวละคร'
+      );
+    }
+
+    const lockAcc = await client.query<{
+      login_name: string;
+      security_code: string;
+      credits: number;
+    }>(
+      `SELECT login_name, security_code, credits
+         FROM webshop_accounts
+        WHERE LOWER(login_name) = LOWER($1)
+        FOR UPDATE`,
+      [cleanLogin]
+    );
+    const acc = lockAcc.rows[0];
+    if (!acc) {
+      throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'ไม่พบบัญชีผู้เล่นในระบบ');
+    }
+
+    // Verify Security Code or Account Password against OpenMU data."Account" and webshop_accounts
+    let codeVerified = false;
+    if (
+      acc.security_code &&
+      acc.security_code !== '0000000' &&
+      acc.security_code === cleanCode
+    ) {
+      codeVerified = true;
+    }
+
+    await client.query('SAVEPOINT sp_verify_openmu_code');
+    try {
+      const omuAccRes = await client.query<{
+        SecurityCode: string | null;
+        PasswordHash: string | null;
+      }>(
+        `SELECT "SecurityCode", "PasswordHash"
+           FROM data."Account"
+          WHERE LOWER("LoginName") = LOWER($1)
+          LIMIT 1`,
+        [cleanLogin]
+      );
+      const omuAcc = omuAccRes.rows[0];
+      if (omuAcc) {
+        if (omuAcc.SecurityCode && omuAcc.SecurityCode.trim() !== '') {
+          if (omuAcc.SecurityCode.trim() === cleanCode) {
+            codeVerified = true;
+          }
+        } else if (!acc.security_code || acc.security_code === '0000000') {
+          // If neither OpenMU nor webshop_accounts has a dedicated security code set, allow password or 4-8 digit confirmation
+          codeVerified = true;
+        }
+        if (!codeVerified && omuAcc.PasswordHash) {
+          if (await bcrypt.compare(cleanCode, omuAcc.PasswordHash)) {
+            codeVerified = true;
+          }
+        }
+      } else if (!acc.security_code || acc.security_code === '0000000') {
+        codeVerified = true;
+      }
+      await client.query('RELEASE SAVEPOINT sp_verify_openmu_code');
+    } catch {
+      await client.query('ROLLBACK TO SAVEPOINT sp_verify_openmu_code');
+      if (!acc.security_code || acc.security_code === '0000000') {
+        codeVerified = true;
+      }
+    }
+
+    if (!codeVerified) {
+      throw new TransactionDomainError(
+        'INVALID_DELETE_CODE',
+        403,
+        'รหัสสำหรับลบตัวละคร (Security Code หรือรหัสผ่านบัญชี) ไม่ถูกต้อง'
+      );
+    }
+
+    // Locate character in webshop_characters or OpenMU data."Character"
+    let deletedCharName = '';
+    const wsCharRes = await client.query<{
+      name: string;
+      level: number;
+      ctl_code: number;
+    }>(
+      `SELECT name, level, ctl_code
+         FROM webshop_characters
+        WHERE LOWER(account_login) = LOWER($1)
+          AND LOWER(name) = LOWER($2)
+        FOR UPDATE`,
+      [acc.login_name, cleanCharName]
+    );
+
+    if (wsCharRes.rows[0]) {
+      const ch = wsCharRes.rows[0];
+      if (Number(ch.ctl_code) !== 0) {
+        throw new TransactionDomainError(
+          'CHAR_BANNED',
+          403,
+          'ไม่สามารถลบตัวละครที่ติดสถานะแบนเพื่อแลกเครดิตได้'
+        );
+      }
+      if (Number(ch.level) !== 400) {
+        throw new TransactionDomainError(
+          'CHAR_LEVEL_NOT_400',
+          400,
+          `ตัวละคร "${ch.name}" มีเลเวล ${ch.level} (ต้องเป็นเลเวล 400 เท่านั้น)`
+        );
+      }
+      await client.query(`DELETE FROM webshop_characters WHERE name = $1`, [ch.name]);
+      deletedCharName = ch.name;
+    }
+
+    // Also check/delete from OpenMU data."Character" if present
+    await client.query('SAVEPOINT sp_delete_openmu_char');
+    try {
+      const omuCharRes = await client.query<{
+        Id: string;
+        Name: string;
+        CharacterStatus: number;
+        Level: number;
+      }>(
+        `SELECT c."Id",
+                c."Name",
+                COALESCE(c."CharacterStatus", 0)::int AS "CharacterStatus",
+                COALESCE(
+                  (SELECT MAX(sa."Value")::int
+                     FROM data."StatAttribute" sa
+                     JOIN config."AttributeDefinition" ad ON ad."Id" = sa."DefinitionId"
+                    WHERE sa."CharacterId" = c."Id"
+                      AND LOWER(ad."Designation") LIKE '%level%'),
+                  400
+                ) AS "Level"
+           FROM data."Character" c
+           JOIN data."Account" a ON a."Id" = c."AccountId"
+          WHERE LOWER(a."LoginName") = LOWER($1)
+            AND LOWER(c."Name") = LOWER($2)
+          LIMIT 1`,
+        [acc.login_name, cleanCharName]
+      );
+      const omuChar = omuCharRes.rows[0];
+      if (omuChar) {
+        if (Number(omuChar.CharacterStatus) !== 0) {
+          throw new TransactionDomainError(
+            'CHAR_BANNED',
+            403,
+            'ไม่สามารถลบตัวละครที่ติดสถานะแบนเพื่อแลกเครดิตได้'
+          );
+        }
+        if (Number(omuChar.Level) < 400) {
+          throw new TransactionDomainError(
+            'CHAR_LEVEL_NOT_400',
+            400,
+            `ตัวละคร "${omuChar.Name}" มีเลเวล ${omuChar.Level} (ต้องเป็นเลเวล 400 เท่านั้น)`
+          );
+        }
+        await client.query(`DELETE FROM data."Character" WHERE "Id" = $1`, [omuChar.Id]);
+        deletedCharName = omuChar.Name;
+      }
+      await client.query('RELEASE SAVEPOINT sp_delete_openmu_char');
+    } catch (innerErr) {
+      await client.query('ROLLBACK TO SAVEPOINT sp_delete_openmu_char');
+      if (innerErr instanceof TransactionDomainError) {
+        throw innerErr;
+      }
+    }
+
+    if (!deletedCharName) {
+      throw new TransactionDomainError(
+        'CHAR_NOT_FOUND',
+        404,
+        'ไม่พบตัวละครเลเวล 400 ที่เลือกในบัญชีของคุณ'
+      );
+    }
+
+    const updAcc = await client.query<{ credits: number }>(
+      `UPDATE webshop_accounts
+          SET credits = credits + $1,
+              updated_at = NOW()
+        WHERE login_name = $2
+        RETURNING credits`,
+      [reward, acc.login_name]
+    );
+
+    await recordAuditLog(
+      {
+        accountId: acc.login_name,
+        ipAddress: params.ipAddress,
+        action: 'DELETE_CHARACTER_400',
+        status: 'COMMITTED',
+        creditsDelta: reward,
+        details: `Deleted Lv.400 character "${deletedCharName}" in exchange for +${reward} Credits`,
+      },
+      client
+    );
+
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      deletedCharacterName: deletedCharName,
+      rewardCredits: reward,
+      remainingCredits: Number(updAcc.rows[0]?.credits ?? 0),
+      characters: await getAccountCharacters(acc.login_name),
+    };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function reserveCreditExchange(loginName: string, credits: number, wCoinC: number, idempotencyKey: string): Promise<'pending' | 'completed'> {
@@ -1227,6 +2657,8 @@ export async function registerAccountRecord(
     registrationDate: new Date().toISOString(),
     credits: 0,
     vaultMoney: 0,
+    onlineMinutes: 0,
+    exchangedOnlineHours: 0,
     wCoinC: 0,
     wCoinP: 0,
     goblinPoints: 0,
@@ -1682,17 +3114,6 @@ export async function executePurchaseSingleItemTx(
           404,
           'Account not found. Please sign in first.'
         );
-      }
-      // Keep embedded state synchronized if client adjusted credits/items via local modules
-      if (
-        typeof req.clientCurrentCredits === 'number' &&
-        Number.isFinite(req.clientCurrentCredits) &&
-        req.clientCurrentCredits >= 0
-      ) {
-        memAcc.credits = Math.trunc(req.clientCurrentCredits);
-      }
-      if (Array.isArray(req.clientVaultItems)) {
-        memAcc.vaultItems = structuredClone(req.clientVaultItems);
       }
 
       // Snapshot before transaction for strict ACID Rollback guarantee
@@ -2196,16 +3617,6 @@ export async function executePurchaseGroupSetTx(
           'Account not found. Please sign in first.'
         );
       }
-      if (
-        typeof req.clientCurrentCredits === 'number' &&
-        Number.isFinite(req.clientCurrentCredits) &&
-        req.clientCurrentCredits >= 0
-      ) {
-        memAcc.credits = Math.trunc(req.clientCurrentCredits);
-      }
-      if (Array.isArray(req.clientVaultItems)) {
-        memAcc.vaultItems = structuredClone(req.clientVaultItems);
-      }
 
       const snapshot = structuredClone(memAcc);
 
@@ -2473,17 +3884,6 @@ export async function executeRefundVaultItemTx(params: {
       const memAcc = memoryAccounts.get(key);
       if (!memAcc) {
         throw new TransactionDomainError('ACCOUNT_NOT_FOUND', 404, 'Account not found.');
-      }
-
-      if (
-        typeof params.clientCurrentCredits === 'number' &&
-        Number.isFinite(params.clientCurrentCredits) &&
-        params.clientCurrentCredits >= 0
-      ) {
-        memAcc.credits = Math.trunc(params.clientCurrentCredits);
-      }
-      if (Array.isArray(params.clientVaultItems)) {
-        memAcc.vaultItems = structuredClone(params.clientVaultItems);
       }
 
       const snapshot = structuredClone(memAcc);

@@ -7,33 +7,38 @@ import { getRecentAuditLogs, recordAuditLog } from './src/server/auditLogger';
 import {
   CashShopCoinType,
   TransactionDomainError,
+  adminAdjustAccountBalance,
   authenticateOpenMuAccount,
   buildDefaultPromotionConfig,
+  buyCharacter400Tx,
+  completeCreditExchange,
   deleteCatalogGroup,
   deleteCatalogItem,
+  deleteCharacter400ForCredits,
   executePaymentGrantTx,
   executePurchaseGroupSetTx,
   executePurchaseSingleItemTx,
   executeRefundVaultItemTx,
+  getAccountCharacters,
   getCatalogBundleCached,
   getDatabaseHealth,
   getEffectivePromotions,
-  getOpenMuAccountSummary,
   getMemoryAccount,
+  getOpenMuAccountSummary,
   getPgPool,
   getPromotionConfig,
   getRecentCoinGrants,
   initializeDatabaseLayer,
   invalidateCatalogCache,
+  listAdminAccounts,
   queryMembStatOnlineStatus,
+  redeemAccountOnlineHours,
   reserveCreditExchange,
-  completeCreditExchange,
   resetPromotionConfigToDefault,
   setMembStatConnectionState,
   updatePromotionConfig,
   upsertCatalogGroup,
   upsertCatalogItem,
-  verifyAccountPassword,
 } from './src/server/dbRepository';
 import {
   clearSessionCookie,
@@ -50,6 +55,7 @@ import { closeRedisConnection, getCacheBackendStatus } from './src/server/redisC
 import { capturePayPalOrder, createPayPalOrder, verifyPayPalWebhook } from './src/server/paypal';
 import type {
   ItemGroup,
+  MuClassCode,
   PromotionConfig,
   VaultItemInstance,
   WebShopItem,
@@ -208,7 +214,14 @@ async function startServer() {
 
   app.use('/api', apiGeneralLimiter);
   app.use((req, res, next) => {
-    if (req.path.includes('legacy-disabled') || req.path.startsWith('/api/openmu/memb-stat')) {
+    const decodedPath = (() => {
+      try {
+        return decodeURIComponent(req.path);
+      } catch {
+        return req.path;
+      }
+    })();
+    if (decodedPath.includes('legacy-disabled') || decodedPath.startsWith('/api/openmu/memb-stat')) {
       res.status(404).json({ ok: false, message: 'Not found.' });
       return;
     }
@@ -221,7 +234,12 @@ async function startServer() {
     res.status(410).json({ ok: false, message: 'Use the authoritative OpenMU CashShop API.' });
   });
   app.use('/api/accounts/:loginName', (req: AuthenticatedRequest, res, next) => {
-    if (!req.session?.admin && req.params.loginName.toLowerCase() !== req.session?.loginName.toLowerCase()) {
+    const param = (req.params.loginName || '').toLowerCase();
+    if (param === 'characters' || param === 'online-reward') {
+      next();
+      return;
+    }
+    if (!req.session?.admin && param !== req.session?.loginName.toLowerCase()) {
       res.status(403).json({ ok: false, message: 'Account access denied.' });
       return;
     }
@@ -340,18 +358,24 @@ async function startServer() {
   });
 
   // ==========================================================================
+  // ==========================================================================
   // 2. MEMB_STAT Online Status Query & Sync Endpoints (Anti-Dupe Guard)
   // ==========================================================================
-  app.get('/api/openmu/memb-stat/:loginName', async (req, res, next) => {
+  app.get('/api/openmu/memb-stat/:loginName', requireSession, async (req: AuthenticatedRequest, res, next) => {
     try {
-      const row = await queryMembStatOnlineStatus(req.params.loginName || '');
+      const target = (req.params.loginName || '').trim();
+      if (!req.session?.admin && target.toLowerCase() !== req.session?.loginName.toLowerCase()) {
+        res.status(403).json({ ok: false, message: 'Account access denied.' });
+        return;
+      }
+      const row = await queryMembStatOnlineStatus(target);
       res.json({ ok: true, membStat: row });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/openmu/memb-stat', async (req, res, next) => {
+  app.post('/api/openmu/memb-stat', requireSession, requireAdminSession, requireCsrf, async (req, res, next) => {
     try {
       const { loginName, connectStat, serverName } = req.body as {
         loginName?: string;
@@ -395,16 +419,13 @@ async function startServer() {
   // ==========================================================================
   // 3. ACID Warehouse Item Purchase & Refund Endpoints (Anti-Dupe + Rollback)
   // ==========================================================================
-  app.post('/api/shop/purchase', purchaseLimiter, async (req, res, next) => {
+  app.post('/api/shop/purchase', purchaseLimiter, async (req: AuthenticatedRequest, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers['idempotency-key'];
       const body = req.body as {
-        accountId?: string;
         idempotencyKey?: string;
         currency?: 'credits' | 'WCoinC';
-        clientCurrentCredits?: number;
-        clientVaultItems?: VaultItemInstance[];
         itemUid?: number;
         level?: number;
         option?: number;
@@ -421,12 +442,10 @@ async function startServer() {
           : body.idempotencyKey;
 
       const result = await executePurchaseSingleItemTx({
-        accountId: body.accountId || '',
+        accountId: req.session?.loginName || '',
         ipAddress: clientIp,
         idempotencyKey,
         currency: body.currency || 'credits',
-        clientCurrentCredits: body.clientCurrentCredits,
-        clientVaultItems: body.clientVaultItems,
         itemUid: Number(body.itemUid),
         level: Number(body.level) || 0,
         option: Number(body.option) || 0,
@@ -451,15 +470,12 @@ async function startServer() {
     }
   });
 
-  app.post('/api/shop/purchase-group', purchaseLimiter, async (req, res, next) => {
+  app.post('/api/shop/purchase-group', purchaseLimiter, async (req: AuthenticatedRequest, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const headerIdem = req.headers['idempotency-key'];
       const body = req.body as {
-        accountId?: string;
         idempotencyKey?: string;
-        clientCurrentCredits?: number;
-        clientVaultItems?: VaultItemInstance[];
         groupId?: number;
         level?: number;
         option?: number;
@@ -474,11 +490,9 @@ async function startServer() {
           : body.idempotencyKey;
 
       const result = await executePurchaseGroupSetTx({
-        accountId: body.accountId || '',
+        accountId: req.session?.loginName || '',
         ipAddress: clientIp,
         idempotencyKey,
-        clientCurrentCredits: body.clientCurrentCredits,
-        clientVaultItems: body.clientVaultItems,
         groupId: Number(body.groupId),
         level: Number(body.level) || 0,
         option: Number(body.option) || 0,
@@ -496,24 +510,19 @@ async function startServer() {
     }
   });
 
-  app.post('/api/shop/refund', purchaseLimiter, async (req, res, next) => {
+  app.post('/api/shop/refund', purchaseLimiter, async (req: AuthenticatedRequest, res, next) => {
     try {
       const clientIp = extractClientIp(req);
       const body = req.body as {
-        accountId?: string;
         instanceId?: string;
         serial?: string;
-        clientCurrentCredits?: number;
-        clientVaultItems?: VaultItemInstance[];
       };
 
       const result = await executeRefundVaultItemTx({
-        accountId: body.accountId || '',
+        accountId: req.session?.loginName || '',
         ipAddress: clientIp,
         instanceId: body.instanceId || '',
         serial: body.serial || '',
-        clientCurrentCredits: body.clientCurrentCredits,
-        clientVaultItems: body.clientVaultItems,
       });
 
       res.json(result);
@@ -551,144 +560,6 @@ async function startServer() {
 
   app.post('/api/webhooks/payment', (_req, res) => {
     res.status(410).json({ ok: false, message: 'Generic payment webhooks are disabled. Use a verified provider-specific endpoint.' });
-  });
-
-  app.post('/api/webhooks/payment-legacy-disabled', paymentLimiter, async (req: RawBodyRequest, res, next) => {
-    try {
-      const clientIp = extractClientIp(req);
-      const headerIdem = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
-      const signatureHeader =
-        (req.headers['x-webhook-signature'] as string | undefined) ||
-        (req.headers['x-truemoney-signature'] as string | undefined);
-
-      const webhookSecret =
-        process.env.PAYMENT_WEBHOOK_SECRET || process.env.TRUEMONEY_WEBHOOK_SECRET;
-
-      if (!verifyWebhookHmacSignature(req.rawBody, signatureHeader, webhookSecret)) {
-        await recordAuditLog(
-          {
-            accountId: 'webhook',
-            ipAddress: clientIp,
-            action: 'PAYMENT_WEBHOOK_SIGNATURE_INVALID',
-            status: 'REJECTED',
-            details: 'Rejected payment webhook due to invalid HMAC-SHA256 signature.',
-          },
-          getPgPool()
-        );
-        res.status(401).json({
-          ok: false,
-          code: 'INVALID_WEBHOOK_SIGNATURE',
-          message: 'Webhook HMAC-SHA256 signature verification failed.',
-        });
-        return;
-      }
-
-      const {
-        eventId,
-        idempotencyKey: bodyIdem,
-        provider = 'PaymentGateway',
-        loginName,
-        coinType = 'WCoinC',
-        coinAmount,
-        creditsAdded,
-        reference,
-        reason,
-      } = req.body as {
-        eventId?: string;
-        idempotencyKey?: string;
-        provider?: string;
-        loginName?: string;
-        coinType?: CashShopCoinType;
-        coinAmount?: number;
-        creditsAdded?: number;
-        reference?: string;
-        reason?: string;
-      };
-
-      const resolvedIdemKey = (
-        (typeof headerIdem === 'string' ? headerIdem : '') ||
-        bodyIdem ||
-        eventId ||
-        ''
-      ).trim();
-
-      if (!resolvedIdemKey) {
-        res.status(400).json({
-          ok: false,
-          code: 'MISSING_IDEMPOTENCY_KEY',
-          message:
-            'Missing required Idempotency-Key header (or eventId) for Payment Gateway Webhook.',
-        });
-        return;
-      }
-
-      if (!loginName || !/^[a-zA-Z0-9_-]{3,20}$/.test(loginName.trim())) {
-        res.status(400).json({
-          ok: false,
-          code: 'INVALID_ACCOUNT',
-          message: 'Valid loginName (3..20 chars) is required in webhook payload.',
-        });
-        return;
-      }
-
-      if (!['WCoinC', 'WCoinP', 'GoblinPoints'].includes(coinType)) {
-        res.status(400).json({ ok: false, message: 'Invalid coinType.' });
-        return;
-      }
-
-      const safeCoinAmount = Math.max(0, Math.trunc(Number(coinAmount) || 0));
-      const safeCredits = Math.max(0, Math.trunc(Number(creditsAdded) || 0));
-      if (safeCoinAmount === 0 && safeCredits === 0) {
-        res.status(400).json({
-          ok: false,
-          message: 'At least one positive credit or coin amount is required.',
-        });
-        return;
-      }
-      if (safeCoinAmount > 500_000 || safeCredits > 1_000_000) {
-        res.status(400).json({
-          ok: false,
-          message: 'Webhook grant exceeds maximum permitted single-event cap.',
-        });
-        return;
-      }
-
-      const txReference = (reference || `${provider.toLowerCase()}:${resolvedIdemKey}`).trim();
-      const txReason = (reason || `${provider} Webhook Settlement`).slice(0, 160);
-
-      const txResult = await executePaymentGrantTx({
-        idempotencyKey: resolvedIdemKey,
-        loginName: loginName.trim(),
-        ipAddress: clientIp,
-        coinType,
-        coinAmount: safeCoinAmount,
-        creditsAdded: safeCredits,
-        reason: txReason,
-        reference: txReference,
-        clientName: provider.slice(0, 48),
-      });
-
-      if (!txResult.idempotentReplay && safeCoinAmount > 0) {
-        await forwardGrantToExternalOpenMu(
-          loginName.trim(),
-          coinType,
-          safeCoinAmount,
-          txReason,
-          txReference
-        );
-      }
-
-      res.status(txResult.idempotentReplay ? 200 : 201).json({
-        ok: true,
-        status: txResult.status,
-        idempotentReplay: txResult.idempotentReplay,
-        idempotencyKey: resolvedIdemKey,
-        grant: txResult.grant,
-        balances: txResult.balances,
-      });
-    } catch (err) {
-      next(err);
-    }
   });
 
   // ==========================================================================
@@ -826,7 +697,7 @@ async function startServer() {
         return;
       }
 
-      const isAdmin = new Set((process.env.ADMIN_ACCOUNTS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)).has(acc.loginName.toLowerCase());
+      const isAdmin = Boolean(acc.isAdmin);
       const session = createSession(acc.loginName, isAdmin);
 
       await recordAuditLog(
@@ -852,8 +723,10 @@ async function startServer() {
           role: isAdmin ? 'ADMIN' : 'USER',
           isMasterAdmin: isAdmin,
           credits: acc.credits,
-          vaultMoney: 0,
-          vipUntil: null,
+          vaultMoney: acc.vaultMoney,
+          onlineMinutes: acc.onlineMinutes,
+          exchangedOnlineHours: acc.exchangedOnlineHours,
+          vipUntil: acc.vipUntil,
           vaultItems: [],
           wCoinC: acc.wCoinC,
           wCoinP: acc.wCoinP,
@@ -866,7 +739,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/openmu/logout', requireSession, requireCsrf, (req, res) => {
+  app.post('/api/openmu/logout', requireSession, requireCsrf, (_req, res) => {
     res.setHeader('Set-Cookie', clearSessionCookie());
     res.json({ ok: true });
   });
@@ -876,30 +749,106 @@ async function startServer() {
     if (!session) { res.status(401).json({ ok: false }); return; }
     const account = await getOpenMuAccountSummary(session.loginName);
     if (!account) { res.setHeader('Set-Cookie', clearSessionCookie()); res.status(401).json({ ok: false }); return; }
+    const isAdmin = Boolean(session.admin || account.isAdmin);
     res.json({ ok: true, csrfToken: session.csrf, account: {
       id: account.id, loginName: account.loginName, email: account.email, state: account.state,
-      role: session.admin ? 'ADMIN' : 'USER', isAdmin: session.admin, isMasterAdmin: session.admin,
-      credits: account.credits, vaultMoney: 0, vipUntil: null, vaultItems: [],
+      role: isAdmin ? 'ADMIN' : 'USER', isAdmin, isMasterAdmin: isAdmin,
+      credits: account.credits, vaultMoney: account.vaultMoney,
+      onlineMinutes: account.onlineMinutes, exchangedOnlineHours: account.exchangedOnlineHours,
+      vipUntil: account.vipUntil, vaultItems: [],
       wCoinC: account.wCoinC, wCoinP: account.wCoinP, goblinPoints: account.goblinPoints,
     } });
   });
 
-  app.get('/api/accounts/:loginName/cash-shop', (req, res) => {
-    const loginName = req.params.loginName || '';
-    const acc = getMemoryAccount(loginName);
-    if (!acc) {
-      res.status(404).json({ message: 'Account not found' });
-      return;
+  // ==========================================================================
+  // 5b. Authenticated Account Characters & Online Time Reward Endpoints
+  // ==========================================================================
+  app.get('/api/accounts/characters', async (req: AuthenticatedRequest, res, next) => {
+    try {
+      if (!req.session) {
+        res.status(401).json({ ok: false, message: 'Authentication required.' });
+        return;
+      }
+      const characters = await getAccountCharacters(req.session.loginName);
+      res.json({ ok: true, characters });
+    } catch (err) {
+      next(err);
     }
-    const grants = getRecentCoinGrants(20, loginName);
-    res.json({
-      loginName: acc.loginName,
-      wCoinC: acc.wCoinC,
-      wCoinP: acc.wCoinP,
-      goblinPoints: acc.goblinPoints,
-      grants,
-    });
   });
+
+  app.post(
+    '/api/accounts/online-reward/redeem',
+    purchaseLimiter,
+    async (req: AuthenticatedRequest, res, next) => {
+      try {
+        if (!req.session) {
+          res.status(401).json({ ok: false, message: 'Authentication required.' });
+          return;
+        }
+        const hoursToRedeem = Number(req.body?.hoursToRedeem);
+        const result = await redeemAccountOnlineHours({
+          loginName: req.session.loginName,
+          hoursToRedeem,
+          ipAddress: extractClientIp(req),
+        });
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  app.post(
+    '/api/accounts/characters/buy-400',
+    purchaseLimiter,
+    async (req: AuthenticatedRequest, res, next) => {
+      try {
+        if (!req.session) {
+          res.status(401).json({ ok: false, message: 'Authentication required.' });
+          return;
+        }
+        const { characterName, classCode } = req.body as {
+          characterName?: string;
+          classCode?: MuClassCode;
+        };
+        const result = await buyCharacter400Tx({
+          loginName: req.session.loginName,
+          characterName: characterName || '',
+          classCode: (classCode || 'bm') as MuClassCode,
+          ipAddress: extractClientIp(req),
+        });
+        res.status(201).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  app.post(
+    '/api/accounts/characters/delete-400',
+    purchaseLimiter,
+    async (req: AuthenticatedRequest, res, next) => {
+      try {
+        if (!req.session) {
+          res.status(401).json({ ok: false, message: 'Authentication required.' });
+          return;
+        }
+        const { characterName, deleteCode } = req.body as {
+          characterName?: string;
+          deleteCode?: string;
+        };
+        const result = await deleteCharacter400ForCredits({
+          loginName: req.session.loginName,
+          characterName: characterName || '',
+          deleteCode: deleteCode || '',
+          ipAddress: extractClientIp(req),
+        });
+        res.json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
 
   app.post(
     '/api/accounts/:loginName/cash-shop/grants',
@@ -992,133 +941,6 @@ async function startServer() {
     res.status(503).json({ ok: false, message: 'TrueMoney is not connected. No credit has been granted.' });
   });
 
-  app.post('/api/payments/truemoney/redeem-legacy-disabled', paymentLimiter, async (req, res, next) => {
-    try {
-      const clientIp = extractClientIp(req);
-      const headerIdem = req.headers['idempotency-key'];
-      const {
-        loginName,
-        method,
-        voucherUrlOrPin,
-        selectedTierThb,
-      } = req.body as {
-        loginName?: string;
-        method?: 'angpao' | 'cashcard' | 'promptpay';
-        voucherUrlOrPin?: string;
-        selectedTierThb?: number;
-      };
-
-      if (!loginName) {
-        res.status(400).json({ ok: false, message: 'กรุณาเข้าสู่ระบบก่อนทำรายการเติมเงิน' });
-        return;
-      }
-
-      const rawInput = (voucherUrlOrPin || '').trim();
-      let voucherCode = '';
-
-      if (method === 'angpao') {
-        const match = rawInput.match(/[?&]v=([a-zA-Z0-9_-]{8,64})/);
-        voucherCode = match ? match[1] : rawInput.replace(/[^a-zA-Z0-9]/g, '');
-        if (voucherCode.length < 8) {
-          res.status(400).json({
-            ok: false,
-            message:
-              'ลิงก์ซองอั่งเปา TrueMoney ไม่ถูกต้อง (ตัวอย่าง: https://gift.truemoney.com/campaign/?v=0192837465abcdef)',
-          });
-          return;
-        }
-      } else if (method === 'cashcard') {
-        const digits = rawInput.replace(/\D/g, '');
-        if (digits.length !== 14) {
-          res.status(400).json({
-            ok: false,
-            message: 'รหัสบัตรเงินสด TrueMoney ต้องเป็นตัวเลข 14 หลักเท่านั้น',
-          });
-          return;
-        }
-        voucherCode = `PIN${digits}`;
-      } else {
-        voucherCode = rawInput || `QR${Date.now()}`;
-      }
-
-      const { config: promoCfg, effectiveTrueMoneyTiers } = getEffectivePromotions();
-      const tier = effectiveTrueMoneyTiers.find(
-        (t) => t.amountThb === Number(selectedTierThb)
-      );
-      if (!tier) {
-        res.status(400).json({
-          ok: false,
-          message: 'ไม่พบแพ็กเกจราคา TrueMoney ที่เลือก หรือแพ็กเกจถูกปิดใช้งานชั่วคราว',
-        });
-        return;
-      }
-
-      const reference = `truemoney:${voucherCode}`;
-      const idemKey =
-        typeof headerIdem === 'string' && headerIdem.trim()
-          ? headerIdem.trim()
-          : reference;
-      const promoNote =
-        promoCfg.campaignActive && promoCfg.extraBonusPercent > 0
-          ? ` [Event +${promoCfg.extraBonusPercent}%]`
-          : '';
-      const reason = `TrueMoney ${
-        method === 'angpao'
-          ? 'Angpao Voucher'
-          : method === 'cashcard'
-          ? 'Cash Card 14-Pin'
-          : 'QR PromptPay'
-      } (${tier.amountThb} THB · +${tier.bonusPercent}%${promoNote})`;
-
-      const txResult = await executePaymentGrantTx({
-        idempotencyKey: idemKey,
-        loginName,
-        ipAddress: clientIp,
-        coinType: 'WCoinC',
-        coinAmount: tier.wCoinC,
-        creditsAdded: tier.credits,
-        reason,
-        reference,
-        clientName: 'TrueMoneyWallet',
-      });
-
-      if (txResult.status === 'AlreadyGranted') {
-        res.status(409).json({
-          ok: false,
-          status: txResult.status,
-          idempotentReplay: true,
-          message: `ซองอั่งเปาหรือรหัสอ้างอิง (${reference}) นี้ถูกใช้งานไปแล้ว (Idempotent Protection)`,
-          grant: txResult.grant,
-        });
-        return;
-      }
-
-      await forwardGrantToExternalOpenMu(
-        loginName,
-        'WCoinC',
-        tier.wCoinC,
-        reason,
-        reference
-      );
-
-      res.status(201).json({
-        ok: true,
-        status: txResult.status,
-        message: `เติมเงิน TrueMoney ${tier.amountThb.toLocaleString()} บาท สำเร็จ! ได้รับ +${tier.credits.toLocaleString()} WebShop Credits และ +${tier.wCoinC.toLocaleString()} WCoinC เข้าสู่บัญชี ${loginName}`,
-        creditsAdded: tier.credits,
-        wCoinCAdded: tier.wCoinC,
-        grant: txResult.grant,
-        balances: {
-          wCoinC: txResult.balances.wCoinC,
-          wCoinP: txResult.balances.wCoinP,
-          goblinPoints: txResult.balances.goblinPoints,
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
-
   app.post('/api/payments/paypal/create-order', paymentLimiter, async (req: AuthenticatedRequest, res, next) => {
     try {
       if (process.env.PAYMENTS_ENABLED !== 'true' || !process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
@@ -1131,35 +953,6 @@ async function startServer() {
       const order = await createPayPalOrder(pkg, req.session.loginName);
       res.status(201).json({ ok: true, orderToken: order.orderId, approvalUrl: order.approvalUrl, package: pkg });
     } catch (error) { next(error); }
-  });
-
-  app.post('/api/payments/paypal/create-order-legacy-disabled', paymentLimiter, async (req, res) => {
-    const { loginName, packageCode } = req.body as {
-      loginName?: string;
-      packageCode?: string;
-    };
-
-    const { effectivePayPalPackages } = getEffectivePromotions();
-    const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
-    if (!pkg || !loginName) {
-      res.status(400).json({ ok: false, message: 'Invalid package or account' });
-      return;
-    }
-
-    const orderToken = `PAYPAL_${crypto
-      .randomBytes(5)
-      .toString('hex')
-      .toUpperCase()}`;
-
-    res.json({
-      ok: true,
-      orderToken,
-      package: pkg,
-      mode:
-        process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET
-          ? 'live_rest_api'
-          : 'sandbox_interactive',
-    });
   });
 
   app.post('/api/payments/paypal/capture-order', (_req, res) => {
@@ -1191,88 +984,46 @@ async function startServer() {
     }
   });
 
-  app.post('/api/payments/paypal/capture-order-legacy-disabled', paymentLimiter, async (req, res, next) => {
+  // ==========================================================================
+  // 7. Admin Account Balance, Audit Logs & Redis Catalog Cache Management
+  // ==========================================================================
+  app.get('/api/admin/accounts', requireAdmin, async (req, res, next) => {
     try {
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 250));
+      const accounts = await listAdminAccounts(limit);
+      res.json({ ok: true, count: accounts.length, accounts });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/admin/accounts/adjust-balance', requireAdmin, async (req, res, next) => {
+    try {
+      const adminAcc = getRequesterAccount(req);
       const clientIp = extractClientIp(req);
-      const headerIdem = req.headers['idempotency-key'];
-      const { loginName, packageCode, orderToken, payerEmail } = req.body as {
-        loginName?: string;
-        packageCode?: string;
-        orderToken?: string;
-        payerEmail?: string;
+      const { username, creditsDelta, vaultZenDelta } = req.body as {
+        username?: string;
+        creditsDelta?: number;
+        vaultZenDelta?: number;
       };
 
-      const { config: promoCfg, effectivePayPalPackages } = getEffectivePromotions();
-      const pkg = effectivePayPalPackages.find((p) => p.code === packageCode);
-      if (!pkg || !loginName || !orderToken) {
-        res.status(400).json({
-          ok: false,
-          message: 'ข้อมูลคำสั่งซื้อ PayPal ไม่ครบถ้วน หรือแพ็กเกจถูกปิดใช้งาน',
-        });
-        return;
-      }
-
-      const reference = `paypal:${orderToken}`;
-      const idemKey =
-        typeof headerIdem === 'string' && headerIdem.trim()
-          ? headerIdem.trim()
-          : reference;
-      const promoNote =
-        promoCfg.campaignActive && promoCfg.extraBonusPercent > 0
-          ? ` [Event +${promoCfg.extraBonusPercent}%]`
-          : '';
-      const reason = `PayPal purchase ${pkg.code} ($${pkg.priceUsd.toFixed(
-        2
-      )} / ${pkg.priceThb} THB · +${pkg.bonusPercent}%${promoNote})${
-        payerEmail ? ` by ${payerEmail}` : ''
-      }`;
-
-      const txResult = await executePaymentGrantTx({
-        idempotencyKey: idemKey,
-        loginName,
+      const updated = await adminAdjustAccountBalance({
+        targetLoginName: username || '',
+        creditsDelta: typeof creditsDelta === 'number' ? creditsDelta : undefined,
+        vaultZenDelta: typeof vaultZenDelta === 'number' ? vaultZenDelta : undefined,
+        adminLoginName: adminAcc?.loginName || 'admin',
         ipAddress: clientIp,
-        coinType: 'WCoinC',
-        coinAmount: pkg.wCoinC,
-        creditsAdded: pkg.credits,
-        reason,
-        reference,
-        clientName: 'PayPal',
       });
 
-      if (!txResult.idempotentReplay) {
-        await forwardGrantToExternalOpenMu(
-          loginName,
-          'WCoinC',
-          pkg.wCoinC,
-          reason,
-          reference
-        );
-      }
-
-      res.status(txResult.status === 'Created' ? 201 : 200).json({
+      res.json({
         ok: true,
-        status: txResult.status,
-        idempotentReplay: txResult.idempotentReplay,
-        message: `ชำระเงินผ่าน PayPal ($${pkg.priceUsd.toFixed(
-          2
-        )} / ฿${pkg.priceThb.toLocaleString()}) สำเร็จ! ได้รับ +${pkg.credits.toLocaleString()} WebShop Credits และ +${pkg.wCoinC.toLocaleString()} WCoinC`,
-        creditsAdded: txResult.status === 'Created' ? pkg.credits : 0,
-        wCoinCAdded: txResult.status === 'Created' ? pkg.wCoinC : 0,
-        grant: txResult.grant,
-        balances: {
-          wCoinC: txResult.balances.wCoinC,
-          wCoinP: txResult.balances.wCoinP,
-          goblinPoints: txResult.balances.goblinPoints,
-        },
+        account: updated,
       });
     } catch (err) {
       next(err);
     }
   });
 
-  // ==========================================================================
-  // 7. Admin Audit Logs & Redis Catalog Cache Management Endpoints
-  // ==========================================================================
   app.get('/api/admin/audit-logs', requireAdmin, (req, res) => {
     const limit = Number(req.query.limit) || 200;
     const accountFilter =

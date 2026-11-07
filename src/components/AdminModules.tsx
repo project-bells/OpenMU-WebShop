@@ -17,6 +17,7 @@ import { WarehouseGrid } from './WarehouseGrid';
 import { ItemTooltipCard } from './ItemTooltip';
 import { L } from '../translations';
 import {
+  AlertTriangle,
   ArrowUpDown,
   Check,
   CheckCircle2,
@@ -1420,8 +1421,18 @@ export const ManageCreditsModule: React.FC<{
   accounts: AccountData[];
   initialUser?: string;
   lang?: LanguageCode;
-  onAdjustCredits: (username: string, delta: number) => number;
-  onAdjustVaultZen?: (username: string, amount: number) => void;
+  onAdjustCredits: (
+    username: string,
+    delta: number
+  ) =>
+    | Promise<{ ok: boolean; credits?: number; vaultMoney?: number; message?: string }>
+    | number;
+  onAdjustVaultZen?: (
+    username: string,
+    amount: number
+  ) =>
+    | Promise<{ ok: boolean; credits?: number; vaultMoney?: number; message?: string }>
+    | void;
 }> = ({
   accounts,
   initialUser,
@@ -1433,6 +1444,7 @@ export const ManageCreditsModule: React.FC<{
   const [ucr, setUcr] = useState(500);
   const [mode, setMode] = useState<'adjust' | 'zen'>('adjust');
   const [zenAmount, setZenAmount] = useState<number>(100_000_000);
+  const [isSaving, setIsSaving] = useState(false);
   const [resultMsg, setResultMsg] = useState<{
     ok: boolean;
     text: string;
@@ -1440,7 +1452,8 @@ export const ManageCreditsModule: React.FC<{
 
   useEffect(() => {
     if (initialUser) setUacc(initialUser);
-  }, [initialUser]);
+    else if (!uacc && accounts.length > 0) setUacc(accounts[0].username);
+  }, [initialUser, accounts]);
 
   const selectedAccountData = useMemo(() => {
     return accounts.find(
@@ -1448,48 +1461,108 @@ export const ManageCreditsModule: React.FC<{
     );
   }, [accounts, uacc]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uacc.trim()) return;
+    const targetUser = uacc.trim();
+    if (!targetUser || isSaving) return;
 
-    if (mode === 'adjust') {
-      const newBal = onAdjustCredits(uacc.trim(), ucr);
-      setResultMsg({
-        ok: true,
-        text: L(lang, {
-          en: `Updated "${uacc.trim()}" credit balance. Current total: ${newBal.toLocaleString()} Credits.`,
-          th: `อัปเดตเครดิตของ "${uacc.trim()}" สำเร็จ! ยอดปัจจุบันคือ ${newBal.toLocaleString()} Credits`,
-          pt: `Saldo de créditos de "${uacc.trim()}" atualizado: ${newBal.toLocaleString()} Créditos.`,
-          ru: `Баланс кредитов «${uacc.trim()}» обновлён: ${newBal.toLocaleString()} кредитов.`,
-          es: `Saldo de créditos de "${uacc.trim()}" actualizado: ${newBal.toLocaleString()} Créditos.`,
-          bg: `Кредитният баланс на "${uacc.trim()}" е обновен: ${newBal.toLocaleString()} кредита.`,
-        }),
-      });
-    } else if (mode === 'zen' && onAdjustVaultZen) {
-      onAdjustVaultZen(uacc.trim(), zenAmount);
-      setResultMsg({
-        ok: true,
-        text: L(lang, {
-          en: `Adjusted vault Zen for "${uacc.trim()}" by ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
-          th: `ปรับยอดเงิน Zen ในคลังของ "${uacc.trim()}" เพิ่ม ${(zenAmount / 1_000_000).toLocaleString()}M Zen สำเร็จ!`,
-          pt: `Zen do baú de "${uacc.trim()}" ajustado em ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
-          ru: `Zen сундука «${uacc.trim()}» изменён на ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
-          es: `Zen del baúl de "${uacc.trim()}" ajustado en ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
-          bg: `Zen в сандъка на "${uacc.trim()}" е променен с ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
-        }),
-      });
+    setIsSaving(true);
+    setResultMsg(null);
+
+    try {
+      if (mode === 'adjust') {
+        const res = await onAdjustCredits(targetUser, ucr);
+        if (typeof res === 'number') {
+          setResultMsg({
+            ok: true,
+            text: L(lang, {
+              en: `Updated "${targetUser}" credit balance. Current total: ${res.toLocaleString()} Credits.`,
+              th: `อัปเดตเครดิตของ "${targetUser}" สำเร็จ! ยอดปัจจุบันคือ ${res.toLocaleString()} Credits`,
+              pt: `Saldo de créditos de "${targetUser}" atualizado: ${res.toLocaleString()} Créditos.`,
+              ru: `Баланс кредитов «${targetUser}» обновлён: ${res.toLocaleString()} кредитов.`,
+              es: `Saldo de créditos de "${targetUser}" actualizado: ${res.toLocaleString()} Créditos.`,
+              bg: `Кредитният баланс на "${targetUser}" е обновен: ${res.toLocaleString()} кредита.`,
+            }),
+          });
+        } else if (res.ok) {
+          const newBal = res.credits ?? 0;
+          setResultMsg({
+            ok: true,
+            text:
+              res.message ||
+              L(lang, {
+                en: `Updated "${targetUser}" credit balance in database. Current total: ${newBal.toLocaleString()} Credits.`,
+                th: `บันทึกเครดิตของ "${targetUser}" ลงฐานข้อมูลสำเร็จ! ยอดปัจจุบันคือ ${newBal.toLocaleString()} Credits`,
+                pt: `Saldo de créditos de "${targetUser}" atualizado: ${newBal.toLocaleString()} Créditos.`,
+                ru: `Баланс кредитов «${targetUser}» обновлён: ${newBal.toLocaleString()} кредитов.`,
+                es: `Saldo de créditos de "${targetUser}" actualizado: ${newBal.toLocaleString()} Créditos.`,
+                bg: `Кредитният баланс на "${targetUser}" е обновен: ${newBal.toLocaleString()} кредита.`,
+              }),
+          });
+        } else {
+          setResultMsg({
+            ok: false,
+            text:
+              res.message ||
+              L(lang, {
+                en: 'Failed to update credits.',
+                th: 'ไม่สามารถอัปเดตเครดิตได้ กรุณาตรวจสอบชื่อบัญชี',
+              }),
+          });
+        }
+      } else if (mode === 'zen' && onAdjustVaultZen) {
+        const res = await onAdjustVaultZen(targetUser, zenAmount);
+        if (res && typeof res === 'object') {
+          if (res.ok) {
+            const newZen = res.vaultMoney ?? 0;
+            setResultMsg({
+              ok: true,
+              text:
+                res.message ||
+                L(lang, {
+                  en: `Updated "${targetUser}" Vault Zen in database. Current total: ${newZen.toLocaleString()} Zen.`,
+                  th: `บันทึกยอดเงิน Zen ในคลังของ "${targetUser}" ลงฐานข้อมูลสำเร็จ! ยอดปัจจุบันคือ ${newZen.toLocaleString()} Zen`,
+                  pt: `Zen do baú de "${targetUser}" atualizado: ${newZen.toLocaleString()} Zen.`,
+                  ru: `Zen сундука «${targetUser}» обновлён: ${newZen.toLocaleString()} Zen.`,
+                  es: `Zen del baúl de "${targetUser}" actualizado: ${newZen.toLocaleString()} Zen.`,
+                  bg: `Zen в сандъка на "${targetUser}" е обновен: ${newZen.toLocaleString()} Zen.`,
+                }),
+            });
+          } else {
+            setResultMsg({
+              ok: false,
+              text:
+                res.message ||
+                L(lang, {
+                  en: 'Failed to update Vault Zen.',
+                  th: 'ไม่สามารถอัปเดตเงิน Zen ได้ กรุณาตรวจสอบชื่อบัญชี',
+                }),
+            });
+          }
+        } else {
+          setResultMsg({
+            ok: true,
+            text: L(lang, {
+              en: `Adjusted vault Zen for "${targetUser}" by ${(zenAmount / 1_000_000).toLocaleString()}M Zen.`,
+              th: `ปรับยอดเงิน Zen ในคลังของ "${targetUser}" (${zenAmount >= 0 ? '+' : ''}${(zenAmount / 1_000_000).toLocaleString()}M Zen) สำเร็จ!`,
+            }),
+          });
+        }
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/90 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
+    <div className="max-w-3xl space-y-5">
+      <div className="p-5 rounded-2xl fantasy-panel gold-border flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
             <Coins className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+            <h2 className="text-sm font-display font-bold text-white tracking-wider">
               {L(lang, {
                 en: 'Manage Account Credits & Zen',
                 th: 'จัดการเครดิตและเงิน Zen ของผู้เล่น',
@@ -1499,10 +1572,10 @@ export const ManageCreditsModule: React.FC<{
                 bg: 'Управление на кредити и Zen на акаунт',
               })}
             </h2>
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-white/60">
               {L(lang, {
-                en: 'Grant or deduct player Credits and Warehouse Zen.',
-                th: 'เพิ่มหรือลดเครดิตและเงิน Zen ในคลังของบัญชีผู้เล่น',
+                en: 'Grant or deduct player Credits and Warehouse Zen directly in the database.',
+                th: 'เพิ่มหรือลดเครดิตและเงิน Zen ในคลังของบัญชีผู้เล่นพร้อมบันทึกลงฐานข้อมูลทันที',
                 pt: 'Adicione ou deduza Créditos e Zen do baú do jogador.',
                 ru: 'Начисление или списание кредитов и Zen в сундуке игрока.',
                 es: 'Añade o deduce Créditos y Zen del baúl del jugador.',
@@ -1512,14 +1585,14 @@ export const ManageCreditsModule: React.FC<{
           </div>
         </div>
 
-        <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800 text-xs">
+        <div className="flex items-center gap-1 bg-[#090d16]/90 p-1 rounded-xl border border-white/15 text-xs">
           <button
             type="button"
             onClick={() => setMode('adjust')}
-            className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg font-semibold cursor-pointer transition-colors ${
               mode === 'adjust'
-                ? 'bg-amber-500 text-zinc-950 font-bold'
-                : 'text-zinc-400'
+                ? 'bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] font-extrabold'
+                : 'text-white/70 hover:text-white'
             }`}
           >
             Credits
@@ -1527,10 +1600,10 @@ export const ManageCreditsModule: React.FC<{
           <button
             type="button"
             onClick={() => setMode('zen')}
-            className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg font-semibold cursor-pointer transition-colors ${
               mode === 'zen'
-                ? 'bg-amber-500 text-zinc-950 font-bold'
-                : 'text-zinc-400'
+                ? 'bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] font-extrabold'
+                : 'text-white/70 hover:text-white'
             }`}
           >
             Vault Zen
@@ -1539,15 +1612,25 @@ export const ManageCreditsModule: React.FC<{
       </div>
 
       {resultMsg && (
-        <div className="p-3.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 text-xs font-mono-tabular flex items-center justify-between">
+        <div
+          className={`p-4 rounded-2xl border text-xs font-mono-tabular flex items-center justify-between gap-3 ${
+            resultMsg.ok
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+              : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            {resultMsg.ok ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
             <span>{resultMsg.text}</span>
           </div>
           <button
             type="button"
             onClick={() => setResultMsg(null)}
-            className="cursor-pointer"
+            className="cursor-pointer text-white/60 hover:text-white"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1555,12 +1638,12 @@ export const ManageCreditsModule: React.FC<{
       )}
 
       {selectedAccountData && (
-        <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/70 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="p-4 rounded-2xl fantasy-panel gold-border grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div>
-            <span className="text-zinc-400 block">
+            <span className="text-white/55 block">
               {L(lang, {
                 en: 'Account',
-                th: 'บัญชี',
+                th: 'บัญชีผู้เล่น',
                 pt: 'Conta',
                 ru: 'Аккаунт',
                 es: 'Cuenta',
@@ -1573,20 +1656,20 @@ export const ManageCreditsModule: React.FC<{
             </span>
           </div>
           <div>
-            <span className="text-zinc-400 block">Credits:</span>
+            <span className="text-white/55 block">Credits:</span>
             <span className="font-bold text-amber-400 font-mono-tabular text-sm">
               {selectedAccountData.credits.toLocaleString()} Cr
             </span>
           </div>
           <div>
-            <span className="text-zinc-400 block">Vault Zen:</span>
-            <span className="font-mono-tabular text-zinc-200">
-              {(selectedAccountData.vaultMoney / 1_000_000).toFixed(0)}M Zen
+            <span className="text-white/55 block">Vault Zen:</span>
+            <span className="font-mono-tabular font-bold text-emerald-400 text-sm">
+              {selectedAccountData.vaultMoney.toLocaleString()} Zen
             </span>
           </div>
           <div>
-            <span className="text-zinc-400 block">VIP:</span>
-            <span className="font-medium text-emerald-400">
+            <span className="text-white/55 block">VIP:</span>
+            <span className="font-medium text-amber-300">
               {selectedAccountData.vipUntil &&
               new Date(selectedAccountData.vipUntil) > new Date()
                 ? 'VIP Active'
@@ -1598,14 +1681,14 @@ export const ManageCreditsModule: React.FC<{
 
       <form
         onSubmit={handleSubmit}
-        className="p-5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-4"
+        className="p-6 rounded-2xl fantasy-panel gold-border space-y-4"
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>
-            <label className="block text-zinc-400 mb-1.5">
+            <label className="block text-white/80 font-semibold mb-1.5">
               {L(lang, {
                 en: 'Target Account',
-                th: 'ชื่อบัญชีเป้าหมาย',
+                th: 'ชื่อบัญชีเป้าหมาย (Account ID)',
                 pt: 'Conta Alvo',
                 ru: 'Целевой аккаунт',
                 es: 'Cuenta Destino',
@@ -1620,18 +1703,18 @@ export const ManageCreditsModule: React.FC<{
               onChange={(e) => setUacc(e.target.value)}
               placeholder={L(lang, {
                 en: 'Enter account username',
-                th: 'ระบุชื่อบัญชีผู้เล่น',
+                th: 'ระบุชื่อบัญชีผู้เล่น เช่น user01',
                 pt: 'Digite o usuário da conta',
                 ru: 'Введите логин аккаунта',
                 es: 'Ingresa el usuario',
                 bg: 'Въведете потребителско име',
               })}
-              className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[#090d16]/90 border border-white/15 focus:border-[#d4af37] text-white focus:outline-none"
             />
             <datalist id="admin-acc-list">
               {accounts.map((a) => (
                 <option key={a.username} value={a.username}>
-                  {a.username} ({a.credits.toLocaleString()} cr)
+                  {a.username} ({a.credits.toLocaleString()} Cr · {(a.vaultMoney / 1_000_000).toFixed(0)}M Zen)
                 </option>
               ))}
             </datalist>
@@ -1639,7 +1722,7 @@ export const ManageCreditsModule: React.FC<{
 
           {mode === 'adjust' ? (
             <div>
-              <label className="block text-zinc-400 mb-1.5">
+              <label className="block text-white/80 font-semibold mb-1.5">
                 {L(lang, {
                   en: 'Credits Delta (+ or -)',
                   th: 'จำนวนเครดิต (+ เพิ่ม, - ลด)',
@@ -1653,19 +1736,19 @@ export const ManageCreditsModule: React.FC<{
                 type="number"
                 value={ucr}
                 onChange={(e) => setUcr(Number(e.target.value))}
-                className="w-full px-3 py-2 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-amber-400 font-bold"
+                className="w-full px-3.5 py-2.5 font-mono-tabular rounded-xl bg-[#090d16]/90 border border-white/15 focus:border-[#d4af37] text-amber-400 font-bold focus:outline-none"
               />
             </div>
           ) : (
             <div>
-              <label className="block text-zinc-400 mb-1.5">
+              <label className="block text-white/80 font-semibold mb-1.5">
                 {L(lang, {
-                  en: 'Vault Zen Amount',
-                  th: 'จำนวนเงิน Zen (+ เพิ่มเข้าคลัง)',
-                  pt: 'Quantidade de Zen no Baú',
-                  ru: 'Сумма Zen в сундук',
-                  es: 'Cantidad de Zen en Baúl',
-                  bg: 'Сума на Zen в сандъка',
+                  en: 'Vault Zen Delta (+ or -)',
+                  th: 'จำนวนเงิน Zen (+ เพิ่มเข้าคลัง, - หักออก)',
+                  pt: 'Quantidade de Zen no Baú (+ ou -)',
+                  ru: 'Сумма Zen в сундук (+ или -)',
+                  es: 'Cantidad de Zen en Baúl (+ o -)',
+                  bg: 'Сума на Zen в сандъка (+ или -)',
                 })}
               </label>
               <input
@@ -1673,17 +1756,17 @@ export const ManageCreditsModule: React.FC<{
                 step={10000000}
                 value={zenAmount}
                 onChange={(e) => setZenAmount(Number(e.target.value))}
-                className="w-full px-3 py-2 font-mono-tabular rounded bg-zinc-950 border border-zinc-700 text-emerald-400 font-bold"
+                className="w-full px-3.5 py-2.5 font-mono-tabular rounded-xl bg-[#090d16]/90 border border-white/15 focus:border-[#d4af37] text-emerald-400 font-bold focus:outline-none"
               />
             </div>
           )}
         </div>
 
-        {mode === 'adjust' && (
+        {mode === 'adjust' ? (
           <div className="space-y-1.5 pt-1">
-            <span className="text-[11px] text-zinc-400">
+            <span className="text-[11px] text-white/60">
               {L(lang, {
-                en: 'Quick Presets:',
+                en: 'Quick Credit Presets:',
                 th: 'ปุ่มลัดเลือกจำนวนเครดิต:',
                 pt: 'Atalhos Rápidos:',
                 ru: 'Быстрый выбор:',
@@ -1692,30 +1775,71 @@ export const ManageCreditsModule: React.FC<{
               })}
             </span>
             <div className="flex flex-wrap gap-1.5">
-              {[+100, +500, +1000, +5000, -500, -1000].map((val) => (
+              {[+100, +500, +1000, +5000, +10000, -500, -1000, -5000].map((val) => (
                 <button
                   key={val}
                   type="button"
                   onClick={() => setUcr(val)}
-                  className={`px-2.5 py-1 rounded text-xs font-mono-tabular cursor-pointer border ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono-tabular cursor-pointer border transition-colors ${
                     val > 0
-                      ? 'bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border-zinc-700'
-                      : 'bg-zinc-800 hover:bg-zinc-700 text-rose-400 border-zinc-700'
+                      ? 'bg-[#090d16]/80 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-[#090d16]/80 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
                   }`}
                 >
-                  {val > 0 ? `+${val}` : val}
+                  {val > 0 ? `+${val.toLocaleString()}` : val.toLocaleString()} Cr
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1.5 pt-1">
+            <span className="text-[11px] text-white/60">
+              {L(lang, {
+                en: 'Quick Vault Zen Presets (Max 900M):',
+                th: 'ปุ่มลัดเลือกจำนวนเงิน Zen (สูงสุดในคลัง 900M):',
+              })}
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                +50_000_000,
+                +100_000_000,
+                +300_000_000,
+                +500_000_000,
+                +900_000_000,
+                -100_000_000,
+                -500_000_000,
+              ].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setZenAmount(val)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono-tabular cursor-pointer border transition-colors ${
+                    val > 0
+                      ? 'bg-[#090d16]/80 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-[#090d16]/80 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  }`}
+                >
+                  {val > 0
+                    ? `+${(val / 1_000_000).toFixed(0)}M Zen`
+                    : `${(val / 1_000_000).toFixed(0)}M Zen`}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        <div className="flex justify-end pt-3 border-t border-zinc-800">
+        <div className="flex justify-end pt-3 border-t border-white/10">
           <button
             type="submit"
-            className="px-5 py-2.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors cursor-pointer shadow-lg"
+            disabled={isSaving || !uacc.trim()}
+            className="btn-shine px-6 py-2.5 text-xs font-extrabold rounded-xl bg-gradient-to-r from-[#d4af37] via-[#ffb52e] to-[#ff8a3c] text-[#090d16] transition-all cursor-pointer shadow-lg disabled:opacity-50"
           >
-            {mode === 'adjust'
+            {isSaving
+              ? L(lang, {
+                  en: 'Saving to Database...',
+                  th: 'กำลังบันทึกลงฐานข้อมูล...',
+                })
+              : mode === 'adjust'
               ? L(lang, {
                   en: 'Confirm Credit Update',
                   th: 'ยืนยันปรับยอดเครดิต',
@@ -1735,6 +1859,65 @@ export const ManageCreditsModule: React.FC<{
           </button>
         </div>
       </form>
+
+      {/* Player Accounts Quick Selection Table */}
+      {accounts.length > 0 && (
+        <div className="p-5 rounded-2xl fantasy-panel gold-border space-y-3">
+          <div className="flex items-center justify-between border-b border-white/10 pb-2">
+            <h3 className="text-xs font-display font-bold text-amber-300 tracking-wider">
+              {L(lang, {
+                en: 'Registered Accounts (Click to Select)',
+                th: 'รายชื่อบัญชีผู้เล่นในระบบ (คลิกเพื่อเลือกบัญชี)',
+              })}
+            </h3>
+            <span className="text-[11px] text-white/50 font-mono-tabular">
+              {accounts.length} Accounts
+            </span>
+          </div>
+          <div className="overflow-x-auto max-h-64">
+            <table className="w-full text-left text-xs">
+              <thead className="text-white/55 border-b border-white/10">
+                <tr>
+                  <th className="py-2 pr-3">Account ID</th>
+                  <th className="py-2 px-3 text-right">Credits</th>
+                  <th className="py-2 px-3 text-right">Vault Zen</th>
+                  <th className="py-2 pl-3 text-right">Role</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {accounts.map((acc) => {
+                  const isSelected =
+                    acc.username.toLowerCase() === uacc.trim().toLowerCase();
+                  return (
+                    <tr
+                      key={acc.username}
+                      onClick={() => setUacc(acc.username)}
+                      className={`cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-amber-500/15 text-white'
+                          : 'hover:bg-white/5 text-white/80'
+                      }`}
+                    >
+                      <td className="py-2 pr-3 font-bold text-white">
+                        {acc.username}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono-tabular text-amber-400 font-bold">
+                        {acc.credits.toLocaleString()} Cr
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono-tabular text-emerald-400">
+                        {acc.vaultMoney.toLocaleString()} Zen
+                      </td>
+                      <td className="py-2 pl-3 text-right font-mono-tabular text-[11px] text-white/60">
+                        {acc.isAdmin ? 'ADMIN' : 'PLAYER'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

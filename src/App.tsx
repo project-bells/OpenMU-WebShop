@@ -45,6 +45,7 @@ import {
   BuyCharacter400Module,
   CharNameModule,
   DeleteCharacter400Module,
+  OnlineHoursRewardModule,
   ResetPointsModule,
   UnbanModule,
   ZenModule,
@@ -230,6 +231,59 @@ export default function App() {
       .catch(() => {});
   }, [activeModule, currentAccount, isAdminUser]);
 
+  // Hydrate accounts from database for Admin modules
+  useEffect(() => {
+    if (!isAdminUser || !currentAccount) return;
+    if (
+      activeModule !== 'u_credits' &&
+      activeModule !== 'thetop' &&
+      activeModule !== 'whviewer'
+    ) {
+      return;
+    }
+    apiFetch('/api/admin/accounts')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data?.ok || !Array.isArray(data.accounts)) return;
+        setAccounts((prev) => {
+          const map = new Map(
+            prev.map((acc) => [acc.username.toLowerCase(), acc])
+          );
+          for (const srvAcc of data.accounts) {
+            const key = String(srvAcc.username || '').toLowerCase();
+            if (!key) continue;
+            const existing = map.get(key);
+            if (existing) {
+              map.set(key, {
+                ...existing,
+                credits: Number(srvAcc.credits || 0),
+                vaultMoney: Number(srvAcc.vaultMoney || 0),
+                vipUntil: srvAcc.vipUntil || existing.vipUntil,
+                isAdmin: Boolean(srvAcc.isAdmin),
+                role: srvAcc.role || existing.role,
+              });
+            } else {
+              map.set(key, {
+                username: srvAcc.username,
+                characterDeleteCode: '',
+                credits: Number(srvAcc.credits || 0),
+                vaultMoney: Number(srvAcc.vaultMoney || 0),
+                vaultItems: [],
+                onlineMinutes: 0,
+                exchangedOnlineHours: 0,
+                vipUntil: srvAcc.vipUntil || undefined,
+                isAdmin: Boolean(srvAcc.isAdmin),
+                role: srvAcc.role || 'USER',
+                isOnline: false,
+              });
+            }
+          }
+          return Array.from(map.values());
+        });
+      })
+      .catch(() => {});
+  }, [activeModule, currentAccount, isAdminUser]);
+
   const myCharacters = useMemo(() => {
     if (!currentAccount) return [];
     return characters.filter(
@@ -310,6 +364,14 @@ export default function App() {
                 vaultItems: Array.isArray(accountData?.vaultItems)
                   ? accountData.vaultItems
                   : a.vaultItems,
+                onlineMinutes:
+                  typeof accountData?.onlineMinutes === 'number'
+                    ? accountData.onlineMinutes
+                    : a.onlineMinutes,
+                exchangedOnlineHours:
+                  typeof accountData?.exchangedOnlineHours === 'number'
+                    ? accountData.exchangedOnlineHours
+                    : a.exchangedOnlineHours,
                 characterDeleteCode:
                   accountData?.characterDeleteCode || a.characterDeleteCode,
               }
@@ -331,8 +393,14 @@ export default function App() {
           vaultItems: Array.isArray(accountData?.vaultItems)
             ? accountData.vaultItems
             : [],
-          onlineMinutes: 0,
-          exchangedOnlineHours: 0,
+          onlineMinutes:
+            typeof accountData?.onlineMinutes === 'number'
+              ? accountData.onlineMinutes
+              : 0,
+          exchangedOnlineHours:
+            typeof accountData?.exchangedOnlineHours === 'number'
+              ? accountData.exchangedOnlineHours
+              : 0,
           isAdmin: serverIsAdmin,
           role: resolvedRole,
           isOnline: false,
@@ -359,6 +427,23 @@ export default function App() {
       })
     );
   };
+
+  // Hydrate account characters from backend when signed in
+  useEffect(() => {
+    if (!currentUsername) return;
+    apiFetch('/api/accounts/characters')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.ok || !Array.isArray(data.characters)) return;
+        setCharacters((prev) => {
+          const otherChars = prev.filter(
+            (c) => c.accountId.toLowerCase() !== currentUsername.toLowerCase()
+          );
+          return [...otherChars, ...data.characters];
+        });
+      })
+      .catch(() => {});
+  }, [currentUsername, activeModule]);
 
   useEffect(() => {
     apiFetch('/api/openmu/session')
@@ -775,7 +860,10 @@ export default function App() {
   };
 
   // 5. Buy Level 400 Class 3 Character
-  const handleBuyCharacter400 = (charName: string, classCode: MuClassCode) => {
+  const handleBuyCharacter400 = async (
+    charName: string,
+    classCode: MuClassCode
+  ) => {
     if (!currentAccount) return requireAuthResponse();
     const cleanName = charName.trim();
     if (cleanName.length < 2 || cleanName.length > 10) {
@@ -788,34 +876,6 @@ export default function App() {
           ru: 'Имя персонажа должно быть от 2 до 10 символов.',
           es: 'El nombre del personaje debe tener entre 2 y 10 caracteres.',
           bg: 'Името на героя трябва да е между 2 и 10 символа.',
-        }),
-      };
-    }
-    if (myCharacters.length >= 5) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Your account already has the maximum of 5 characters.',
-          th: 'บัญชีของคุณมีตัวละครครบสูงสุด 5 ตัวแล้ว',
-          pt: 'Sua conta já possui o limite máximo de 5 personagens.',
-          ru: 'На вашем аккаунте уже создано максимум 5 персонажей.',
-          es: 'Tu cuenta ya alcanzó el máximo de 5 personajes.',
-          bg: 'Акаунтът ви вече има максимум 5 героя.',
-        }),
-      };
-    }
-    if (
-      characters.some((c) => c.name.toLowerCase() === cleanName.toLowerCase())
-    ) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: `Character name "${cleanName}" is already taken.`,
-          th: `ชื่อตัวละคร "${cleanName}" มีอยู่ในระบบแล้ว กรุณาตั้งชื่ออื่น`,
-          pt: `O nome "${cleanName}" já está em uso.`,
-          ru: `Имя персонажа «${cleanName}» уже занято.`,
-          es: `El nombre "${cleanName}" ya está en uso.`,
-          bg: `Името "${cleanName}" вече е заето.`,
         }),
       };
     }
@@ -835,202 +895,255 @@ export default function App() {
       };
     }
 
-    const cost = BUY_CHAR_400_CREDITS;
-    if (currentAccount.credits < cost) {
+    try {
+      const response = await apiFetch('/api/accounts/characters/buy-400', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          characterName: cleanName,
+          classCode,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) {
+        return {
+          ok: false,
+          message:
+            data?.message ||
+            L(lang, {
+              en: 'Failed to purchase character.',
+              th: 'ไม่สามารถซื้อตัวละครได้ กรุณาตรวจสอบเครดิตและสถานะตัวละคร',
+              pt: 'Falha ao comprar personagem.',
+              ru: 'Не удалось купить персонажа.',
+              es: 'Error al comprar el personaje.',
+              bg: 'Неуспешна покупка на герой.',
+            }),
+        };
+      }
+
+      if (Array.isArray(data.characters)) {
+        setCharacters((prev) => {
+          const otherChars = prev.filter(
+            (c) =>
+              c.accountId.toLowerCase() !==
+              currentAccount.username.toLowerCase()
+          );
+          return [...otherChars, ...data.characters];
+        });
+      }
+      if (typeof data.newCredits === 'number') {
+        updateCurrentAccount((acc) => ({
+          ...acc,
+          credits: data.newCredits,
+        }));
+      }
+
+      appendShopLog(
+        `Purchased Lv.400 Class 3 character "${cleanName}" (${calc.classDef.name}) with ${calc.totalPoints} pts for ${BUY_CHAR_400_CREDITS} credits`,
+        undefined,
+        { action: 'BUY_CHARACTER_400' }
+      );
+
+      const msg = L(lang, {
+        en: `Created "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · Lv.400) with ${calc.totalPoints.toLocaleString()} free stat points!`,
+        th: `ซื้อตัวละคร "${cleanName}" อาชีพ ${getClassDisplayName(calc.classDef, lang)} (Lv.400) สำเร็จ! ได้รับพอยต์พร้อมอัป ${calc.totalPoints.toLocaleString()} พอยต์`,
+        pt: `Personagem "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · Nv.400) criado com ${calc.totalPoints.toLocaleString()} pontos!`,
+        ru: `Создан персонаж «${cleanName}» (${getClassDisplayName(calc.classDef, lang)} · 400 ур.) с ${calc.totalPoints.toLocaleString()} очками!`,
+        es: `¡Personaje "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · Lv.400) creado con ${calc.totalPoints.toLocaleString()} puntos!`,
+        bg: `Герой "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · 400 ниво) е създаден с ${calc.totalPoints.toLocaleString()} точки!`,
+      });
+      showToast(msg);
+      return { ok: true, message: msg };
+    } catch {
       return {
         ok: false,
         message: L(lang, {
-          en: `Insufficient credits (${cost.toLocaleString()} Credits required).`,
-          th: `เครดิตของคุณไม่เพียงพอ (ต้องการ ${cost.toLocaleString()} Credits)`,
-          pt: `Créditos insuficientes (${cost.toLocaleString()} Créditos necessários).`,
-          ru: `Недостаточно кредитов (требуется ${cost.toLocaleString()} кредитов).`,
-          es: `Créditos insuficientes (se requieren ${cost.toLocaleString()} Créditos).`,
-          bg: `Недостатъчно кредити (необходими са ${cost.toLocaleString()} кредита).`,
+          en: 'Network error while purchasing character.',
+          th: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+          pt: 'Erro de rede ao comprar personagem.',
+          ru: 'Ошибка сети при покупке персонажа.',
+          es: 'Error de red al comprar el personaje.',
+          bg: 'Мрежова грешка при покупка на герой.',
         }),
       };
     }
-    if (currentAccount.isOnline) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Your account must be Offline before purchasing a new character.',
-          th: 'บัญชีต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนซื้อตัวละครใหม่',
-          pt: 'Sua conta deve estar Offline antes de comprar um personagem.',
-          ru: 'Аккаунт должен быть Offline перед покупкой персонажа.',
-          es: 'Tu cuenta debe estar Offline antes de comprar un personaje.',
-          bg: 'Акаунтът трябва да е Offline преди покупка на герой.',
-        }),
-      };
-    }
-
-    const newChar: Character = {
-      name: cleanName,
-      accountId: currentAccount.username,
-      classCode: calc.classDef.code,
-      classId: calc.classDef.id,
-      level: 400,
-      resets: 0,
-      levelUpPoints: calc.totalPoints,
-      strength: calc.classDef.baseStr,
-      agility: calc.classDef.baseAgi,
-      vitality: calc.classDef.baseVit,
-      energy: calc.classDef.baseEne,
-      command: calc.classDef.baseCmd,
-      money: 0,
-      ctlCode: 0,
-      isOnline: false,
-    };
-
-    setCharacters((prev) => [...prev, newChar]);
-    updateCurrentAccount((acc) => ({
-      ...acc,
-      credits: acc.credits - cost,
-    }));
-
-    appendShopLog(
-      `Purchased Lv.400 Class 3 character "${cleanName}" (${calc.classDef.name}) with ${calc.totalPoints} pts for ${cost} credits`
-    );
-
-    const msg = L(lang, {
-      en: `Created "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · Lv.400) with ${calc.totalPoints.toLocaleString()} free stat points!`,
-      th: `ซื้อตัวละคร "${cleanName}" อาชีพ ${getClassDisplayName(calc.classDef, lang)} (Lv.400) สำเร็จ! ได้รับพอยต์พร้อมอัป ${calc.totalPoints.toLocaleString()} พอยต์`,
-      pt: `Personagem "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · Nv.400) criado com ${calc.totalPoints.toLocaleString()} pontos!`,
-      ru: `Создан персонаж «${cleanName}» (${getClassDisplayName(calc.classDef, lang)} · 400 ур.) с ${calc.totalPoints.toLocaleString()} очками!`,
-      es: `¡Personaje "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · Lv.400) creado con ${calc.totalPoints.toLocaleString()} puntos!`,
-      bg: `Герой "${cleanName}" (${getClassDisplayName(calc.classDef, lang)} · 400 ниво) е създаден с ${calc.totalPoints.toLocaleString()} точки!`,
-    });
-    showToast(msg);
-    return { ok: true, message: msg };
   };
 
   // 6. Delete Level 400 Character (+300 Credits)
-  const handleDeleteCharacter400 = (charName: string, deleteCode: string) => {
+  const handleDeleteCharacter400 = async (
+    charName: string,
+    deleteCode: string
+  ) => {
     if (!currentAccount) return requireAuthResponse();
-    if (currentAccount.isOnline) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Your account must be Offline before deleting a character.',
-          th: 'บัญชีต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนลบตัวละคร',
-          pt: 'Sua conta deve estar Offline antes de excluir um personagem.',
-          ru: 'Аккаунт должен быть Offline перед удалением персонажа.',
-          es: 'Tu cuenta debe estar Offline antes de eliminar un personaje.',
-          bg: 'Акаунтът трябва да е Offline преди изтриване на герой.',
-        }),
-      };
-    }
 
     const cleanCode = (deleteCode || '').trim();
-    if (!/^\d{4,8}$/.test(cleanCode)) {
+    if (cleanCode.length < 4 || cleanCode.length > 32) {
       return {
         ok: false,
         message: L(lang, {
-          en: 'Character Delete Code must contain digits (0–9) only.',
-          th: 'รหัสสำหรับลบตัวละครต้องเป็นตัวเลข 0–9 เท่านั้น',
-          pt: 'O código de exclusão deve conter apenas dígitos (0–9).',
-          ru: 'Код удаления должен состоять только из цифр (0–9).',
-          es: 'El código de borrado debe contener solo números (0–9).',
-          bg: 'Кодът за изтриване трябва да съдържа само цифри (0–9).',
+          en: 'Please enter your Character Delete Code or account password.',
+          th: 'กรุณากรอกรหัสสำหรับลบตัวละคร (Security Code) หรือรหัสผ่านของบัญชี',
+          pt: 'Digite seu código de exclusão ou senha da conta.',
+          ru: 'Введите код удаления персонажа или пароль аккаунта.',
+          es: 'Ingresa tu código de borrado o contraseña de cuenta.',
+          bg: 'Въведете код за изтриване или парола на акаунта.',
         }),
       };
     }
 
-    if (
-      currentAccount.characterDeleteCode &&
-      cleanCode !== currentAccount.characterDeleteCode
-    ) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Incorrect Character Delete Code.',
-          th: 'รหัสสำหรับลบตัวละครไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง',
-          pt: 'Código de exclusão de personagem incorreto.',
-          ru: 'Неверный код удаления персонажа.',
-          es: 'Código de borrado de personaje incorrecto.',
-          bg: 'Невалиден код за изтриване на герой.',
+    try {
+      const response = await apiFetch('/api/accounts/characters/delete-400', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          characterName: charName.trim(),
+          deleteCode: cleanCode,
         }),
-      };
-    }
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) {
+        return {
+          ok: false,
+          message:
+            data?.message ||
+            L(lang, {
+              en: 'Failed to delete character for credits.',
+              th: 'ไม่สามารถลบตัวละครเพื่อแลกเครดิตได้ กรุณาตรวจสอบรหัสยืนยันและสถานะ Offline',
+              pt: 'Falha ao excluir personagem por créditos.',
+              ru: 'Не удалось удалить персонажа за кредиты.',
+              es: 'Error al eliminar el personaje por créditos.',
+              bg: 'Неуспешно изтриване на герой за кредити.',
+            }),
+        };
+      }
 
-    const targetChar = myCharacters.find(
-      (c) => c.name.toLowerCase() === charName.toLowerCase()
-    );
-    if (!targetChar) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Character not found on your account.',
-          th: 'ไม่พบตัวละครนี้ในบัญชีของคุณ',
-          pt: 'Personagem não encontrado na sua conta.',
-          ru: 'Персонаж не найден на вашем аккаунте.',
-          es: 'Personaje no encontrado en tu cuenta.',
-          bg: 'Героят не е намерен във вашия акаунт.',
-        }),
-      };
-    }
-    if (targetChar.isOnline) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Character must be Offline before deletion.',
-          th: 'ตัวละครต้องอยู่ในสถานะออฟไลน์ (Offline) ก่อนลบ',
-          pt: 'O personagem deve estar Offline.',
-          ru: 'Персонаж должен быть Offline.',
-          es: 'El personaje debe estar Offline.',
-          bg: 'Героят трябва да е Offline.',
-        }),
-      };
-    }
-    if (targetChar.ctlCode !== 0) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: 'Suspended characters cannot be deleted for credits.',
-          th: 'ไม่สามารถลบตัวละครที่ติดสถานะแบนได้',
-          pt: 'Personagens banidos não podem ser excluídos por créditos.',
-          ru: 'Заблокированного персонажа нельзя удалить за кредиты.',
-          es: 'Los personajes baneados no pueden eliminarse por créditos.',
-          bg: 'Блокирани герои не могат да бъдат изтривани за кредити.',
-        }),
-      };
-    }
-    if (targetChar.level !== 400) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: `Character "${targetChar.name}" is Level ${targetChar.level}. Level 400 is required.`,
-          th: `ตัวละคร "${targetChar.name}" มีเลเวล ${targetChar.level} (ต้องเป็นตัวละคร Level 400 เท่านั้น)`,
-          pt: `"${targetChar.name}" está no Nível ${targetChar.level} (requer Nível 400).`,
-          ru: `Персонаж «${targetChar.name}» ${targetChar.level} ур. (требуется 400 ур.).`,
-          es: `"${targetChar.name}" es Nivel ${targetChar.level} (se requiere Nivel 400).`,
-          bg: `"${targetChar.name}" е ${targetChar.level} ниво (изисква се 400 ниво).`,
-        }),
-      };
-    }
+      const reward =
+        typeof data.rewardCredits === 'number'
+          ? data.rewardCredits
+          : DELETE_CHAR_400_REWARD_CREDITS;
 
-    const reward = DELETE_CHAR_400_REWARD_CREDITS;
-    setCharacters((prev) =>
-      prev.filter((c) => c.name.toLowerCase() !== charName.toLowerCase())
-    );
-    updateCurrentAccount((acc) => ({
-      ...acc,
-      credits: acc.credits + reward,
-    }));
+      if (Array.isArray(data.characters)) {
+        setCharacters((prev) => {
+          const otherChars = prev.filter(
+            (c) =>
+              c.accountId.toLowerCase() !==
+              currentAccount.username.toLowerCase()
+          );
+          return [...otherChars, ...data.characters];
+        });
+      } else {
+        setCharacters((prev) =>
+          prev.filter((c) => c.name.toLowerCase() !== charName.toLowerCase())
+        );
+      }
 
-    appendShopLog(
-      `Deleted Lv.400 character "${targetChar.name}" for +${reward} Credits`
-    );
+      if (typeof data.newCredits === 'number') {
+        updateCurrentAccount((acc) => ({
+          ...acc,
+          credits: data.newCredits,
+        }));
+      }
 
-    const msg = L(lang, {
-      en: `Deleted "${targetChar.name}" (Lv.400) and credited +${reward.toLocaleString()} Credits!`,
-      th: `ลบตัวละคร "${targetChar.name}" (Lv.400) สำเร็จ! ได้รับ +${reward.toLocaleString()} Credits`,
-      pt: `Personagem "${targetChar.name}" (Nv.400) excluído! +${reward.toLocaleString()} Créditos adicionados.`,
-      ru: `Персонаж «${targetChar.name}» (400 ур.) удалён! Начислено +${reward.toLocaleString()} кредитов.`,
-      es: `¡"${targetChar.name}" (Lv.400) eliminado! Recibiste +${reward.toLocaleString()} Créditos.`,
-      bg: `"${targetChar.name}" (400 ниво) е изтрит! Получихте +${reward.toLocaleString()} кредита.`,
-    });
-    showToast(msg);
-    return { ok: true, message: msg };
+      appendShopLog(
+        `Deleted Lv.400 character "${charName}" for +${reward} Credits`,
+        undefined,
+        { action: 'DELETE_CHARACTER_400' }
+      );
+
+      const msg = L(lang, {
+        en: `Deleted "${charName}" (Lv.400) and credited +${reward.toLocaleString()} Credits!`,
+        th: `ลบตัวละคร "${charName}" (Lv.400) สำเร็จ! ได้รับ +${reward.toLocaleString()} Credits`,
+        pt: `Personagem "${charName}" (Nv.400) excluído! +${reward.toLocaleString()} Créditos adicionados.`,
+        ru: `Персонаж «${charName}» (400 ур.) удалён! Начислено +${reward.toLocaleString()} кредитов.`,
+        es: `¡"${charName}" (Lv.400) eliminado! Recibiste +${reward.toLocaleString()} Créditos.`,
+        bg: `"${charName}" (400 ниво) е изтрит! Получихте +${reward.toLocaleString()} кредита.`,
+      });
+      showToast(msg);
+      return { ok: true, message: msg };
+    } catch {
+      return {
+        ok: false,
+        message: L(lang, {
+          en: 'Network error while deleting character.',
+          th: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+          pt: 'Erro de rede ao excluir personagem.',
+          ru: 'Ошибка сети при удалении персонажа.',
+          es: 'Error de red al eliminar el personaje.',
+          bg: 'Мрежова грешка при изтриване на герой.',
+        }),
+      };
+    }
+  };
+
+  // 7. Redeem Online Hours for Credits (1 Hour = 5 Credits)
+  const handleRedeemOnlineHours = async (hoursToRedeem: number) => {
+    if (!currentAccount) return requireAuthResponse();
+    try {
+      const response = await apiFetch('/api/accounts/online-reward/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hoursToRedeem }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) {
+        return {
+          ok: false,
+          message:
+            data?.message ||
+            L(lang, {
+              en: 'Unable to redeem online hours.',
+              th: 'ไม่สามารถแลกเวลาออนไลน์เป็นเครดิตได้',
+              pt: 'Não foi possível trocar horas online.',
+              ru: 'Не удалось обменять онлайн-часы.',
+              es: 'No se pudieron canjear las horas online.',
+              bg: 'Неуспешна обмяна на онлайн часове.',
+            }),
+        };
+      }
+
+      updateCurrentAccount((acc) => ({
+        ...acc,
+        credits:
+          typeof data.newCredits === 'number' ? data.newCredits : acc.credits,
+        onlineMinutes:
+          typeof data.remainingOnlineMinutes === 'number'
+            ? data.remainingOnlineMinutes
+            : acc.onlineMinutes,
+        exchangedOnlineHours:
+          typeof data.exchangedOnlineHours === 'number'
+            ? data.exchangedOnlineHours
+            : acc.exchangedOnlineHours,
+      }));
+
+      appendShopLog(
+        `Exchanged ${data.redeemedHours} online hour(s) for +${data.creditsAdded} Credits`,
+        undefined,
+        { action: 'ONLINE_TIME_EXCHANGE' }
+      );
+
+      const msg = L(lang, {
+        en: `Exchanged ${data.redeemedHours} online hour(s) for +${Number(data.creditsAdded || 0).toLocaleString()} Credits!`,
+        th: `แลกเวลาออนไลน์ ${data.redeemedHours} ชั่วโมง สำเร็จ! ได้รับ +${Number(data.creditsAdded || 0).toLocaleString()} Credits`,
+        pt: `Trocou ${data.redeemedHours}h online por +${Number(data.creditsAdded || 0).toLocaleString()} Créditos!`,
+        ru: `Обменено ${data.redeemedHours} ч. онлайна на +${Number(data.creditsAdded || 0).toLocaleString()} кредитов!`,
+        es: `¡Canjeaste ${data.redeemedHours}h online por +${Number(data.creditsAdded || 0).toLocaleString()} Créditos!`,
+        bg: `Обменихте ${data.redeemedHours}ч онлайн за +${Number(data.creditsAdded || 0).toLocaleString()} кредита!`,
+      });
+      showToast(msg);
+      return { ok: true, message: msg };
+    } catch {
+      return {
+        ok: false,
+        message: L(lang, {
+          en: 'Network error while redeeming online time.',
+          th: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+          pt: 'Erro de rede ao trocar horas online.',
+          ru: 'Ошибка сети при обмене онлайн-времени.',
+          es: 'Error de red al canjear tiempo online.',
+          bg: 'Мрежова грешка при обмяна на онлайн време.',
+        }),
+      };
+    }
   };
 
   // 8. Buy Warehouse Zen (50 Credits = 500M Zen, Max 900M)
@@ -1423,36 +1536,97 @@ export default function App() {
     );
   };
 
-  const handleAdminAdjustVaultZen = (username: string, amount: number) => {
-    setAccounts((prev) =>
-      prev.map((acc) => {
-        if (acc.username.toLowerCase() === username.toLowerCase()) {
-          return {
-            ...acc,
-            vaultMoney: Math.min(
-              WAREHOUSE_ZEN_MAX_LIMIT,
-              Math.max(0, acc.vaultMoney + amount)
-            ),
-          };
+  const handleAdminAdjustVaultZen = async (username: string, amount: number) => {
+    try {
+      const res = await apiFetch('/api/admin/accounts/adjust-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username,
+          vaultZenDelta: amount,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok || !data?.account) {
+        const msg =
+          data?.message ||
+          L(lang, {
+            en: 'Failed to update warehouse Zen on server.',
+            th: 'ไม่สามารถอัปเดตยอด Zen ในฐานข้อมูลได้',
+            pt: 'Falha ao atualizar Zen no servidor.',
+            ru: 'Не удалось обновить Zen на сервере.',
+            es: 'Error al actualizar Zen en el servidor.',
+            bg: 'Грешка при обновяване на Zen в сървъра.',
+          });
+        showToast(msg);
+        return { ok: false, message: msg };
+      }
+
+      const srvAcc = data.account;
+      setAccounts((prev) => {
+        const exists = prev.some(
+          (acc) => acc.username.toLowerCase() === srvAcc.username.toLowerCase()
+        );
+        if (exists) {
+          return prev.map((acc) =>
+            acc.username.toLowerCase() === srvAcc.username.toLowerCase()
+              ? {
+                  ...acc,
+                  credits: Number(srvAcc.credits || 0),
+                  vaultMoney: Number(srvAcc.vaultMoney || 0),
+                }
+              : acc
+          );
         }
-        return acc;
-      })
-    );
-    appendShopLog(
-      `Admin adjusted ${username}'s vault Zen by ${
-        amount >= 0 ? `+${amount.toLocaleString()}` : amount.toLocaleString()
-      }`
-    );
-    showToast(
-      L(lang, {
-        en: `Adjusted ${username}'s vault Zen by ${amount.toLocaleString()}`,
-        th: `ปรับยอด Zen ในคลังของ ${username} สำเร็จ`,
-        pt: `Zen do baú de ${username} ajustado`,
-        ru: `Баланс Zen сундука ${username} изменён`,
-        es: `Zen del baúl de ${username} ajustado`,
-        bg: `Балансът на Zen на ${username} е променен`,
-      })
-    );
+        return [
+          ...prev,
+          {
+            username: srvAcc.username,
+            characterDeleteCode: '',
+            credits: Number(srvAcc.credits || 0),
+            vaultMoney: Number(srvAcc.vaultMoney || 0),
+            vaultItems: [],
+            onlineMinutes: 0,
+            exchangedOnlineHours: 0,
+            isAdmin: Boolean(srvAcc.isAdmin),
+            role: srvAcc.role || 'USER',
+            isOnline: false,
+          },
+        ];
+      });
+
+      appendShopLog(
+        `Admin adjusted ${srvAcc.username}'s vault Zen by ${
+          amount >= 0 ? `+${amount.toLocaleString()}` : amount.toLocaleString()
+        } (Total: ${Number(srvAcc.vaultMoney || 0).toLocaleString()} Zen)`
+      );
+      showToast(
+        L(lang, {
+          en: `Adjusted ${srvAcc.username}'s vault Zen by ${amount.toLocaleString()}`,
+          th: `ปรับยอด Zen ในคลังของ ${srvAcc.username} สำเร็จ (${Number(srvAcc.vaultMoney || 0).toLocaleString()} Zen)`,
+          pt: `Zen do baú de ${srvAcc.username} ajustado`,
+          ru: `Баланс Zen сундука ${srvAcc.username} изменён`,
+          es: `Zen del baúl de ${srvAcc.username} ajustado`,
+          bg: `Балансът на Zen на ${srvAcc.username} е променен`,
+        })
+      );
+      return {
+        ok: true,
+        credits: Number(srvAcc.credits || 0),
+        vaultMoney: Number(srvAcc.vaultMoney || 0),
+      };
+    } catch {
+      const msg = L(lang, {
+        en: 'Network error while updating warehouse Zen.',
+        th: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์ขณะปรับยอด Zen',
+        pt: 'Erro de rede ao atualizar Zen.',
+        ru: 'Ошибка сети при обновлении Zen.',
+        es: 'Error de red al actualizar Zen.',
+        bg: 'Мрежова грешка при обновяване на Zen.',
+      });
+      showToast(msg);
+      return { ok: false, message: msg };
+    }
   };
 
   const handleAdminClearLogs = () => {
@@ -2223,16 +2397,11 @@ export default function App() {
 
           {activeModule === 'onlinereward' &&
             (currentAccount ? (
-              <div className="max-w-2xl rounded border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-100">
-                {L(lang, {
-                  en: 'Online-time rewards are managed by the OpenMU game server. Browser-reported play time is disabled to prevent forged credit grants.',
-                  th: 'รางวัลเวลาออนไลน์ต้องจัดการโดย OpenMU game server เท่านั้น ระบบจะไม่รับเวลาเล่นจาก browser เพื่อป้องกันการปลอมเครดิต',
-                  pt: 'As recompensas por tempo online são gerenciadas pelo servidor OpenMU. O tempo informado pelo navegador está desativado.',
-                  ru: 'Награды за онлайн-время выдаёт сервер OpenMU. Данные браузера отключены во избежание подделки кредитов.',
-                  es: 'Las recompensas por tiempo online las gestiona el servidor OpenMU. El tiempo informado por el navegador está desactivado.',
-                  bg: 'Наградите за онлайн време се управляват от OpenMU сървъра. Данните от браузъра са изключени.',
-                })}
-              </div>
+              <OnlineHoursRewardModule
+                account={currentAccount}
+                lang={lang}
+                onRedeemOnlineHours={handleRedeemOnlineHours}
+              />
             ) : (
               <GuestAuthPromptCard />
             ))}
@@ -2468,44 +2637,108 @@ export default function App() {
               accounts={accounts}
               initialUser={adminTargetUser}
               lang={lang}
-              onAdjustCredits={(username, delta) => {
-                const target = accounts.find(
-                  (a) => a.username.toLowerCase() === username.toLowerCase()
-                );
-                const currentCreds = target ? target.credits : 0;
-                const updatedBalance = Math.max(0, currentCreds + delta);
-
-                if (target) {
-                  setAccounts((prev) =>
-                    prev.map((a) =>
-                      a.username.toLowerCase() === username.toLowerCase()
-                        ? { ...a, credits: updatedBalance }
-                        : a
-                    )
-                  );
-                } else {
-                  setAccounts((prev) => [
-                    ...prev,
+              onAdjustCredits={async (username, delta) => {
+                try {
+                  const res = await apiFetch(
+                    '/api/admin/accounts/adjust-balance',
                     {
-                      username,
-                      characterDeleteCode: '',
-                      credits: updatedBalance,
-                      vaultMoney: 0,
-                      vaultItems: [],
-                      onlineMinutes: 0,
-                      exchangedOnlineHours: 0,
-                      isAdmin: false,
-                      role: 'USER',
-                      isOnline: false,
-                    },
-                  ]);
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        username,
+                        creditsDelta: delta,
+                      }),
+                    }
+                  );
+                  const data = await res.json().catch(() => null);
+                  if (!res.ok || !data?.ok || !data?.account) {
+                    const msg =
+                      data?.message ||
+                      L(lang, {
+                        en: 'Failed to update credits on server.',
+                        th: 'ไม่สามารถอัปเดตเครดิตในฐานข้อมูลได้',
+                        pt: 'Falha ao atualizar créditos no servidor.',
+                        ru: 'Не удалось обновить кредиты на сервере.',
+                        es: 'Error al actualizar créditos en el servidor.',
+                        bg: 'Грешка при обновяване на кредити в сървъра.',
+                      });
+                    showToast(msg);
+                    return { ok: false, message: msg };
+                  }
+
+                  const srvAcc = data.account;
+                  const updatedBalance = Number(srvAcc.credits || 0);
+                  const updatedVaultMoney = Number(srvAcc.vaultMoney || 0);
+
+                  setAccounts((prev) => {
+                    const exists = prev.some(
+                      (a) =>
+                        a.username.toLowerCase() ===
+                        srvAcc.username.toLowerCase()
+                    );
+                    if (exists) {
+                      return prev.map((a) =>
+                        a.username.toLowerCase() ===
+                        srvAcc.username.toLowerCase()
+                          ? {
+                              ...a,
+                              credits: updatedBalance,
+                              vaultMoney: updatedVaultMoney,
+                            }
+                          : a
+                      );
+                    }
+                    return [
+                      ...prev,
+                      {
+                        username: srvAcc.username,
+                        characterDeleteCode: '',
+                        credits: updatedBalance,
+                        vaultMoney: updatedVaultMoney,
+                        vaultItems: [],
+                        onlineMinutes: 0,
+                        exchangedOnlineHours: 0,
+                        isAdmin: Boolean(srvAcc.isAdmin),
+                        role: srvAcc.role || 'USER',
+                        isOnline: false,
+                      },
+                    ];
+                  });
+
+                  appendShopLog(
+                    `Admin adjusted ${srvAcc.username}'s credits by ${
+                      delta >= 0
+                        ? `+${delta.toLocaleString()}`
+                        : delta.toLocaleString()
+                    } (Total: ${updatedBalance.toLocaleString()} Cr)`
+                  );
+                  showToast(
+                    L(lang, {
+                      en: `Adjusted ${srvAcc.username}'s credits (${updatedBalance.toLocaleString()} Cr)`,
+                      th: `ปรับเครดิตของ ${srvAcc.username} สำเร็จ (คงเหลือ ${updatedBalance.toLocaleString()} Cr)`,
+                      pt: `Créditos de ${srvAcc.username} ajustados`,
+                      ru: `Кредиты ${srvAcc.username} изменены`,
+                      es: `Créditos de ${srvAcc.username} ajustados`,
+                      bg: `Кредитите на ${srvAcc.username} са променени`,
+                    })
+                  );
+                  return {
+                    ok: true,
+                    credits: updatedBalance,
+                    vaultMoney: updatedVaultMoney,
+                  };
+                } catch {
+                  const msg = L(lang, {
+                    en: 'Network error while updating credits.',
+                    th: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์ขณะปรับเครดิต',
+                    pt: 'Erro de rede ao atualizar créditos.',
+                    ru: 'Ошибка сети при обновлении кредитов.',
+                    es: 'Error de red al actualizar créditos.',
+                    bg: 'Мрежова грешка при обновяване на кредити.',
+                  });
+                  showToast(msg);
+                  return { ok: false, message: msg };
                 }
-                appendShopLog(
-                  `Admin adjusted ${username}'s credits by ${
-                    delta >= 0 ? `+${delta}` : delta
-                  } (Total: ${updatedBalance.toLocaleString()} Cr)`
-                );
-                return updatedBalance;
               }}
               onAdjustVaultZen={handleAdminAdjustVaultZen}
             />

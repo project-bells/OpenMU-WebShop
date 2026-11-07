@@ -460,11 +460,15 @@ export const BuyCharacter400Module: React.FC<{
   characters: Character[];
   config: WebShopConfig;
   lang?: LanguageCode;
-  onBuyCharacter400: (charName: string, classCode: MuClassCode) => ActionResponse;
+  onBuyCharacter400: (
+    charName: string,
+    classCode: MuClassCode
+  ) => Promise<ActionResponse> | ActionResponse;
 }> = ({ characters, lang = 'Thai', onBuyCharacter400 }) => {
   const [newCharName, setNewCharName] = useState('');
   const [selectedClass, setSelectedClass] = useState<MuClassCode>('bm');
   const [status, setStatus] = useState<ActionResponse | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const calc = calculateClassStatPoints(selectedClass, 400);
   const cost = BUY_CHAR_400_CREDITS;
@@ -477,12 +481,18 @@ export const BuyCharacter400Module: React.FC<{
     bg: 'точки',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = onBuyCharacter400(newCharName.trim(), selectedClass);
-    setStatus(res);
-    if (res.ok) {
-      setNewCharName('');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const res = await onBuyCharacter400(newCharName.trim(), selectedClass);
+      setStatus(res);
+      if (res.ok) {
+        setNewCharName('');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -989,7 +999,10 @@ export const BuyCharacter400Module: React.FC<{
 export const DeleteCharacter400Module: React.FC<{
   characters: Character[];
   lang?: LanguageCode;
-  onDeleteCharacter400: (charName: string, deleteCode: string) => ActionResponse;
+  onDeleteCharacter400: (
+    charName: string,
+    deleteCode: string
+  ) => Promise<ActionResponse> | ActionResponse;
 }> = ({ characters, lang = 'Thai', onDeleteCharacter400 }) => {
   const level400Chars = characters.filter((c) => c.level === 400);
   const [selectedName, setSelectedName] = useState(
@@ -997,6 +1010,7 @@ export const DeleteCharacter400Module: React.FC<{
   );
   const [deleteCodeInput, setDeleteCodeInput] = useState('');
   const [status, setStatus] = useState<ActionResponse | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!characters.some((c) => c.name === selectedName)) {
@@ -1008,8 +1022,9 @@ export const DeleteCharacter400Module: React.FC<{
     (c) => c.name.toLowerCase() === selectedName.toLowerCase()
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!targetChar) {
       setStatus({
         ok: false,
@@ -1024,28 +1039,34 @@ export const DeleteCharacter400Module: React.FC<{
       });
       return;
     }
-    if (!/^\d{4,8}$/.test(deleteCodeInput.trim())) {
+    const cleanCode = deleteCodeInput.trim();
+    if (cleanCode.length < 4 || cleanCode.length > 32) {
       setStatus({
         ok: false,
         message: L(lang, {
-          en: 'Please enter your numeric Character Delete Code (digits 0-9 only).',
-          th: 'กรุณากรอกรหัสสำหรับลบตัวละคร (ตัวเลข 0-9 เท่านั้น)',
-          pt: 'Digite seu código numérico de exclusão de personagem (apenas números 0-9).',
-          ru: 'Введите цифровой код удаления персонажа (только цифры 0-9).',
-          es: 'Ingresa tu código numérico de borrado de personaje (solo dígitos 0-9).',
-          bg: 'Въведете цифровия код за изтриване на герой (само цифри 0-9).',
+          en: 'Please enter your Character Delete Code or account password (4–32 characters).',
+          th: 'กรุณากรอกรหัสลบตัวละคร (Security Code) หรือรหัสผ่านบัญชีของคุณ (4–32 ตัวอักษร)',
+          pt: 'Digite seu código de exclusão ou senha da conta (4–32 caracteres).',
+          ru: 'Введите код удаления персонажа или пароль аккаунта (4–32 символа).',
+          es: 'Ingresa tu código de borrado o contraseña de cuenta (4–32 caracteres).',
+          bg: 'Въведете код за изтриване или парола на акаунта (4–32 символа).',
         }),
       });
       return;
     }
-    const res = onDeleteCharacter400(targetChar.name, deleteCodeInput.trim());
-    setStatus(res);
-    if (res.ok) {
-      setDeleteCodeInput('');
-      const remaining = characters.filter(
-        (c) => c.name.toLowerCase() !== targetChar.name.toLowerCase()
-      );
-      setSelectedName(remaining[0]?.name || '');
+    setIsSubmitting(true);
+    try {
+      const res = await onDeleteCharacter400(targetChar.name, cleanCode);
+      setStatus(res);
+      if (res.ok) {
+        setDeleteCodeInput('');
+        const remaining = characters.filter(
+          (c) => c.name.toLowerCase() !== targetChar.name.toLowerCase()
+        );
+        setSelectedName(remaining[0]?.name || '');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1231,30 +1252,26 @@ export const DeleteCharacter400Module: React.FC<{
             <div>
               <label className="block text-[11px] text-zinc-400 mb-1">
                 {L(lang, {
-                  en: 'Enter your numeric Character Delete Code (digits 0–9 only) to confirm permanent deletion:',
-                  th: 'กรอกรหัสสำหรับลบตัวละคร (ตัวเลข 0–9 เท่านั้น) ของบัญชีนี้เพื่อยืนยันการลบถาวร:',
-                  pt: 'Digite seu código numérico de exclusão de personagem (apenas números 0–9) para confirmar:',
-                  ru: 'Введите цифровой код удаления персонажа (только цифры 0–9) для подтверждения:',
-                  es: 'Ingresa tu código numérico de borrado de personaje (solo dígitos 0–9) para confirmar:',
-                  bg: 'Въведете цифровия си код за изтриване на герой (само цифри 0–9) за потвърждение:',
+                  en: 'Enter your Character Delete Code (Security Code) or account password to confirm permanent deletion:',
+                  th: 'กรอกรหัสลบตัวละคร (Security Code) หรือรหัสผ่านของบัญชีนี้เพื่อยืนยันการลบถาวร:',
+                  pt: 'Digite seu código de exclusão ou senha da conta para confirmar:',
+                  ru: 'Введите код удаления персонажа или пароль аккаунта для подтверждения:',
+                  es: 'Ingresa tu código de borrado o contraseña de cuenta para confirmar:',
+                  bg: 'Въведете кода си за изтриване или парола на акаунта за потвърждение:',
                 })}
               </label>
               <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
+                type="password"
+                maxLength={32}
                 value={deleteCodeInput}
-                onChange={(e) =>
-                  setDeleteCodeInput(e.target.value.replace(/\D+/g, '').slice(0, 8))
-                }
+                onChange={(e) => setDeleteCodeInput(e.target.value.slice(0, 32))}
                 placeholder={L(lang, {
-                  en: '4–8 digits (0-9)',
-                  th: 'กรอกเฉพาะตัวเลข 4–8 หลัก',
-                  pt: '4 a 8 dígitos (0-9)',
-                  ru: '4–8 цифр (0-9)',
-                  es: '4 a 8 dígitos (0-9)',
-                  bg: '4–8 цифри (0-9)',
+                  en: 'Security Code / Password',
+                  th: 'กรอกรหัสลบตัวละคร หรือ รหัสผ่านบัญชี',
+                  pt: 'Código de exclusão / Senha',
+                  ru: 'Код удаления / Пароль',
+                  es: 'Código de borrado / Contraseña',
+                  bg: 'Код за изтриване / Парола',
                 })}
                 required
                 className="w-full px-3 py-2 text-xs font-mono-tabular tracking-widest rounded bg-zinc-950 border border-zinc-700 text-zinc-100"
@@ -1276,7 +1293,7 @@ export const DeleteCharacter400Module: React.FC<{
           </span>
           <button
             type="submit"
-            disabled={!targetChar || targetChar.level !== 400}
+            disabled={!targetChar || targetChar.level !== 400 || isSubmitting}
             className="px-5 py-2.5 text-xs font-semibold rounded bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-zinc-950 transition-colors cursor-pointer whitespace-nowrap"
           >
             {L(lang, {
@@ -1298,7 +1315,9 @@ export const DeleteCharacter400Module: React.FC<{
 export const OnlineHoursRewardModule: React.FC<{
   account: AccountData;
   lang?: LanguageCode;
-  onRedeemOnlineHours: (hoursToRedeem: number) => ActionResponse;
+  onRedeemOnlineHours: (
+    hoursToRedeem: number
+  ) => Promise<ActionResponse> | ActionResponse;
 }> = ({ account, lang = 'Thai', onRedeemOnlineHours }) => {
   const availableFullHours = Math.floor((account.onlineMinutes || 0) / 60);
   const remainingMinutes = (account.onlineMinutes || 0) % 60;
@@ -1307,6 +1326,7 @@ export const OnlineHoursRewardModule: React.FC<{
     Math.max(1, availableFullHours)
   );
   const [status, setStatus] = useState<ActionResponse | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (availableFullHours > 0) {
@@ -1320,9 +1340,16 @@ export const OnlineHoursRewardModule: React.FC<{
     Math.max(0, Math.min(hoursInput, availableFullHours)) *
     ONLINE_HOUR_REWARD_CREDITS;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus(onRedeemOnlineHours(hoursInput));
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const res = await onRedeemOnlineHours(hoursInput);
+      setStatus(res);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1483,7 +1510,7 @@ export const OnlineHoursRewardModule: React.FC<{
 
           <button
             type="submit"
-            disabled={availableFullHours < 1}
+            disabled={availableFullHours < 1 || isSubmitting}
             className="w-full py-2.5 px-4 text-xs font-semibold rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 transition-colors cursor-pointer"
           >
             {L(lang, {
