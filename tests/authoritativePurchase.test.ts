@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   completeAuthoritativeItemOrder,
+  completeAuthoritativeVipOrder,
   failAuthoritativeItemOrder,
   memoryAccounts,
   memoryAuthoritativeItemOrders,
   reserveAuthoritativeItemOrder,
+  reserveAuthoritativeVipOrder,
   serverCatalog,
   TransactionDomainError,
 } from '../src/server/dbRepository';
@@ -67,6 +69,28 @@ test('authoritative order reserves credits once and refunds a definitive failure
     item.openMuPackageSequence = originalPackage;
     item.openMuPriceSequence = originalPrice;
     memoryAccounts.delete('sagauser');
+    memoryAuthoritativeItemOrders.clear();
+  }
+});
+
+test('VIP order reserves once, persists expiry, and cannot be refunded after delivery', async () => {
+  memoryAuthoritativeItemOrders.clear();
+  addAccount('VipUser', 2_000);
+  const reference = 'webshop:vip:12345678';
+  try {
+    const first = await reserveAuthoritativeVipOrder({ accountLogin: 'VipUser', months: 2, reference });
+    const replay = await reserveAuthoritativeVipOrder({ accountLogin: 'VipUser', months: 2, reference });
+    assert.equal(first.chargedCredits, 1_600);
+    assert.equal(replay.reference, first.reference);
+    assert.equal(memoryAccounts.get('vipuser')?.credits, 400);
+
+    const vipUntil = new Date(Date.now() + 60 * 86_400_000).toISOString();
+    await completeAuthoritativeVipOrder(reference, crypto.randomUUID(), vipUntil);
+    await failAuthoritativeItemOrder(reference, 'REJECTED', true);
+    assert.equal(memoryAccounts.get('vipuser')?.credits, 400);
+    assert.equal(memoryAccounts.get('vipuser')?.vipUntil, vipUntil);
+  } finally {
+    memoryAccounts.delete('vipuser');
     memoryAuthoritativeItemOrders.clear();
   }
 });

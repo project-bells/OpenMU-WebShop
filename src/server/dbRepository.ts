@@ -2818,7 +2818,7 @@ export async function registerAccountRecord(
 
 function validateAuthoritativeOrderReference(reference: string): string {
   const clean = reference.trim();
-  if (!/^webshop:order:[A-Za-z0-9-]{8,100}$/.test(clean)) {
+  if (!/^webshop:(?:order|vip):[A-Za-z0-9-]{8,100}$/.test(clean)) {
     throw new TransactionDomainError(
       'INVALID_IDEMPOTENCY_KEY',
       400,
@@ -2851,12 +2851,46 @@ export async function reserveAuthoritativeItemOrder(params: {
   itemUid: number;
   reference: string;
 }): Promise<AuthoritativeItemOrder> {
+  const item = getAuthoritativeCatalogItem(params.itemUid);
+  return reserveAuthoritativeOrder({
+    accountLogin: params.accountLogin,
+    reference: params.reference,
+    itemUid: item.uid,
+    packageSequence: item.openMuPackageSequence!,
+    priceSequence: item.openMuPriceSequence ?? null,
+    chargedCredits: item.credits,
+  });
+}
+
+export async function reserveAuthoritativeVipOrder(params: {
+  accountLogin: string;
+  months: number;
+  reference: string;
+}): Promise<AuthoritativeItemOrder> {
+  if (!Number.isInteger(params.months) || params.months < 1 || params.months > 12) {
+    throw new TransactionDomainError('INVALID_VIP_DURATION', 422, 'VIP duration must be between 1 and 12 months.');
+  }
+  return reserveAuthoritativeOrder({
+    accountLogin: params.accountLogin,
+    reference: params.reference,
+    itemUid: -1,
+    packageSequence: -1,
+    priceSequence: params.months * 30,
+    chargedCredits: params.months * 800,
+  });
+}
+
+async function reserveAuthoritativeOrder(params: {
+  accountLogin: string;
+  reference: string;
+  itemUid: number;
+  packageSequence: number;
+  priceSequence: number | null;
+  chargedCredits: number;
+}): Promise<AuthoritativeItemOrder> {
   const accountLogin = params.accountLogin.trim();
   const reference = validateAuthoritativeOrderReference(params.reference);
-  const item = getAuthoritativeCatalogItem(params.itemUid);
-  const packageSequence = item.openMuPackageSequence!;
-  const priceSequence = item.openMuPriceSequence ?? null;
-  const chargedCredits = item.credits;
+  const { itemUid, packageSequence, priceSequence, chargedCredits } = params;
 
   if (pgPool && pgHealthy) {
     const client = await pgPool.connect();
@@ -2885,7 +2919,7 @@ export async function reserveAuthoritativeItemOrder(params: {
       if (existing) {
         if (
           existing.account_login.toLowerCase() !== accountLogin.toLowerCase() ||
-          existing.item_uid !== item.uid ||
+          existing.item_uid !== itemUid ||
           existing.package_sequence !== packageSequence ||
           existing.price_sequence !== priceSequence ||
           existing.charged_credits !== chargedCredits
@@ -2935,13 +2969,13 @@ export async function reserveAuthoritativeItemOrder(params: {
            (reference, account_login, item_uid, package_sequence, price_sequence,
             charged_credits, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [reference, account.login_name, item.uid, packageSequence, priceSequence, chargedCredits]
+        [reference, account.login_name, itemUid, packageSequence, priceSequence, chargedCredits]
       );
       await client.query('COMMIT');
       return {
         reference,
         accountLogin: account.login_name,
-        itemUid: item.uid,
+        itemUid,
         packageSequence,
         priceSequence,
         chargedCredits,
@@ -2963,7 +2997,7 @@ export async function reserveAuthoritativeItemOrder(params: {
     if (existing) {
       if (
         existing.accountLogin.toLowerCase() !== accountLogin.toLowerCase() ||
-        existing.itemUid !== item.uid ||
+        existing.itemUid !== itemUid ||
         existing.packageSequence !== packageSequence ||
         existing.priceSequence !== priceSequence ||
         existing.chargedCredits !== chargedCredits
@@ -2985,7 +3019,7 @@ export async function reserveAuthoritativeItemOrder(params: {
     const order: AuthoritativeItemOrder = {
       reference,
       accountLogin: account.loginName,
-      itemUid: item.uid,
+      itemUid,
       packageSequence,
       priceSequence,
       chargedCredits,
@@ -3018,6 +3052,53 @@ export async function completeAuthoritativeItemOrder(
     order.status = 'delivered';
     order.openMuGrantId = openMuGrantId;
     order.failureCode = null;
+  }
+}
+
+export async function completeAuthoritativeVipOrder(
+  reference: string,
+  openMuGrantId: string,
+  vipUntil: string
+): Promise<void> {
+  const parsedVipUntil = new Date(vipUntil);
+  if (!Number.isFinite(parsedVipUntil.getTime())) {
+    throw new TransactionDomainError('INVALID_OPENMU_RESPONSE', 502, 'OpenMU returned an invalid VIP expiration.');
+  }
+  if (pgPool && pgHealthy) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<{ account_login: string }>(
+        `UPDATE webshop_item_orders
+         SET status = 'delivered', openmu_grant_id = $2, failure_code = NULL,
+             updated_at = NOW()
+         WHERE reference = $1 AND status IN ('pending', 'delivered')
+         RETURNING account_login`,
+        [reference, openMuGrantId]
+      );
+      if (result.rows[0]) {
+        await client.query(
+          `UPDATE webshop_accounts SET vip_until = $2, updated_at = NOW()
+           WHERE LOWER(login_name) = LOWER($1)`,
+          [result.rows[0].account_login, parsedVipUntil]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return;
+  }
+  const order = memoryAuthoritativeItemOrders.get(reference);
+  if (order && (order.status === 'pending' || order.status === 'delivered')) {
+    order.status = 'delivered';
+    order.openMuGrantId = openMuGrantId;
+    order.failureCode = null;
+    const account = memoryAccounts.get(order.accountLogin.toLowerCase());
+    if (account) account.vipUntil = parsedVipUntil.toISOString();
   }
 }
 

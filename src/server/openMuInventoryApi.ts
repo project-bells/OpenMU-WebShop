@@ -15,6 +15,14 @@ export interface OpenMuItemGrant {
   createdAt: string;
 }
 
+export interface OpenMuVipGrant {
+  id: string;
+  durationDays: number;
+  reference: string;
+  vipUntil: string;
+  createdAt: string;
+}
+
 export interface OpenMuCashShopProduct {
   productSequence: number;
   priceSequence: number;
@@ -160,6 +168,51 @@ export async function grantOpenMuInventoryItem(
     status >= 500 ? 'UNAVAILABLE' : 'REJECTED',
     status >= 500,
     `The authoritative OpenMU Inventory API rejected the request (${status}).`,
+    status
+  );
+}
+
+export async function grantOpenMuVipMembership(
+  request: {
+    loginName: string;
+    durationDays: number;
+    reference: string;
+    reason: string;
+  },
+  signal?: AbortSignal
+): Promise<OpenMuVipGrant> {
+  const { baseUrl, apiKey } = requireConfiguration();
+  const response = await fetchOpenMu(
+    `${baseUrl}/api/accounts/${encodeURIComponent(request.loginName)}/cash-shop/vip-grants`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': apiKey,
+      },
+      body: JSON.stringify({
+        durationDays: request.durationDays,
+        reference: request.reference,
+        reason: request.reason,
+      }),
+      signal: requestSignal(signal),
+    }
+  );
+  if (response.ok) return (await response.json()) as OpenMuVipGrant;
+  const status = response.status;
+  if (status === 404) {
+    throw new OpenMuInventoryApiError('ACCOUNT_NOT_FOUND', false, 'The OpenMU account does not exist.', status);
+  }
+  if (status === 409) {
+    throw new OpenMuInventoryApiError('REFERENCE_CONFLICT', false, 'The VIP order reference conflicts with an existing grant.', status);
+  }
+  if (status === 422 || status === 400) {
+    throw new OpenMuInventoryApiError('REJECTED', false, 'The authoritative OpenMU VIP grant was rejected.', status);
+  }
+  throw new OpenMuInventoryApiError(
+    status >= 500 ? 'UNAVAILABLE' : 'REJECTED',
+    status >= 500,
+    `The authoritative OpenMU VIP API rejected the request (${status}).`,
     status
   );
 }

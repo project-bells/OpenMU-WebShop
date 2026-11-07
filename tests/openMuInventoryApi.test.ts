@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   getOpenMuCashShopCatalog,
   grantOpenMuInventoryItem,
+  grantOpenMuVipMembership,
   OpenMuInventoryApiError,
 } from '../src/server/openMuInventoryApi';
 
@@ -54,6 +55,36 @@ test('inventory grant sends only authoritative offer identifiers and immutable r
       reason: 'Credits purchase',
     });
     assert.equal(result.id, 'grant-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnvironment('OPENMU_API_URL', originalUrl);
+    restoreEnvironment('OPENMU_API_KEY', originalKey);
+  }
+});
+
+test('VIP grant sends only duration and immutable reference', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalUrl = process.env.OPENMU_API_URL;
+  const originalKey = process.env.OPENMU_API_KEY;
+  process.env.OPENMU_API_URL = 'https://openmu.internal';
+  process.env.OPENMU_API_KEY = 'secret-key';
+  globalThis.fetch = (async (input, init) => {
+    assert.equal(String(input), 'https://openmu.internal/api/accounts/Hero01/cash-shop/vip-grants');
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      durationDays: 30,
+      reference: 'webshop:vip:12345678',
+      reason: 'VIP purchase',
+    });
+    return new Response(JSON.stringify({
+      id: 'grant-vip', durationDays: 30, reference: 'webshop:vip:12345678',
+      vipUntil: '2026-12-07T00:00:00Z', createdAt: '2026-11-07T00:00:00Z',
+    }), { status: 201 });
+  }) as typeof fetch;
+  try {
+    const result = await grantOpenMuVipMembership({
+      loginName: 'Hero01', durationDays: 30, reference: 'webshop:vip:12345678', reason: 'VIP purchase',
+    });
+    assert.equal(result.id, 'grant-vip');
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnvironment('OPENMU_API_URL', originalUrl);

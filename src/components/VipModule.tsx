@@ -18,7 +18,7 @@ import { L } from '../translations';
 interface VipModuleProps {
   account: AccountData;
   lang: LanguageCode;
-  onBuyVip: (months: number) => { ok: boolean; message: string };
+  onBuyVip: (months: number) => Promise<{ ok: boolean; message: string }>;
   onNavigateToTopUp: () => void;
 }
 
@@ -66,15 +66,15 @@ export const VipModule: React.FC<VipModuleProps> = ({
       ? 'bg-BG'
       : 'en-US';
 
-  const handlePurchase = () => {
+  const handlePurchase = async () => {
     setIsSubmitting(true);
     setFeedback(null);
-    const result = onBuyVip(selectedMonths);
-    setFeedback({
-      ok: result.ok,
-      text: result.message,
-    });
-    setIsSubmitting(false);
+    try {
+      const result = await onBuyVip(selectedMonths);
+      setFeedback({ ok: result.ok, text: result.message });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -349,19 +349,19 @@ export const VipModule: React.FC<VipModuleProps> = ({
                 <h3 className="font-bold text-amber-200 text-base flex items-center gap-1.5">
                   <span>
                     {L(lang, {
-                      en: 'VIP Room (Sub-Server 2)',
-                      th: 'ห้อง VIP (Sub-Server 2)',
-                      pt: 'Sala VIP (Sub-Server 2)',
-                      ru: 'VIP Сервер (Sub-Server 2)',
-                      es: 'Sala VIP (Sub-Servidor 2)',
-                      bg: 'VIP Зала (Сървър 2)',
+                  en: 'VIP Room (Sub-Server 3)',
+                  th: 'ห้อง VIP (Sub-Server 3)',
+                  pt: 'Sala VIP (Sub-Server 3)',
+                  ru: 'VIP Сервер (Sub-Server 3)',
+                  es: 'Sala VIP (Sub-Servidor 3)',
+                  bg: 'VIP Зала (Сървър 3)',
                     })}
                   </span>
                   <Sparkles className="w-4 h-4 text-amber-400" />
                 </h3>
                 <p className="text-xs text-amber-400/80">
                   {L(lang, {
-                    en: 'Continent of Mu Origins [VIP Room 2]',
+                    en: 'Continent of Mu Origins [VIP Room 3]',
                     th: 'สิทธิพิเศษเฉพาะสมาชิก VIP Continent of Mu Origins',
                     pt: 'Exclusivo para membros VIP Mu Origins',
                     ru: 'Эксклюзивно для VIP участников Mu Origins',

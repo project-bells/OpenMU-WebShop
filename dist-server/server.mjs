@@ -16713,7 +16713,7 @@ async function setMembStatConnectionState(loginName, connectStat, ipAddress, ser
 }
 function validateAuthoritativeOrderReference(reference) {
   const clean = reference.trim();
-  if (!/^webshop:order:[A-Za-z0-9-]{8,100}$/.test(clean)) {
+  if (!/^webshop:(?:order|vip):[A-Za-z0-9-]{8,100}$/.test(clean)) {
     throw new TransactionDomainError(
       "INVALID_IDEMPOTENCY_KEY",
       400,
@@ -16740,12 +16740,33 @@ function getAuthoritativeCatalogItem(itemUid) {
   return item;
 }
 async function reserveAuthoritativeItemOrder(params) {
+  const item = getAuthoritativeCatalogItem(params.itemUid);
+  return reserveAuthoritativeOrder({
+    accountLogin: params.accountLogin,
+    reference: params.reference,
+    itemUid: item.uid,
+    packageSequence: item.openMuPackageSequence,
+    priceSequence: item.openMuPriceSequence ?? null,
+    chargedCredits: item.credits
+  });
+}
+async function reserveAuthoritativeVipOrder(params) {
+  if (!Number.isInteger(params.months) || params.months < 1 || params.months > 12) {
+    throw new TransactionDomainError("INVALID_VIP_DURATION", 422, "VIP duration must be between 1 and 12 months.");
+  }
+  return reserveAuthoritativeOrder({
+    accountLogin: params.accountLogin,
+    reference: params.reference,
+    itemUid: -1,
+    packageSequence: -1,
+    priceSequence: params.months * 30,
+    chargedCredits: params.months * 800
+  });
+}
+async function reserveAuthoritativeOrder(params) {
   const accountLogin = params.accountLogin.trim();
   const reference = validateAuthoritativeOrderReference(params.reference);
-  const item = getAuthoritativeCatalogItem(params.itemUid);
-  const packageSequence = item.openMuPackageSequence;
-  const priceSequence = item.openMuPriceSequence ?? null;
-  const chargedCredits = item.credits;
+  const { itemUid, packageSequence, priceSequence, chargedCredits } = params;
   if (pgPool && pgHealthy) {
     const client = await pgPool.connect();
     try {
@@ -16760,7 +16781,7 @@ async function reserveAuthoritativeItemOrder(params) {
       );
       const existing = existingResult.rows[0];
       if (existing) {
-        if (existing.account_login.toLowerCase() !== accountLogin.toLowerCase() || existing.item_uid !== item.uid || existing.package_sequence !== packageSequence || existing.price_sequence !== priceSequence || existing.charged_credits !== chargedCredits) {
+        if (existing.account_login.toLowerCase() !== accountLogin.toLowerCase() || existing.item_uid !== itemUid || existing.package_sequence !== packageSequence || existing.price_sequence !== priceSequence || existing.charged_credits !== chargedCredits) {
           throw new TransactionDomainError(
             "IDEMPOTENCY_CONFLICT",
             409,
@@ -16805,13 +16826,13 @@ async function reserveAuthoritativeItemOrder(params) {
            (reference, account_login, item_uid, package_sequence, price_sequence,
             charged_credits, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [reference, account.login_name, item.uid, packageSequence, priceSequence, chargedCredits]
+        [reference, account.login_name, itemUid, packageSequence, priceSequence, chargedCredits]
       );
       await client.query("COMMIT");
       return {
         reference,
         accountLogin: account.login_name,
-        itemUid: item.uid,
+        itemUid,
         packageSequence,
         priceSequence,
         chargedCredits,
@@ -16831,7 +16852,7 @@ async function reserveAuthoritativeItemOrder(params) {
   return withAccountMutex(accountLogin, async () => {
     const existing = memoryAuthoritativeItemOrders.get(reference);
     if (existing) {
-      if (existing.accountLogin.toLowerCase() !== accountLogin.toLowerCase() || existing.itemUid !== item.uid || existing.packageSequence !== packageSequence || existing.priceSequence !== priceSequence || existing.chargedCredits !== chargedCredits) {
+      if (existing.accountLogin.toLowerCase() !== accountLogin.toLowerCase() || existing.itemUid !== itemUid || existing.packageSequence !== packageSequence || existing.priceSequence !== priceSequence || existing.chargedCredits !== chargedCredits) {
         throw new TransactionDomainError(
           "IDEMPOTENCY_CONFLICT",
           409,
@@ -16849,7 +16870,7 @@ async function reserveAuthoritativeItemOrder(params) {
     const order = {
       reference,
       accountLogin: account.loginName,
-      itemUid: item.uid,
+      itemUid,
       packageSequence,
       priceSequence,
       chargedCredits,
@@ -16878,6 +16899,49 @@ async function completeAuthoritativeItemOrder(reference, openMuGrantId) {
     order.status = "delivered";
     order.openMuGrantId = openMuGrantId;
     order.failureCode = null;
+  }
+}
+async function completeAuthoritativeVipOrder(reference, openMuGrantId, vipUntil) {
+  const parsedVipUntil = new Date(vipUntil);
+  if (!Number.isFinite(parsedVipUntil.getTime())) {
+    throw new TransactionDomainError("INVALID_OPENMU_RESPONSE", 502, "OpenMU returned an invalid VIP expiration.");
+  }
+  if (pgPool && pgHealthy) {
+    const client = await pgPool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE webshop_item_orders
+         SET status = 'delivered', openmu_grant_id = $2, failure_code = NULL,
+             updated_at = NOW()
+         WHERE reference = $1 AND status IN ('pending', 'delivered')
+         RETURNING account_login`,
+        [reference, openMuGrantId]
+      );
+      if (result.rows[0]) {
+        await client.query(
+          `UPDATE webshop_accounts SET vip_until = $2, updated_at = NOW()
+           WHERE LOWER(login_name) = LOWER($1)`,
+          [result.rows[0].account_login, parsedVipUntil]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {
+      });
+      throw error;
+    } finally {
+      client.release();
+    }
+    return;
+  }
+  const order = memoryAuthoritativeItemOrders.get(reference);
+  if (order && (order.status === "pending" || order.status === "delivered")) {
+    order.status = "delivered";
+    order.openMuGrantId = openMuGrantId;
+    order.failureCode = null;
+    const account = memoryAccounts.get(order.accountLogin.toLowerCase());
+    if (account) account.vipUntil = parsedVipUntil.toISOString();
   }
 }
 async function failAuthoritativeItemOrder(reference, failureCode, refund) {
@@ -17827,6 +17891,42 @@ async function grantOpenMuInventoryItem(request, signal) {
     status
   );
 }
+async function grantOpenMuVipMembership(request, signal) {
+  const { baseUrl, apiKey } = requireConfiguration();
+  const response = await fetchOpenMu(
+    `${baseUrl}/api/accounts/${encodeURIComponent(request.loginName)}/cash-shop/vip-grants`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": apiKey
+      },
+      body: JSON.stringify({
+        durationDays: request.durationDays,
+        reference: request.reference,
+        reason: request.reason
+      }),
+      signal: requestSignal(signal)
+    }
+  );
+  if (response.ok) return await response.json();
+  const status = response.status;
+  if (status === 404) {
+    throw new OpenMuInventoryApiError("ACCOUNT_NOT_FOUND", false, "The OpenMU account does not exist.", status);
+  }
+  if (status === 409) {
+    throw new OpenMuInventoryApiError("REFERENCE_CONFLICT", false, "The VIP order reference conflicts with an existing grant.", status);
+  }
+  if (status === 422 || status === 400) {
+    throw new OpenMuInventoryApiError("REJECTED", false, "The authoritative OpenMU VIP grant was rejected.", status);
+  }
+  throw new OpenMuInventoryApiError(
+    status >= 500 ? "UNAVAILABLE" : "REJECTED",
+    status >= 500,
+    `The authoritative OpenMU VIP API rejected the request (${status}).`,
+    status
+  );
+}
 
 // src/server/security.ts
 import crypto5 from "crypto";
@@ -18114,6 +18214,26 @@ async function forwardGrantToExternalOpenMu(loginName, coinType, amount, reason,
 async function startServer() {
   validateProductionConfiguration();
   await initializeDatabaseLayer();
+  try {
+    const authoritativeCatalog = await getOpenMuCashShopCatalog();
+    let mappedCount = 0;
+    for (const item of serverCatalog) {
+      if (item.openMuPackageSequence !== void 0) continue;
+      const candidates = authoritativeCatalog.flatMap(
+        (offer) => offer.isBundle ? [] : offer.products.filter((product) => product.itemGroup === item.type && product.itemNumber === item.id).map((product) => ({ offer, product }))
+      );
+      const selected = candidates.find((candidate) => candidate.product.itemLevel === 0) ?? (candidates.length === 1 ? candidates[0] : void 0);
+      if (!selected) continue;
+      item.openMuPackageSequence = selected.offer.packageSequence;
+      item.openMuPriceSequence = selected.product.priceSequence;
+      await upsertCatalogItem(item);
+      mappedCount += 1;
+    }
+    console.info(`[Catalog] Verified authoritative OpenMU mappings; auto-mapped ${mappedCount} base items.`);
+  } catch (error) {
+    if (process.env.NODE_ENV === "production") throw error;
+    console.warn(`[Catalog] OpenMU catalog synchronization skipped: ${error instanceof Error ? error.message : error}`);
+  }
   const app = express();
   const PORT = 3e3;
   app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
@@ -18420,6 +18540,89 @@ async function startServer() {
       }
     } catch (err) {
       next(err);
+    }
+  });
+  app.post("/api/shop/vip", purchaseLimiter, async (req, res, next) => {
+    try {
+      const headerIdem = req.headers["idempotency-key"];
+      const body = req.body;
+      const idempotencyKey = typeof headerIdem === "string" && headerIdem.trim() ? headerIdem.trim() : body.idempotencyKey;
+      if (!idempotencyKey) {
+        throw new TransactionDomainError("IDEMPOTENCY_KEY_REQUIRED", 422, "Idempotency-Key is required.");
+      }
+      const months = Number(body.months);
+      const reference = `webshop:vip:${idempotencyKey}`;
+      const order = await reserveAuthoritativeVipOrder({
+        accountLogin: req.session?.loginName || "",
+        months,
+        reference
+      });
+      if (order.status === "delivered") {
+        const account = await getOpenMuAccountSummary(order.accountLogin);
+        res.json({
+          ok: true,
+          idempotentReplay: true,
+          orderStatus: order.status,
+          reference,
+          chargedCredits: order.chargedCredits,
+          remainingCredits: order.remainingCredits,
+          vipUntil: account?.vipUntil ?? null,
+          message: "VIP membership was already activated."
+        });
+        return;
+      }
+      if (order.status !== "pending") {
+        throw new TransactionDomainError("ORDER_REQUIRES_REVIEW", 409, `VIP order ${reference} is ${order.status}.`);
+      }
+      try {
+        const grant = await grantOpenMuVipMembership({
+          loginName: order.accountLogin,
+          durationDays: months * 30,
+          reference,
+          reason: `WebShop VIP purchase, ${months} month(s)`
+        });
+        await completeAuthoritativeVipOrder(reference, grant.id, grant.vipUntil);
+        await recordAuditLog({
+          accountId: order.accountLogin,
+          ipAddress: extractClientIp(req),
+          action: "AUTHORITATIVE_VIP_PURCHASE",
+          status: "COMMITTED",
+          creditsDelta: -order.chargedCredits,
+          idempotencyKey,
+          details: `VIP extended ${grant.durationDays} days until ${grant.vipUntil}, grant ${grant.id}`
+        }, getPgPool());
+        res.status(201).json({
+          ok: true,
+          orderStatus: "delivered",
+          reference,
+          chargedCredits: order.chargedCredits,
+          remainingCredits: order.remainingCredits,
+          vipUntil: grant.vipUntil,
+          message: "VIP membership activated. You may enter sub-server 3."
+        });
+      } catch (error) {
+        if (!(error instanceof OpenMuInventoryApiError)) throw error;
+        if (error.retryable) {
+          res.status(503).json({
+            ok: false,
+            pending: true,
+            reference,
+            idempotencyKey,
+            remainingCredits: order.remainingCredits,
+            message: "VIP activation is pending. Retry with the same order."
+          });
+          return;
+        }
+        const refund = error.code !== "REFERENCE_CONFLICT";
+        await failAuthoritativeItemOrder(reference, error.code, refund);
+        throw new TransactionDomainError(
+          error.code,
+          error.status || 409,
+          refund ? `${error.message} Reserved credits were returned.` : `${error.message} Manual review is required.`
+        );
+      }
+    } catch (error) {
+      next(error);
     }
   });
   app.post("/api/shop/purchase-group", purchaseLimiter, async (req, res, next) => {

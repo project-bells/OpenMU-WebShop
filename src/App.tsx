@@ -1498,57 +1498,39 @@ export default function App() {
   };
 
   // 11. Buy / Extend VIP Membership (800 Credits / 30 days)
-  const handleBuyVip = (months: number = 1): { ok: boolean; message: string } => {
+  const handleBuyVip = async (months: number = 1): Promise<{ ok: boolean; message: string }> => {
     if (!currentAccount) return requireAuthResponse();
-    const VIP_MONTHLY_COST = 800;
-    const totalCost = months * VIP_MONTHLY_COST;
-    const daysToAdd = months * 30;
-
-    if (currentAccount.credits < totalCost) {
-      return {
-        ok: false,
-        message: L(lang, {
-          en: `Insufficient credits! ${totalCost.toLocaleString()} Credits required.`,
-          th: `เครดิตของคุณไม่เพียงพอ! ต้องการ ${totalCost.toLocaleString()} Credits`,
-          pt: `Créditos insuficientes! Necessário ${totalCost.toLocaleString()} Créditos.`,
-          ru: `Недостаточно кредитов! Требуется ${totalCost.toLocaleString()} кредитов.`,
-          es: `¡Créditos insuficientes! Se requieren ${totalCost.toLocaleString()} Créditos.`,
-          bg: `Недостатъчно кредити! Нужни са ${totalCost.toLocaleString()} кредита.`,
-        }),
-      };
+    const storageKey = `openmu:pending-vip:${currentAccount.username.toLowerCase()}`;
+    const stored = window.localStorage.getItem(storageKey);
+    let pending: { months: number; idempotencyKey: string } | null = null;
+    try { pending = stored ? JSON.parse(stored) : null; } catch { window.localStorage.removeItem(storageKey); }
+    if (pending && pending.months !== months) {
+      return { ok: false, message: 'A different VIP activation is pending. Retry the original duration first.' };
     }
-
-    const now = new Date();
-    const currentExpiry = currentAccount.vipUntil
-      ? new Date(currentAccount.vipUntil)
-      : null;
-    const baseDate =
-      currentExpiry && currentExpiry > now ? currentExpiry : now;
-    const newExpiry = new Date(
-      baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000
-    );
-    const newExpiryIso = newExpiry.toISOString();
-
-    updateCurrentAccount((acc) => ({
-      ...acc,
-      credits: acc.credits - totalCost,
-      vipUntil: newExpiryIso,
-    }));
-
-    appendShopLog(
-      `Activated/extended VIP +${daysToAdd} days for ${totalCost} Credits`
-    );
-
-    const msg = L(lang, {
-      en: `VIP Membership extended (+${daysToAdd} days)! Valid until ${newExpiry.toLocaleDateString()}.`,
-      th: `สมัคร/ต่ออายุสมาชิก VIP (+${daysToAdd} วัน) สำเร็จ! ใช้ได้ถึง ${newExpiry.toLocaleDateString('th-TH')}`,
-      pt: `Assinatura VIP estendida (+${daysToAdd} dias)! Válida até ${newExpiry.toLocaleDateString('pt-BR')}.`,
-      ru: `VIP-подписка продлена (+${daysToAdd} дн.)! Действует до ${newExpiry.toLocaleDateString('ru-RU')}.`,
-      es: `¡Membresía VIP extendida (+${daysToAdd} días)! Válida hasta ${newExpiry.toLocaleDateString('es-ES')}.`,
-      bg: `VIP абонаментът е удължен (+${daysToAdd} дни)! Валиден до ${newExpiry.toLocaleDateString('bg-BG')}.`,
-    });
-    showToast(msg);
-    return { ok: true, message: msg };
+    pending ??= { months, idempotencyKey: crypto.randomUUID() };
+    window.localStorage.setItem(storageKey, JSON.stringify(pending));
+    try {
+      const response = await apiFetch('/api/shop/vip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending.idempotencyKey },
+        body: JSON.stringify(pending),
+      });
+      const data = await response.json();
+      if (typeof data.remainingCredits === 'number') {
+        updateCurrentAccount((acc) => ({ ...acc, credits: data.remainingCredits }));
+      }
+      if (!response.ok || !data.ok) {
+        if (!data.pending) window.localStorage.removeItem(storageKey);
+        return { ok: false, message: data.message || 'VIP activation failed.' };
+      }
+      window.localStorage.removeItem(storageKey);
+      updateCurrentAccount((acc) => ({ ...acc, vipUntil: data.vipUntil }));
+      appendShopLog(`Activated/extended VIP +${months * 30} days for ${data.chargedCredits} Credits`);
+      showToast(data.message);
+      return { ok: true, message: data.message };
+    } catch {
+      return { ok: false, message: 'VIP activation result is unknown. Retry the same duration to reconcile it.' };
+    }
   };
 
   // Admin Action Handlers

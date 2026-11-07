@@ -34,7 +34,9 @@ import {
   queryMembStatOnlineStatus,
   redeemAccountOnlineHours,
   reserveAuthoritativeItemOrder,
+  reserveAuthoritativeVipOrder,
   completeAuthoritativeItemOrder,
+  completeAuthoritativeVipOrder,
   failAuthoritativeItemOrder,
   reserveCreditExchange,
   resetPromotionConfigToDefault,
@@ -42,10 +44,12 @@ import {
   updatePromotionConfig,
   upsertCatalogGroup,
   upsertCatalogItem,
+  serverCatalog,
 } from './src/server/dbRepository';
 import {
   getOpenMuCashShopCatalog,
   grantOpenMuInventoryItem,
+  grantOpenMuVipMembership,
   OpenMuInventoryApiError,
 } from './src/server/openMuInventoryApi';
 import {
@@ -142,6 +146,31 @@ interface RawBodyRequest extends express.Request {
 async function startServer() {
   validateProductionConfiguration();
   await initializeDatabaseLayer();
+  try {
+    const authoritativeCatalog = await getOpenMuCashShopCatalog();
+    let mappedCount = 0;
+    for (const item of serverCatalog) {
+      if (item.openMuPackageSequence !== undefined) continue;
+      const candidates = authoritativeCatalog.flatMap((offer) =>
+        offer.isBundle
+          ? []
+          : offer.products
+              .filter((product) => product.itemGroup === item.type && product.itemNumber === item.id)
+              .map((product) => ({ offer, product }))
+      );
+      const selected = candidates.find((candidate) => candidate.product.itemLevel === 0)
+        ?? (candidates.length === 1 ? candidates[0] : undefined);
+      if (!selected) continue;
+      item.openMuPackageSequence = selected.offer.packageSequence;
+      item.openMuPriceSequence = selected.product.priceSequence;
+      await upsertCatalogItem(item);
+      mappedCount += 1;
+    }
+    console.info(`[Catalog] Verified authoritative OpenMU mappings; auto-mapped ${mappedCount} base items.`);
+  } catch (error) {
+    if (process.env.NODE_ENV === 'production') throw error;
+    console.warn(`[Catalog] OpenMU catalog synchronization skipped: ${error instanceof Error ? error.message : error}`);
+  }
 
   const app = express();
   const PORT = 3000;
@@ -563,6 +592,94 @@ async function startServer() {
       }
     } catch (err) {
       next(err);
+    }
+  });
+
+  app.post('/api/shop/vip', purchaseLimiter, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const headerIdem = req.headers['idempotency-key'];
+      const body = req.body as { idempotencyKey?: string; months?: number };
+      const idempotencyKey = typeof headerIdem === 'string' && headerIdem.trim()
+        ? headerIdem.trim()
+        : body.idempotencyKey;
+      if (!idempotencyKey) {
+        throw new TransactionDomainError('IDEMPOTENCY_KEY_REQUIRED', 422, 'Idempotency-Key is required.');
+      }
+
+      const months = Number(body.months);
+      const reference = `webshop:vip:${idempotencyKey}`;
+      const order = await reserveAuthoritativeVipOrder({
+        accountLogin: req.session?.loginName || '',
+        months,
+        reference,
+      });
+      if (order.status === 'delivered') {
+        const account = await getOpenMuAccountSummary(order.accountLogin);
+        res.json({
+          ok: true,
+          idempotentReplay: true,
+          orderStatus: order.status,
+          reference,
+          chargedCredits: order.chargedCredits,
+          remainingCredits: order.remainingCredits,
+          vipUntil: account?.vipUntil ?? null,
+          message: 'VIP membership was already activated.',
+        });
+        return;
+      }
+      if (order.status !== 'pending') {
+        throw new TransactionDomainError('ORDER_REQUIRES_REVIEW', 409, `VIP order ${reference} is ${order.status}.`);
+      }
+
+      try {
+        const grant = await grantOpenMuVipMembership({
+          loginName: order.accountLogin,
+          durationDays: months * 30,
+          reference,
+          reason: `WebShop VIP purchase, ${months} month(s)`,
+        });
+        await completeAuthoritativeVipOrder(reference, grant.id, grant.vipUntil);
+        await recordAuditLog({
+          accountId: order.accountLogin,
+          ipAddress: extractClientIp(req),
+          action: 'AUTHORITATIVE_VIP_PURCHASE',
+          status: 'COMMITTED',
+          creditsDelta: -order.chargedCredits,
+          idempotencyKey,
+          details: `VIP extended ${grant.durationDays} days until ${grant.vipUntil}, grant ${grant.id}`,
+        }, getPgPool());
+        res.status(201).json({
+          ok: true,
+          orderStatus: 'delivered',
+          reference,
+          chargedCredits: order.chargedCredits,
+          remainingCredits: order.remainingCredits,
+          vipUntil: grant.vipUntil,
+          message: 'VIP membership activated. You may enter sub-server 3.',
+        });
+      } catch (error) {
+        if (!(error instanceof OpenMuInventoryApiError)) throw error;
+        if (error.retryable) {
+          res.status(503).json({
+            ok: false,
+            pending: true,
+            reference,
+            idempotencyKey,
+            remainingCredits: order.remainingCredits,
+            message: 'VIP activation is pending. Retry with the same order.',
+          });
+          return;
+        }
+        const refund = error.code !== 'REFERENCE_CONFLICT';
+        await failAuthoritativeItemOrder(reference, error.code, refund);
+        throw new TransactionDomainError(
+          error.code,
+          error.status || 409,
+          refund ? `${error.message} Reserved credits were returned.` : `${error.message} Manual review is required.`
+        );
+      }
+    } catch (error) {
+      next(error);
     }
   });
 

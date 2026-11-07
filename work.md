@@ -18,6 +18,9 @@
 - [x] Keep ambiguous OpenMU timeouts pending and persist the retry key across browser refreshes.
 - [x] Validate admin package/price mappings against the live OpenMU catalog and persist catalog overrides in PostgreSQL.
 - [x] Keep unmapped items, WCoin item purchases, group purchases, and refunds fail-closed.
+- [x] Auto-map unambiguous base catalog items against the authoritative OpenMU catalog during startup.
+- [x] Replace browser-only VIP purchase with a persistent Credits reservation and exactly-once OpenMU VIP grant.
+- [x] Persist pending VIP retry identity across refresh and expose authoritative expiry for sub-server 3.
 
 ## Authoritative item activation
 
